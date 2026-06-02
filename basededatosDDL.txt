@@ -1,0 +1,314 @@
+-- DROP SCHEMA public;
+
+CREATE SCHEMA public AUTHORIZATION pg_database_owner;
+
+-- DROP SEQUENCE public.branch_inventory_id_seq;
+
+CREATE SEQUENCE public.branch_inventory_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;
+-- DROP SEQUENCE public.branches_id_seq;
+
+CREATE SEQUENCE public.branches_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;
+-- DROP SEQUENCE public.categories_id_seq;
+
+CREATE SEQUENCE public.categories_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;
+-- DROP SEQUENCE public.parent_products_id_seq;
+
+CREATE SEQUENCE public.parent_products_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;
+-- DROP SEQUENCE public.product_variants_id_seq;
+
+CREATE SEQUENCE public.product_variants_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;
+-- DROP SEQUENCE public.purchase_details_id_seq;
+
+CREATE SEQUENCE public.purchase_details_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;
+-- DROP SEQUENCE public.purchases_id_seq;
+
+CREATE SEQUENCE public.purchases_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;
+-- DROP SEQUENCE public.suppliers_id_seq;
+
+CREATE SEQUENCE public.suppliers_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;-- public.branches definition
+
+-- Drop table
+
+-- DROP TABLE public.branches;
+
+CREATE TABLE public.branches (
+	id serial4 NOT NULL,
+	"name" varchar(100) NOT NULL,
+	address varchar(255) NULL,
+	arca_pos_number int4 NOT NULL,
+	mercadopago_store_id varchar(50) NULL,
+	created_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	CONSTRAINT branches_pkey PRIMARY KEY (id)
+);
+
+
+-- public.categories definition
+
+-- Drop table
+
+-- DROP TABLE public.categories;
+
+CREATE TABLE public.categories (
+	id serial4 NOT NULL,
+	"name" varchar(100) NOT NULL,
+	created_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	CONSTRAINT categories_name_key UNIQUE (name),
+	CONSTRAINT categories_pkey PRIMARY KEY (id)
+);
+
+
+-- public.suppliers definition
+
+-- Drop table
+
+-- DROP TABLE public.suppliers;
+
+CREATE TABLE public.suppliers (
+	id serial4 NOT NULL,
+	company_name varchar(150) NOT NULL,
+	cuit varchar(15) NULL,
+	phone varchar(50) NULL,
+	created_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	CONSTRAINT suppliers_cuit_key UNIQUE (cuit),
+	CONSTRAINT suppliers_pkey PRIMARY KEY (id)
+);
+
+
+-- public.products definition
+
+-- Drop table
+
+-- DROP TABLE public.products;
+
+CREATE TABLE public.products (
+	id serial4 NOT NULL,
+	category_id int4 NULL,
+	"name" varchar(150) NOT NULL,
+	description text NULL,
+	base_price numeric(12, 2) DEFAULT 0.00 NOT NULL,
+	general_image_url text NULL,
+	created_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	CONSTRAINT parent_products_pkey PRIMARY KEY (id),
+	CONSTRAINT parent_products_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id) ON DELETE RESTRICT
+);
+
+
+-- public.product_variants definition
+
+-- Drop table
+
+-- DROP TABLE public.product_variants;
+
+CREATE TABLE public.product_variants (
+	id serial4 NOT NULL,
+	product_id int4 NULL,
+	sku varchar(100) NOT NULL,
+	color varchar(50) NOT NULL,
+	"size" varchar(50) NOT NULL,
+	barcode varchar(100) NULL,
+	specific_image_url text NULL,
+	created_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	CONSTRAINT product_variants_barcode_key UNIQUE (barcode),
+	CONSTRAINT product_variants_pkey PRIMARY KEY (id),
+	CONSTRAINT product_variants_sku_key UNIQUE (sku),
+	CONSTRAINT product_variants_parent_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE
+);
+
+
+-- public.purchases definition
+
+-- Drop table
+
+-- DROP TABLE public.purchases;
+
+CREATE TABLE public.purchases (
+	id serial4 NOT NULL,
+	supplier_id int4 NULL,
+	total_amount numeric(12, 2) NOT NULL,
+	invoice_number varchar(50) NULL,
+	purchase_date timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	CONSTRAINT purchases_pkey PRIMARY KEY (id),
+	CONSTRAINT purchases_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id) ON DELETE RESTRICT
+);
+
+
+-- public.branch_inventory definition
+
+-- Drop table
+
+-- DROP TABLE public.branch_inventory;
+
+CREATE TABLE public.branch_inventory (
+	id serial4 NOT NULL,
+	product_variant_id int4 NULL,
+	branch_id int4 NULL,
+	updated_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	CONSTRAINT branch_inventory_pkey PRIMARY KEY (id),
+	CONSTRAINT unique_variant_per_branch UNIQUE (product_variant_id, branch_id),
+	CONSTRAINT branch_inventory_branch_id_fkey FOREIGN KEY (branch_id) REFERENCES public.branches(id) ON DELETE CASCADE,
+	CONSTRAINT branch_inventory_product_variant_id_fkey FOREIGN KEY (product_variant_id) REFERENCES public.product_variants(id) ON DELETE CASCADE
+);
+
+
+-- public.purchase_details definition
+
+-- Drop table
+
+-- DROP TABLE public.purchase_details;
+
+CREATE TABLE public.purchase_details (
+	id serial4 NOT NULL,
+	purchase_id int4 NULL,
+	product_id int4 NULL,
+	unit_cost numeric(12, 2) NOT NULL,
+	color varchar NULL,
+	curva int4 NULL,
+	curva_sizes varchar NULL,
+	quantity int4 NULL,
+	CONSTRAINT purchase_details_pkey PRIMARY KEY (id),
+	CONSTRAINT purchase_details_product_variant_id_fkey FOREIGN KEY (product_id) REFERENCES public.product_variants(id) ON DELETE RESTRICT,
+	CONSTRAINT purchase_details_purchase_id_fkey FOREIGN KEY (purchase_id) REFERENCES public.purchases(id) ON DELETE CASCADE
+);
+
+
+
+-- DROP FUNCTION public.uuid_generate_v1();
+
+CREATE OR REPLACE FUNCTION public.uuid_generate_v1()
+ RETURNS uuid
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_generate_v1$function$
+;
+
+-- DROP FUNCTION public.uuid_generate_v1mc();
+
+CREATE OR REPLACE FUNCTION public.uuid_generate_v1mc()
+ RETURNS uuid
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_generate_v1mc$function$
+;
+
+-- DROP FUNCTION public.uuid_generate_v3(uuid, text);
+
+CREATE OR REPLACE FUNCTION public.uuid_generate_v3(namespace uuid, name text)
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_generate_v3$function$
+;
+
+-- DROP FUNCTION public.uuid_generate_v4();
+
+CREATE OR REPLACE FUNCTION public.uuid_generate_v4()
+ RETURNS uuid
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_generate_v4$function$
+;
+
+-- DROP FUNCTION public.uuid_generate_v5(uuid, text);
+
+CREATE OR REPLACE FUNCTION public.uuid_generate_v5(namespace uuid, name text)
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_generate_v5$function$
+;
+
+-- DROP FUNCTION public.uuid_nil();
+
+CREATE OR REPLACE FUNCTION public.uuid_nil()
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_nil$function$
+;
+
+-- DROP FUNCTION public.uuid_ns_dns();
+
+CREATE OR REPLACE FUNCTION public.uuid_ns_dns()
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_ns_dns$function$
+;
+
+-- DROP FUNCTION public.uuid_ns_oid();
+
+CREATE OR REPLACE FUNCTION public.uuid_ns_oid()
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_ns_oid$function$
+;
+
+-- DROP FUNCTION public.uuid_ns_url();
+
+CREATE OR REPLACE FUNCTION public.uuid_ns_url()
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_ns_url$function$
+;
+
+-- DROP FUNCTION public.uuid_ns_x500();
+
+CREATE OR REPLACE FUNCTION public.uuid_ns_x500()
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_ns_x500$function$
+;

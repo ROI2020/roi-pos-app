@@ -1,0 +1,1027 @@
+"use client"
+
+import { useState, useEffect, useCallback, useRef } from "react"
+import {
+  Building2, Users, Warehouse, Plus, Pencil, Trash2,
+  Loader2, Save, Upload, X, CheckCircle2, Star,
+  Globe, Copy, RefreshCw, Eye, EyeOff, Rss,
+} from "lucide-react"
+import { toast } from "sonner"
+import { Button }   from "@/components/ui/button"
+import { Input }    from "@/components/ui/input"
+import { Label }    from "@/components/ui/label"
+import { Badge }    from "@/components/ui/badge"
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+interface AppUser {
+  id: number; name: string; email: string
+  role: 'vendedor' | 'encargado' | 'administrador'
+  active: boolean; created_at: string
+}
+interface Branch { id: number; name: string; address: string | null; arca_pos_number: number; is_default: boolean }
+
+type Tab = 'negocio' | 'usuarios' | 'sucursales' | 'catalogo'
+
+const ROLES = [
+  { value: 'vendedor',       label: 'Vendedor'       },
+  { value: 'encargado',      label: 'Encargado'      },
+  { value: 'administrador',  label: 'Administrador'  },
+] as const
+
+const ROLE_COLORS: Record<string, string> = {
+  vendedor:      'bg-emerald-50 text-emerald-700 border-emerald-200',
+  encargado:     'bg-amber-50 text-amber-700 border-amber-200',
+  administrador: 'bg-violet-50 text-violet-700 border-violet-200',
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Pestaña: Negocio
+// ══════════════════════════════════════════════════════════════════════════════
+function NegocioTab() {
+  const [name,           setName          ] = useState('')
+  const [logo,           setLogo          ] = useState<string | null>(null)
+  const [waNumber,       setWaNumber      ] = useState('')
+  const [rcptPhone,      setRcptPhone     ] = useState('')
+  const [rcptAddress,    setRcptAddress   ] = useState('')
+  const [rcptFooter,     setRcptFooter    ] = useState('')
+  const [rcptNoInvoice,  setRcptNoInvoice ] = useState('')
+  const [saving,         setSaving        ] = useState(false)
+  const [loading,        setLoading       ] = useState(true)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then((d: Record<string, string | null>) => {
+        setName(d.business_name ?? '')
+        setLogo(d.business_logo ?? null)
+        setWaNumber(d.whatsapp_report_number ?? '')
+        setRcptPhone(d.receipt_phone ?? '')
+        setRcptAddress(d.receipt_address ?? '')
+        setRcptFooter(d.receipt_footer ?? '')
+        setRcptNoInvoice(d.receipt_no_invoice_text ?? '')
+      })
+      .catch(() => toast.error('Error al cargar configuración'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleLogoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 500_000) {
+      toast.error('El logo no puede superar 500 KB')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = ev => setLogo(ev.target?.result as string)
+    reader.readAsDataURL(file)
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          business_name:           name.trim(),
+          business_logo:           logo,
+          whatsapp_report_number:  waNumber.trim() || null,
+          receipt_phone:           rcptPhone.trim() || null,
+          receipt_address:         rcptAddress.trim() || null,
+          receipt_footer:          rcptFooter.trim() || null,
+          receipt_no_invoice_text: rcptNoInvoice.trim() || null,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('Configuración guardada')
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return (
+    <div className="flex items-center gap-2 text-gray-400 py-8">
+      <Loader2 className="h-5 w-5 animate-spin" /> Cargando…
+    </div>
+  )
+
+  return (
+    <div className="space-y-6 max-w-lg">
+      {/* Nombre del negocio */}
+      <div className="space-y-1.5">
+        <Label>Nombre del negocio</Label>
+        <Input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Ej: Ropa Kids SA"
+          className="text-sm"
+        />
+      </div>
+
+      {/* WhatsApp para reportes */}
+      <div className="space-y-1.5">
+        <Label>WhatsApp para reportes de caja</Label>
+        <div className="flex items-center gap-2">
+          {/* icono WA */}
+          <svg viewBox="0 0 24 24" className="h-5 w-5 text-green-500 fill-current shrink-0" xmlns="http://www.w3.org/2000/svg">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+          </svg>
+          <Input
+            value={waNumber}
+            onChange={e => setWaNumber(e.target.value)}
+            placeholder="5491155555555"
+            className="text-sm font-mono"
+          />
+        </div>
+        <p className="text-xs text-gray-400">
+          Número internacional sin + ni espacios (ej: 5491155555555 para Argentina).
+          Al cerrar caja aparecerá el botón "Enviar por WhatsApp" con el resumen precargado.
+        </p>
+      </div>
+
+      {/* Logo */}
+      <div className="space-y-2">
+        <Label>Logo</Label>
+        <div className="flex items-start gap-4">
+          {/* Preview */}
+          <div className="w-24 h-24 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center bg-gray-50 overflow-hidden shrink-0">
+            {logo
+              ? <img src={logo} alt="logo" className="w-full h-full object-contain p-1" />
+              : <Building2 className="h-8 w-8 text-gray-300" />
+            }
+          </div>
+          <div className="space-y-2">
+            <Button
+              variant="outline" size="sm"
+              className="gap-2"
+              onClick={() => fileRef.current?.click()}
+            >
+              <Upload className="h-4 w-4" />
+              Subir imagen
+            </Button>
+            {logo && (
+              <Button
+                variant="ghost" size="sm"
+                className="gap-2 text-red-500 hover:text-red-700"
+                onClick={() => { setLogo(null); if (fileRef.current) fileRef.current.value = '' }}
+              >
+                <X className="h-4 w-4" />
+                Quitar logo
+              </Button>
+            )}
+            <p className="text-xs text-gray-400">PNG, JPG o SVG · máx. 500 KB</p>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleLogoFile}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Datos del recibo */}
+      <div className="space-y-3 pt-2 border-t border-gray-100">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Recibo de venta</p>
+
+        <div className="space-y-1.5">
+          <Label>Teléfono</Label>
+          <Input
+            value={rcptPhone}
+            onChange={e => setRcptPhone(e.target.value)}
+            placeholder="Ej: +54 11 3454-2093"
+            className="text-sm"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Dirección</Label>
+          <Input
+            value={rcptAddress}
+            onChange={e => setRcptAddress(e.target.value)}
+            placeholder="Ej: Av. Yrigoyen 2549, El Talar, Tigre - Local F4"
+            className="text-sm"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Pie del recibo</Label>
+          <Input
+            value={rcptFooter}
+            onChange={e => setRcptFooter(e.target.value)}
+            placeholder="Ej: Presentar este comprobante en caso de cambios"
+            className="text-sm"
+          />
+          <p className="text-xs text-gray-400">Aparece debajo de los datos del local.</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Texto inferior</Label>
+          <Input
+            value={rcptNoInvoice}
+            onChange={e => setRcptNoInvoice(e.target.value)}
+            placeholder="No válido como factura"
+            className="text-sm"
+          />
+          <p className="text-xs text-gray-400">Se muestra al pie del recibo. Dejalo vacío para usar el texto por defecto.</p>
+        </div>
+      </div>
+
+      <Button onClick={handleSave} disabled={saving} className="gap-2">
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+        Guardar cambios
+      </Button>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Diálogo: usuario (alta y edición)
+// ══════════════════════════════════════════════════════════════════════════════
+function UserDialog({
+  user,
+  onSaved,
+  onClose,
+}: {
+  user: AppUser | null    // null = nuevo usuario
+  onSaved: (u: AppUser) => void
+  onClose: () => void
+}) {
+  const [name,   setName  ] = useState(user?.name  ?? '')
+  const [email,  setEmail ] = useState(user?.email ?? '')
+  const [role,   setRole  ] = useState<string>(user?.role ?? 'vendedor')
+  const [saving, setSaving] = useState(false)
+
+  const handleSubmit = async () => {
+    if (!name.trim())  { toast.error('El nombre es obligatorio');  return }
+    if (!email.trim()) { toast.error('El email es obligatorio');   return }
+    setSaving(true)
+    try {
+      const res = user
+        ? await fetch(`/api/users/${user.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.trim(), email: email.trim().toLowerCase(), role }),
+          })
+        : await fetch('/api/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.trim(), email: email.trim().toLowerCase(), role }),
+          })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(user ? 'Usuario actualizado' : 'Usuario creado')
+      onSaved(data)
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={v => !v && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{user ? 'Editar usuario' : 'Nuevo usuario'}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="space-y-1.5">
+            <Label>Nombre completo</Label>
+            <Input
+              autoFocus value={name} onChange={e => setName(e.target.value)}
+              placeholder="Juan García"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Email</Label>
+            <Input
+              type="email" value={email} onChange={e => setEmail(e.target.value)}
+              placeholder="juan@negocio.com"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Rol</Label>
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger className="text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLES.map(r => (
+                  <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={handleSubmit} disabled={saving} className="gap-2">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {user ? 'Guardar' : 'Crear usuario'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Pestaña: Usuarios
+// ══════════════════════════════════════════════════════════════════════════════
+function UsuariosTab() {
+  const [users,   setUsers  ] = useState<AppUser[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editUser, setEditUser] = useState<AppUser | null | 'new'>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const data: AppUser[] = await fetch('/api/users?all=true').then(r => r.json())
+      setUsers(data)
+    } catch { toast.error('Error al cargar usuarios') }
+    finally  { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleDeactivate = async (u: AppUser) => {
+    if (!confirm(`¿Desactivar a ${u.name}?`)) return
+    await fetch(`/api/users/${u.id}`, { method: 'DELETE' })
+    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, active: false } : x))
+    toast.success('Usuario desactivado')
+  }
+
+  const handleReactivate = async (u: AppUser) => {
+    await fetch(`/api/users/${u.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: true }),
+    })
+    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, active: true } : x))
+    toast.success('Usuario reactivado')
+  }
+
+  const handleSaved = (saved: AppUser) => {
+    setUsers(prev => {
+      const exists = prev.find(u => u.id === saved.id)
+      return exists
+        ? prev.map(u => u.id === saved.id ? saved : u)
+        : [...prev, saved]
+    })
+    setEditUser(null)
+  }
+
+  if (loading) return (
+    <div className="flex items-center gap-2 text-gray-400 py-8">
+      <Loader2 className="h-5 w-5 animate-spin" /> Cargando…
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button onClick={() => setEditUser('new')} className="gap-2">
+          <Plus className="h-4 w-4" />
+          Nuevo usuario
+        </Button>
+      </div>
+
+      {users.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-2">
+          <Users className="h-10 w-10 text-gray-300" />
+          <p>No hay usuarios aún. Creá el primero.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
+                <th className="text-left px-4 py-2.5">Nombre</th>
+                <th className="text-left px-4 py-2.5 hidden sm:table-cell">Email</th>
+                <th className="text-left px-4 py-2.5">Rol</th>
+                <th className="text-left px-4 py-2.5">Estado</th>
+                <th className="px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {users.map(u => (
+                <tr key={u.id} className={u.active ? '' : 'opacity-50'}>
+                  <td className="px-4 py-3 font-medium text-gray-900">{u.name}</td>
+                  <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{u.email}</td>
+                  <td className="px-4 py-3">
+                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${ROLE_COLORS[u.role]}`}>
+                      {ROLES.find(r => r.value === u.role)?.label ?? u.role}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {u.active
+                      ? <span className="text-xs text-green-600 flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" />Activo</span>
+                      : <span className="text-xs text-gray-400">Inactivo</span>
+                    }
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost" size="icon"
+                        className="h-7 w-7 text-gray-400 hover:text-gray-700"
+                        title="Editar"
+                        onClick={() => setEditUser(u)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      {u.active
+                        ? (
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-7 w-7 text-gray-400 hover:text-red-600"
+                            title="Desactivar"
+                            onClick={() => handleDeactivate(u)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost" size="sm"
+                            className="h-7 text-xs text-gray-400 hover:text-green-600"
+                            onClick={() => handleReactivate(u)}
+                          >
+                            Reactivar
+                          </Button>
+                        )
+                      }
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {editUser !== null && (
+        <UserDialog
+          user={editUser === 'new' ? null : editUser}
+          onSaved={handleSaved}
+          onClose={() => setEditUser(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Diálogo: sucursal (alta y edición)
+// ══════════════════════════════════════════════════════════════════════════════
+function BranchDialog({
+  branch,
+  onSaved,
+  onClose,
+}: {
+  branch?:  Branch            // undefined = nueva sucursal
+  onSaved:  (b: Branch) => void
+  onClose:  () => void
+}) {
+  const [name,    setName   ] = useState(branch?.name    ?? '')
+  const [address, setAddress] = useState(branch?.address ?? '')
+  const [arcaNum, setArcaNum] = useState(String(branch?.arca_pos_number ?? ''))
+  const [saving,  setSaving ] = useState(false)
+
+  const handleSubmit = async () => {
+    if (!name.trim()) { toast.error('El nombre es obligatorio'); return }
+    setSaving(true)
+    try {
+      const payload = {
+        name: name.trim(),
+        address: address.trim() || null,
+        arca_pos_number: parseInt(arcaNum) || 0,
+      }
+      const res = branch
+        ? await fetch(`/api/branches/${branch.id}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        : await fetch('/api/branches', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(branch ? 'Sucursal actualizada' : 'Sucursal creada')
+      onSaved(data)
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={v => !v && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{branch ? 'Editar sucursal' : 'Nueva sucursal'}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="space-y-1.5">
+            <Label>Nombre <span className="text-red-500">*</span></Label>
+            <Input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="Casa Central" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Dirección</Label>
+            <Input value={address} onChange={e => setAddress(e.target.value)} placeholder="Av. Corrientes 1234" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Nº Punto de Venta ARCA</Label>
+            <Input
+              type="number" min={0} value={arcaNum}
+              onChange={e => setArcaNum(e.target.value)}
+              placeholder="1"
+            />
+            <p className="text-xs text-gray-400">
+              Requerido para facturación electrónica. Puede ser 0 si no se factura aún.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={handleSubmit} disabled={saving} className="gap-2">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {branch ? 'Guardar' : 'Crear sucursal'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Pestaña: Sucursales
+// ══════════════════════════════════════════════════════════════════════════════
+function SucursalesTab() {
+  const [branches,  setBranches ] = useState<Branch[]>([])
+  const [loading,   setLoading  ] = useState(true)
+  const [showNew,   setShowNew  ] = useState(false)
+  const [editBranch, setEditBranch] = useState<Branch | null>(null)
+
+  useEffect(() => {
+    fetch('/api/branches')
+      .then(r => r.json())
+      .then((data: Branch[]) => setBranches(data))
+      .catch(() => toast.error('Error al cargar sucursales'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const setDefault = async (b: Branch) => {
+    try {
+      const res = await fetch(`/api/branches/${b.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_default: true }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      setBranches(prev => prev.map(x => ({ ...x, is_default: x.id === b.id })))
+      toast.success(`${b.name} marcada como sucursal favorita`)
+    } catch (err: unknown) { toast.error((err as Error).message) }
+  }
+
+  if (loading) return (
+    <div className="flex items-center gap-2 text-gray-400 py-8">
+      <Loader2 className="h-5 w-5 animate-spin" /> Cargando…
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-500">
+          La sucursal <span className="text-amber-500">★ favorita</span> se pre-selecciona en el POS al abrir.
+        </p>
+        <Button onClick={() => setShowNew(true)} className="gap-2">
+          <Plus className="h-4 w-4" />
+          Nueva sucursal
+        </Button>
+      </div>
+
+      {branches.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-2">
+          <Warehouse className="h-10 w-10 text-gray-300" />
+          <p>No hay sucursales. Creá la primera.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
+                <th className="w-8 px-3 py-2.5" />
+                <th className="text-left px-3 py-2.5">Nombre</th>
+                <th className="text-left px-3 py-2.5 hidden sm:table-cell">Dirección</th>
+                <th className="text-left px-3 py-2.5">PV ARCA</th>
+                <th className="px-3 py-2.5" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {branches.map(b => (
+                <tr key={b.id} className={b.is_default ? 'bg-amber-50/50' : ''}>
+                  {/* Favorita */}
+                  <td className="px-3 py-3 text-center">
+                    <button
+                      title={b.is_default ? 'Sucursal favorita' : 'Marcar como favorita'}
+                      onClick={() => !b.is_default && setDefault(b)}
+                      className={`transition-colors ${b.is_default
+                        ? 'text-amber-400 cursor-default'
+                        : 'text-gray-200 hover:text-amber-300'}`}
+                    >
+                      <Star className={`h-4 w-4 ${b.is_default ? 'fill-amber-400' : ''}`} />
+                    </button>
+                  </td>
+                  <td className="px-3 py-3 font-medium text-gray-900">
+                    {b.name}
+                    {b.is_default && (
+                      <span className="ml-2 text-[10px] text-amber-600 bg-amber-100 rounded px-1.5 py-0.5">
+                        favorita
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-gray-500 hidden sm:table-cell">
+                    {b.address ?? <span className="italic text-gray-300">Sin dirección</span>}
+                  </td>
+                  <td className="px-3 py-3 text-gray-500">{b.arca_pos_number}</td>
+                  <td className="px-3 py-3">
+                    <Button
+                      variant="ghost" size="icon"
+                      className="h-7 w-7 text-gray-400 hover:text-violet-700"
+                      title="Editar"
+                      onClick={() => setEditBranch(b)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {showNew && (
+        <BranchDialog
+          onSaved={b => { setBranches(prev => [...prev, b]); setShowNew(false) }}
+          onClose={() => setShowNew(false)}
+        />
+      )}
+      {editBranch && (
+        <BranchDialog
+          branch={editBranch}
+          onSaved={b => {
+            setBranches(prev => prev.map(x => x.id === b.id ? { ...x, ...b } : x))
+            setEditBranch(null)
+          }}
+          onClose={() => setEditBranch(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Pestaña: Catálogo digital
+// ══════════════════════════════════════════════════════════════════════════════
+function CatalogoTab() {
+  const [baseUrl,     setBaseUrl    ] = useState('')
+  const [token,       setToken      ] = useState('')
+  const [showToken,   setShowToken  ] = useState(false)
+  const [banner,      setBanner     ] = useState<string | null>(null)
+  const [bannerText,  setBannerText ] = useState('')
+  const [saving,      setSaving     ] = useState(false)
+  const [loading,     setLoading    ] = useState(true)
+  const [copied,      setCopied     ] = useState<string | null>(null)
+  const bannerRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then((d: Record<string, string | null>) => {
+        setBaseUrl(d.catalog_base_url ?? '')
+        setToken(d.catalog_token ?? '')
+        setBanner(d.catalog_banner ?? null)
+        setBannerText(d.catalog_banner_text ?? '')
+      })
+      .catch(() => toast.error('Error al cargar configuración'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleBannerFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 2_000_000) { toast.error('El banner no puede superar 2 MB'); return }
+    const reader = new FileReader()
+    reader.onload = ev => setBanner(ev.target?.result as string)
+    reader.readAsDataURL(file)
+  }
+
+  const regenerateToken = () => {
+    const arr   = new Uint8Array(24)
+    crypto.getRandomValues(arr)
+    const newTk = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('')
+    setToken(newTk)
+    toast.info('Token generado. Guardá los cambios para aplicarlo.')
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          catalog_base_url:   baseUrl.trim().replace(/\/$/, '') || null,
+          catalog_token:      token.trim() || null,
+          catalog_banner:     banner,
+          catalog_banner_text: bannerText.trim() || null,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('Configuración guardada')
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const copyUrl = (url: string, key: string) => {
+    navigator.clipboard.writeText(url)
+    setCopied(key)
+    setTimeout(() => setCopied(null), 2000)
+  }
+
+  const base  = (baseUrl || 'https://tu-dominio.com').replace(/\/$/, '')
+  const tk    = token || 'TU_TOKEN'
+
+  const FEEDS = [
+    {
+      key:         'meta',
+      label:       'Meta (WhatsApp / Instagram / Facebook)',
+      url:         `${base}/api/v1/feeds/meta-catalog.xml?token=${tk}`,
+      description: 'Filtra productos con los flags WA, IG o FB activados.',
+      color:       'border-blue-200 bg-blue-50 text-blue-700',
+    },
+    {
+      key:         'tiktok',
+      label:       'TikTok Shop',
+      url:         `${base}/api/v1/feeds/tiktok-catalog.xml?token=${tk}`,
+      description: 'Filtra productos con el flag Web activado.',
+      color:       'border-gray-200 bg-gray-50 text-gray-700',
+    },
+    {
+      key:         'all',
+      label:       'Feed completo (todos los exportables)',
+      url:         `${base}/api/v1/feeds/all-catalog.xml?token=${tk}`,
+      description: 'Incluye cualquier producto con al menos un flag activo.',
+      color:       'border-violet-200 bg-violet-50 text-violet-700',
+    },
+  ]
+
+  if (loading) return (
+    <div className="flex items-center gap-2 text-gray-400 py-8">
+      <Loader2 className="h-5 w-5 animate-spin" /> Cargando…
+    </div>
+  )
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+
+      {/* URL pública */}
+      <div className="space-y-1.5">
+        <Label className="flex items-center gap-1.5">
+          <Globe className="h-4 w-4 text-gray-400" />
+          URL pública del sistema
+        </Label>
+        <Input
+          value={baseUrl}
+          onChange={e => setBaseUrl(e.target.value)}
+          placeholder="https://tu-dominio.com"
+          className="text-sm font-mono"
+        />
+        <p className="text-xs text-gray-400">
+          Dominio público donde está desplegado el sistema (sin barra al final).
+          Se usa para armar las URLs de imágenes e imágenes del feed.
+        </p>
+      </div>
+
+      {/* Token */}
+      <div className="space-y-1.5">
+        <Label className="flex items-center gap-1.5">
+          <Rss className="h-4 w-4 text-gray-400" />
+          Token de acceso al feed
+        </Label>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Input
+              type={showToken ? 'text' : 'password'}
+              value={token}
+              onChange={e => setToken(e.target.value)}
+              placeholder="(sin token — el feed no estará protegido)"
+              className="text-sm font-mono pr-10"
+            />
+            <button
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              onClick={() => setShowToken(v => !v)}
+              type="button"
+            >
+              {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          <Button variant="outline" size="sm" className="gap-1.5 shrink-0" onClick={regenerateToken}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            {token ? 'Regenerar' : 'Generar'}
+          </Button>
+        </div>
+        <p className="text-xs text-gray-400">
+          Se envía como <code className="bg-gray-100 px-1 rounded">?token=XXX</code> en la URL del feed.
+          Regenerar el token invalida todos los feeds configurados anteriormente en Meta/TikTok.
+        </p>
+      </div>
+
+      {/* Banner de la tienda */}
+      <div className="space-y-3 pt-2 border-t border-gray-100">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tienda online — Apariencia</p>
+
+        <div className="space-y-1.5">
+          <Label>Banner principal</Label>
+          <p className="text-xs text-gray-400">
+            Tamaño recomendado: <strong>1200×400px</strong> (relación 3:1, horizontal) · PNG, JPG · máx. 2 MB
+          </p>
+
+          {/* Preview del banner */}
+          <div
+            className="relative w-full rounded-xl border-2 border-dashed border-gray-200 overflow-hidden bg-gray-50 cursor-pointer hover:border-violet-300 transition-colors"
+            style={{ aspectRatio: '3/1' }}
+            onClick={() => bannerRef.current?.click()}
+          >
+            {banner ? (
+              <>
+                <img src={banner} alt="Banner" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 hover:opacity-100">
+                  <span className="bg-white/90 text-xs font-medium px-3 py-1 rounded-full">Cambiar imagen</span>
+                </div>
+              </>
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-gray-300">
+                <Upload className="h-8 w-8" />
+                <span className="text-xs">Clic para subir banner (1200×400px recomendado)</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => bannerRef.current?.click()}>
+              <Upload className="h-3.5 w-3.5" />
+              {banner ? 'Cambiar' : 'Subir banner'}
+            </Button>
+            {banner && (
+              <Button
+                variant="ghost" size="sm"
+                className="gap-1.5 text-red-500 hover:text-red-700"
+                onClick={() => { setBanner(null); if (bannerRef.current) bannerRef.current.value = '' }}
+              >
+                <X className="h-3.5 w-3.5" />
+                Quitar
+              </Button>
+            )}
+          </div>
+          <input ref={bannerRef} type="file" accept="image/*" className="hidden" onChange={handleBannerFile} />
+        </div>
+
+        {/* Texto del banner */}
+        <div className="space-y-1.5">
+          <Label>Texto informativo de la tienda</Label>
+          <textarea
+            value={bannerText}
+            onChange={e => setBannerText(e.target.value)}
+            rows={7}
+            placeholder={'🏢 Galeria Comercial 197 (Talar)\n⏰ Mar-Dom | 10:00 - 20:00\n📍 Local 4 - Frente\n💳 Aceptamos todas las tarjetas\n🎁 3 Cuotas sin interés\n🏷️ ¡Promos imperdibles!\n✨ ¡Te esperamos!'}
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none leading-relaxed"
+          />
+          <p className="text-xs text-gray-400">
+            Cada línea se muestra como una entrada en la tienda. Podés usar emojis.
+          </p>
+        </div>
+      </div>
+
+      <Button onClick={handleSave} disabled={saving} className="gap-2">
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+        Guardar cambios
+      </Button>
+
+      {/* URLs de feeds */}
+      <div className="space-y-3 pt-2 border-t border-gray-100">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">URLs de feeds para registrar en cada plataforma</p>
+        <p className="text-xs text-gray-400">
+          En Meta Business Suite → Catálogos → Orígenes de datos → "URL del feed de datos".
+          En TikTok Seller Center → Productos → Catálogo → "Importar por URL".
+          Configurar frecuencia: <strong>1 hora</strong>.
+        </p>
+
+        <div className="space-y-2">
+          {FEEDS.map(f => (
+            <div key={f.key} className={`border rounded-lg px-4 py-3 ${f.color}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold">{f.label}</p>
+                  <p className="text-[10px] opacity-70 mt-0.5">{f.description}</p>
+                  <p className="text-[10px] font-mono mt-1.5 break-all opacity-80">{f.url}</p>
+                </div>
+                <button
+                  className="shrink-0 mt-0.5 hover:opacity-70 transition-opacity"
+                  onClick={() => copyUrl(f.url, f.key)}
+                  title="Copiar URL"
+                >
+                  {copied === f.key
+                    ? <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    : <Copy className="h-4 w-4" />
+                  }
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-xs text-amber-700">
+          <strong>Imágenes:</strong> Meta y TikTok requieren URLs HTTP públicas — no aceptan Base64.
+          El sistema sirve las fotos en <code className="bg-amber-100 px-1 rounded">/api/images/products/&#123;id&#125;</code>.
+          Solo funcionan correctamente cuando el sistema está publicado en la URL pública configurada arriba.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Componente principal
+// ══════════════════════════════════════════════════════════════════════════════
+const TABS: { value: Tab; label: string; Icon: React.ElementType }[] = [
+  { value: 'negocio',    label: 'Negocio',    Icon: Building2 },
+  { value: 'usuarios',   label: 'Usuarios',   Icon: Users     },
+  { value: 'sucursales', label: 'Sucursales', Icon: Warehouse  },
+  { value: 'catalogo',   label: 'Catálogo',   Icon: Rss       },
+]
+
+export default function SettingsPanel() {
+  const [tab, setTab] = useState<Tab>('negocio')
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
+      <div className="max-w-4xl mx-auto space-y-6">
+
+        {/* Título */}
+        <div className="flex items-center gap-3">
+          <Building2 className="h-6 w-6 text-violet-600" />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Configuración</h1>
+            <p className="text-sm text-gray-500">Negocio, usuarios y sucursales</p>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="bg-white rounded-xl border shadow-sm">
+          {/* Tab headers */}
+          <div className="flex border-b px-4 pt-2 gap-1">
+            {TABS.map(({ value, label, Icon }) => (
+              <button
+                key={value}
+                onClick={() => setTab(value)}
+                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px
+                  ${tab === value
+                    ? 'border-violet-500 text-violet-700 bg-violet-50/50'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  }`}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab content */}
+          <div className="p-6">
+            {tab === 'negocio'    && <NegocioTab />}
+            {tab === 'usuarios'   && <UsuariosTab />}
+            {tab === 'sucursales' && <SucursalesTab />}
+            {tab === 'catalogo'   && <CatalogoTab />}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
