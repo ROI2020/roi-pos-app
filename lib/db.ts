@@ -10,13 +10,23 @@ declare global {
 
 const pool =
   globalThis._pgPool ??
-  new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl:
-      process.env.NODE_ENV === 'production'
-        ? { rejectUnauthorized: false }
-        : false,
-  })
+  (process.env.DB_HOST
+    ? new Pool({
+        host:     process.env.DB_HOST,
+        port:     parseInt(process.env.DB_PORT ?? '6543'),
+        database: process.env.DB_NAME     ?? 'postgres',
+        user:     process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        ssl: { rejectUnauthorized: false },
+      })
+    : new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl:
+          process.env.NODE_ENV === 'production'
+            ? { rejectUnauthorized: false }
+            : false,
+      })
+  )
 
 // Fijar zona horaria Argentina en cada nueva conexión del pool.
 // Garantiza que NOW(), CURRENT_TIMESTAMP y los cast ::date usen
