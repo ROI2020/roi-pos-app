@@ -3,6 +3,9 @@
 # dependencies
 /node_modules
 
+# esquema de db
+/database
+
 # next.js
 /.next/
 /out/
