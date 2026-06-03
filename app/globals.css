@@ -123,3 +123,14 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  /* Tablas scrolleables en mobile */
+  .table-responsive {
+    @apply w-full overflow-x-auto -mx-0;
+  }
+  /* Contenedor de página con padding correcto en mobile */
+  .page-container {
+    @apply max-w-7xl mx-auto px-3 py-4 md:px-6 md:py-6;
+  }
+}

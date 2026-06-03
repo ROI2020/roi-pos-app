@@ -31,7 +31,9 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <Nav />
-          {children}
+          <main className="pb-20 md:pb-0">
+            {children}
+          </main>
           <Toaster richColors position="top-right" />
           {/* Logo ROIPOS — esquina inferior izquierda */}
           <div className="fixed bottom-3 left-3 z-40 select-none pointer-events-none">

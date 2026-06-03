@@ -1121,7 +1121,7 @@ export default function PosTerminal() {
           </div>
 
           {/* ── Panel derecho: carrito ─────────────────────────────────── */}
-          <div className="bg-white border-l border-gray-200 flex flex-col">
+          <div className="bg-white border-t lg:border-t-0 lg:border-l border-gray-200 flex flex-col">
 
             {/* Encabezado carrito */}
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
