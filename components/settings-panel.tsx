@@ -47,6 +47,7 @@ function NegocioTab() {
   const [name,           setName          ] = useState('')
   const [logo,           setLogo          ] = useState<string | null>(null)
   const [waNumber,       setWaNumber      ] = useState('')
+  const [catalogPhone,   setCatalogPhone  ] = useState('')
   const [rcptPhone,      setRcptPhone     ] = useState('')
   const [rcptAddress,    setRcptAddress   ] = useState('')
   const [rcptFooter,     setRcptFooter    ] = useState('')
@@ -62,6 +63,7 @@ function NegocioTab() {
         setName(d.business_name ?? '')
         setLogo(d.business_logo ?? null)
         setWaNumber(d.whatsapp_report_number ?? '')
+        setCatalogPhone(d.catalog_phone ?? '')
         setRcptPhone(d.receipt_phone ?? '')
         setRcptAddress(d.receipt_address ?? '')
         setRcptFooter(d.receipt_footer ?? '')
@@ -93,6 +95,7 @@ function NegocioTab() {
           business_name:           name.trim(),
           business_logo:           logo,
           whatsapp_report_number:  waNumber.trim() || null,
+          catalog_phone:           catalogPhone.trim() || null,
           receipt_phone:           rcptPhone.trim() || null,
           receipt_address:         rcptAddress.trim() || null,
           receipt_footer:          rcptFooter.trim() || null,
@@ -125,6 +128,20 @@ function NegocioTab() {
           placeholder="Ej: Ropa Kids SA"
           className="text-sm"
         />
+      </div>
+
+      {/* Teléfono del catálogo público */}
+      <div className="space-y-1.5">
+        <Label>Teléfono del catálogo</Label>
+        <Input
+          value={catalogPhone}
+          onChange={e => setCatalogPhone(e.target.value)}
+          placeholder="5491155555555"
+          className="text-sm font-mono"
+        />
+        <p className="text-xs text-gray-400">
+          Se muestra en la tienda pública para que los clientes puedan contactarte por WhatsApp.
+        </p>
       </div>
 
       {/* WhatsApp para reportes */}

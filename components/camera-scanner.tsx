@@ -51,6 +51,15 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
   // ── Iniciar escaneo ───────────────────────────────────────────────────────
   const start = useCallback(async () => {
     if (!videoRef.current) return
+
+    // La cámara requiere HTTPS (excepto localhost)
+    const isSecure = location.protocol === 'https:' || location.hostname === 'localhost'
+    if (!isSecure) {
+      setStatus('error')
+      setErrorMsg('La cámara solo funciona con HTTPS. Usá la versión online del sistema.')
+      return
+    }
+
     setStatus('loading')
     setErrorMsg('')
     try {
@@ -68,7 +77,6 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
             onScan(result.getText())
             onClose()
           }
-          // NotFoundException = sin código en el cuadro → normal, ignorar
         }
       )
       controlsRef.current = controls
@@ -77,11 +85,11 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
       setStatus('error')
       const msg = String((err as Error)?.message ?? '')
       if (/permission|notallowed/i.test(msg)) {
-        setErrorMsg('Permiso de cámara denegado. Permitilo en la configuración del navegador.')
+        setErrorMsg('Permiso de cámara denegado. Habilitalo en Configuración del navegador → Permisos de sitio.')
       } else if (/notfound|no camera/i.test(msg)) {
-        setErrorMsg('No se encontró ninguna cámara disponible.')
+        setErrorMsg('No se encontró ninguna cámara disponible en este dispositivo.')
       } else {
-        setErrorMsg('No se pudo acceder a la cámara.')
+        setErrorMsg(`No se pudo acceder a la cámara: ${msg}`)
       }
     }
   }, [cameras, cameraIdx, onScan, onClose])

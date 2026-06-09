@@ -19,6 +19,9 @@ import { Input }    from "@/components/ui/input"
 import { Label }    from "@/components/ui/label"
 import { Badge }    from "@/components/ui/badge"
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import {
@@ -29,6 +32,13 @@ import {
 interface Branch    { id: number; name: string; is_default: boolean }
 interface AppUser   { id: number; name: string; role: string }
 interface ExpenseType { id: number; name: string }
+interface SalesByUser {
+  user_id:     number | null
+  user_name:   string
+  sales_count: number
+  sales_total: number
+}
+
 interface PosSession {
   id: number; branch_id: number; opened_at: string; closed_at: string | null
   opening_balance: number; closing_balance: number | null
@@ -41,6 +51,7 @@ interface PosSession {
   sales_count: number; sales_total: number
   cash_total: number; debit_total: number
   credit_total: number; mp_total: number; transfer_total: number
+  sales_by_user: SalesByUser[] | null
   // gastos
   expense_count: number; expense_total: number
   expense_cash_total: number; expense_debit_total: number
@@ -183,6 +194,13 @@ function buildWhatsAppText(
     session.credit_total   > 0 ? `Credito: ${fmtArs(session.credit_total)}`        : '',
     session.mp_total       > 0 ? `Mercado Pago: ${fmtArs(session.mp_total)}`       : '',
     session.transfer_total > 0 ? `Transferencia: ${fmtArs(session.transfer_total)}` : '',
+    ...(session.sales_by_user && session.sales_by_user.length > 1 ? [
+      '',
+      `*Por vendedora:*`,
+      ...session.sales_by_user.map(u =>
+        `${u.user_name}: ${fmtArs(u.sales_total)} (${u.sales_count} venta${u.sales_count !== 1 ? 's' : ''})`
+      ),
+    ] : []),
     ...(session.expense_count > 0 ? [
       '',
       `━━━━━━━━━━━━━━━`,
@@ -280,7 +298,8 @@ function CloseSessionDialog({
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div className="bg-green-50 border border-green-100 rounded-xl px-3 py-2.5 space-y-1">
             <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">Apertura</p>
-            <p className="font-medium text-gray-800">{fmtHour(session.opened_at)} hs</p>
+            <p className="font-medium text-gray-800">{fmtTime(session.opened_at)} hs</p>
+            <p className="text-xs text-gray-500">{fmtDate(new Date(session.opened_at))}</p>
             {session.opened_by_user_name && (
               <p className="text-xs text-gray-500">👤 {session.opened_by_user_name}</p>
             )}
@@ -288,8 +307,9 @@ function CloseSessionDialog({
           <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2.5 space-y-1">
             <p className="text-xs font-semibold text-red-700 uppercase tracking-wide">Cierre</p>
             <p className="font-medium text-gray-800">
-              {String(closingTime.getHours()).padStart(2, '0')}:{String(closingTime.getMinutes()).padStart(2, '0')}
+              {String(closingTime.getHours()).padStart(2, '0')}:{String(closingTime.getMinutes()).padStart(2, '0')} hs
             </p>
+            <p className="text-xs text-gray-500">{fmtDate(closingTime)}</p>
             {closingUserName && (
               <p className="text-xs text-gray-500">👤 {closingUserName}</p>
             )}
@@ -309,6 +329,24 @@ function CloseSessionDialog({
               {session.credit_total   > 0 && <Row label="↳ Crédito"       value={fmt(session.credit_total)}   small />}
               {session.mp_total       > 0 && <Row label="↳ Mercado Pago"  value={fmt(session.mp_total)}       small />}
               {session.transfer_total > 0 && <Row label="↳ Transferencia" value={fmt(session.transfer_total)} small />}
+            </div>
+          )}
+          {session.sales_by_user && session.sales_by_user.length > 0 && (
+            <div className="border-t border-gray-200 pt-1.5 mt-1 space-y-1">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
+                Por vendedora
+              </p>
+              {session.sales_by_user.map(u => (
+                <div key={u.user_id ?? 'sin'} className="flex justify-between text-xs text-gray-500">
+                  <span>{u.user_name}</span>
+                  <span className="font-medium tabular-nums">
+                    {fmt(u.sales_total)}
+                    <span className="text-gray-400 ml-1">
+                      ({u.sales_count} venta{u.sales_count !== 1 ? 's' : ''})
+                    </span>
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -621,6 +659,103 @@ function ExpenseDialog({
   )
 }
 
+// ── Mensajes motivadores ───────────────────────────────────────────────────────
+const WELCOME_MESSAGES = [
+  { emoji: '🌟', phrase: '¡Que fluyan las ventas hoy!',                        accent: '#7c3aed' },
+  { emoji: '💪', phrase: 'A romperla. Hoy es un gran día.',                     accent: '#059669' },
+  { emoji: '✨', phrase: 'Cada cliente es una oportunidad.',                    accent: '#d97706' },
+  { emoji: '🚀', phrase: '¡Arriba el equipo! A vender con todo.',               accent: '#2563eb' },
+  { emoji: '🎯', phrase: 'Foco, energía y buenas ventas.',                      accent: '#db2777' },
+  { emoji: '💎', phrase: 'Calidad en cada prenda, sonrisa en cada cliente.',    accent: '#0891b2' },
+  { emoji: '🛍️', phrase: '¡Que el local brille hoy!',                          accent: '#7c3aed' },
+  { emoji: '🌸', phrase: 'Buen humor + buena atención = ventas.',               accent: '#e11d48' },
+  { emoji: '☀️', phrase: '¡Buen día! La energía es el secreto.',               accent: '#ea580c' },
+  { emoji: '🎉', phrase: '¡Nuevo día, nuevas oportunidades!',                   accent: '#0d9488' },
+  { emoji: '💫', phrase: 'Hoy se vende, mañana se vende más.',                  accent: '#4f46e5' },
+  { emoji: '🌈', phrase: 'La actitud lo es todo. ¡Adelante!',                  accent: '#16a34a' },
+  { emoji: '🏆', phrase: '¡Equipo campeón, a por el objetivo!',                 accent: '#b45309' },
+  { emoji: '👑', phrase: 'Tratá a cada cliente como una reina.',                accent: '#ca8a04' },
+]
+
+function WelcomeModal({
+  userName,
+  onClose,
+}: {
+  userName: string | null
+  onClose:  () => void
+}) {
+  const DURATION = 4500
+  const [visible, setVisible] = useState(true)
+
+  // Mismo mensaje para todo el día, distinto cada día del año
+  const dayOfYear = Math.floor(
+    (Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86_400_000
+  )
+  const msg = WELCOME_MESSAGES[dayOfYear % WELCOME_MESSAGES.length]
+
+  // Saludo según la hora
+  const hour = new Date().getHours()
+  const timeGreeting = hour < 12 ? 'Buenos días' : hour < 20 ? 'Buenas tardes' : 'Buenas noches'
+  const greeting = userName ? `¡${timeGreeting}, ${userName}!` : `¡${timeGreeting}!`
+
+  const dismiss = () => {
+    setVisible(false)
+    setTimeout(onClose, 300)
+  }
+
+  useEffect(() => {
+    const t = setTimeout(dismiss, DURATION)
+    return () => clearTimeout(t)
+  }, []) // eslint-disable-line
+
+  return (
+    <div
+      className={`fixed inset-0 z-[200] flex items-center justify-center transition-opacity duration-300 cursor-pointer
+        ${visible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+      onClick={dismiss}
+    >
+      {/* Fondo */}
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+
+      {/* Tarjeta */}
+      <div
+        className="relative bg-white rounded-3xl shadow-2xl px-8 py-9 mx-4 max-w-xs w-full text-center overflow-hidden cursor-default"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Emoji */}
+        <div className="text-7xl leading-none mb-5 select-none">{msg.emoji}</div>
+
+        {/* Saludo */}
+        <h2 className="text-xl font-bold text-gray-900 mb-2">{greeting}</h2>
+
+        {/* Frase del día */}
+        <p className="text-gray-500 text-sm leading-relaxed mb-7">{msg.phrase}</p>
+
+        {/* Toque para cerrar */}
+        <p className="text-[11px] text-gray-300 mb-1">Tocá en cualquier lugar para cerrar</p>
+
+        {/* Barra de progreso */}
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-100 rounded-b-3xl overflow-hidden">
+          <div
+            className="h-full rounded-full"
+            style={{
+              background: msg.accent,
+              animation: `welcomeBar ${DURATION}ms linear forwards`,
+            }}
+          />
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes welcomeBar {
+          from { width: 100%; }
+          to   { width: 0%;   }
+        }
+      `}</style>
+    </div>
+  )
+}
+
 // ── Componente principal ───────────────────────────────────────────────────────
 export default function PosTerminal() {
   // ── Infra ──────────────────────────────────────────────────────────────
@@ -657,6 +792,7 @@ export default function PosTerminal() {
   // ── Dialogs ────────────────────────────────────────────────────────────
   const [showOpenSession,  setShowOpenSession ] = useState(false)
   const [showCloseSession, setShowCloseSession] = useState(false)
+  const [showWelcome,      setShowWelcome     ] = useState(false)
   const [cameraOpen,       setCameraOpen      ] = useState(false)
   const [showExpense,      setShowExpense     ] = useState(false)
   const [showExchange,     setShowExchange    ] = useState(false)
@@ -698,12 +834,20 @@ export default function PosTerminal() {
       ).catch(() => {})
   }, [])
 
-  // ── Carga de usuarios + usuario guardado ───────────────────────────────
+  // ── Carga de usuarios — preselecciona el usuario logueado ────────────
   useEffect(() => {
     fetch('/api/users')
       .then(r => r.json())
       .then((us: AppUser[]) => {
         setUsers(us)
+        // Primero intentar con la sesión de Google login
+        const sessionRaw = localStorage.getItem('roipos_user')
+        if (sessionRaw) {
+          const s = JSON.parse(sessionRaw) as { id: number; email: string }
+          const match = us.find(u => u.id === s.id)
+          if (match) { setCurrentUserId(match.id); return }
+        }
+        // Fallback: usuario guardado manualmente
         const saved = localStorage.getItem('roi_pos_user_id')
         if (saved) {
           const id = parseInt(saved)
@@ -829,6 +973,7 @@ export default function PosTerminal() {
           invoice_number:  snapInvoiceNum.trim() || null,
           discount_amount: snapDiscountAmt,
           payment_method:  snapPayMethod,
+          user_id:         currentUserId ?? null,
           items: snapItems.map(i => ({ variant_id: i.id, unit_price: i.unit_price })),
         }),
       })
@@ -877,6 +1022,7 @@ export default function PosTerminal() {
       if (!res.ok) throw new Error(data.error)
       setSession(data)
       setShowOpenSession(false)
+      setShowWelcome(true)
       toast.success('Caja abierta')
     } catch (err: unknown) { toast.error((err as Error).message) }
   }
@@ -910,105 +1056,101 @@ export default function PosTerminal() {
     <div className="min-h-screen bg-gray-100 flex flex-col">
 
       {/* ── Barra de sesión ─────────────────────────────────────────────── */}
-      <header className="bg-white border-b shadow-sm px-4 py-2 flex flex-wrap items-center gap-3">
-        <ShoppingCart className="h-5 w-5 text-violet-600 shrink-0" />
-        <span className="font-bold text-gray-800 text-sm">POS</span>
+      <header className="bg-white border-b shadow-sm px-3 py-2">
+        {/* Fila 1: sucursal + usuario + estado */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <ShoppingCart className="h-4 w-4 text-violet-600 shrink-0" />
 
-        {/* Selector de sucursal */}
-        {branches.length > 1 && (
-          <Select value={branchId} onValueChange={setBranchId}>
-            <SelectTrigger className="h-8 text-sm w-44">
-              <SelectValue placeholder="Seleccioná sucursal…" />
-            </SelectTrigger>
-            <SelectContent>
-              {branches.map(b => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
-        {branches.length === 1 && (
-          <span className="text-sm text-gray-600 font-medium">{branches[0]?.name}</span>
-        )}
-
-        {/* Selector de usuario */}
-        {users.length > 0 && (
-          <Select
-            value={currentUserId ? String(currentUserId) : '__none__'}
-            onValueChange={handleUserChange}
-          >
-            <SelectTrigger className="h-8 text-sm w-40">
-              <SelectValue placeholder="¿Quién sos?" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">
-                <span className="italic text-gray-400">Sin usuario</span>
-              </SelectItem>
-              {users.map(u => (
-                <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-
-        {/* Estado de sesión */}
-        {branchId && (
-          sessionLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
-          ) : session ? (
-            <>
-              <Badge variant="outline" className="border-green-400 text-green-700 gap-1 text-xs">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-                Caja abierta desde {fmtTime(session.opened_at)}
-              </Badge>
-              <span className="text-xs text-gray-400 hidden sm:block">
-                {session.sales_count} venta{session.sales_count !== 1 ? 's' : ''} · {fmt(session.sales_total)}
-              </span>
-              <div className="ml-auto flex items-center gap-2">
-                <Button
-                  variant="outline" size="sm"
-                  className="text-violet-600 border-violet-200 hover:bg-violet-50 gap-1.5"
-                  onClick={() => setShowExchange(true)}
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Cambio
-                </Button>
-                <Button
-                  variant="outline" size="sm"
-                  className="text-amber-600 border-amber-200 hover:bg-amber-50 gap-1.5"
-                  onClick={() => setShowExpense(true)}
-                >
-                  <Receipt className="h-3.5 w-3.5" />
-                  Gasto
-                </Button>
-                <Button
-                  variant="outline" size="sm"
-                  className="text-gray-600 border-gray-200 hover:bg-gray-50 gap-1.5"
-                  onClick={() => setShowTodaySales(true)}
-                >
-                  <ReceiptText className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Ventas del día</span>
-                  <span className="sm:hidden">Ventas</span>
-                </Button>
-                <Button
-                  variant="outline" size="sm"
-                  className="text-red-600 border-red-200 hover:bg-red-50 gap-1.5"
-                  onClick={() => setShowCloseSession(true)}
-                >
-                  <Lock className="h-3.5 w-3.5" />
-                  Cerrar caja
-                </Button>
-              </div>
-            </>
+          {branches.length > 1 ? (
+            <Select value={branchId} onValueChange={setBranchId}>
+              <SelectTrigger className="h-7 text-xs w-36">
+                <SelectValue placeholder="Sucursal…" />
+              </SelectTrigger>
+              <SelectContent>
+                {branches.map(b => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
           ) : (
-            <Button
-              variant="outline" size="sm"
-              className="ml-auto text-green-700 border-green-300 hover:bg-green-50 gap-1.5"
-              onClick={() => setShowOpenSession(true)}
-            >
-              <Unlock className="h-3.5 w-3.5" />
-              Abrir caja
-            </Button>
-          )
-        )}
+            <span className="text-xs font-medium text-gray-600">{branches[0]?.name}</span>
+          )}
+
+          {currentUserId && (() => {
+            const u = users.find(u => u.id === currentUserId)
+            const firstName = u?.name?.split(' ')[0] ?? ''
+            return firstName
+              ? <span className="text-xs font-medium text-violet-700">· {firstName}</span>
+              : null
+          })()}
+
+          {branchId && (
+            sessionLoading
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />
+              : session
+                ? <Badge variant="outline" className="border-green-400 text-green-700 gap-1 text-[10px] py-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+                    {fmtTime(session.opened_at)} · {fmt(session.sales_total)}
+                  </Badge>
+                : null
+          )}
+
+          {/* Acciones — desktop: botones, mobile: menú */}
+          {branchId && !sessionLoading && (
+            <div className="ml-auto flex items-center gap-1.5">
+              {session ? (<>
+                {/* Desktop: botones completos */}
+                <Button variant="outline" size="sm"
+                  className="hidden sm:flex text-violet-600 border-violet-200 hover:bg-violet-50 gap-1.5"
+                  onClick={() => setShowExchange(true)}>
+                  <RefreshCw className="h-3.5 w-3.5" />Cambio
+                </Button>
+                <Button variant="outline" size="sm"
+                  className="hidden sm:flex text-amber-600 border-amber-200 hover:bg-amber-50 gap-1.5"
+                  onClick={() => setShowExpense(true)}>
+                  <Receipt className="h-3.5 w-3.5" />Gasto
+                </Button>
+                <Button variant="outline" size="sm"
+                  className="hidden sm:flex text-gray-600 border-gray-200 hover:bg-gray-50 gap-1.5"
+                  onClick={() => setShowTodaySales(true)}>
+                  <ReceiptText className="h-3.5 w-3.5" />Ventas del día
+                </Button>
+                <Button variant="outline" size="sm"
+                  className="hidden sm:flex text-red-600 border-red-200 hover:bg-red-50 gap-1.5"
+                  onClick={() => setShowCloseSession(true)}>
+                  <Lock className="h-3.5 w-3.5" />Cerrar caja
+                </Button>
+
+                {/* Mobile: un solo botón con menú */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="sm:hidden gap-1 text-xs px-2">
+                      <ChevronDown className="h-3.5 w-3.5" />Caja
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuItem onClick={() => setShowExchange(true)} className="gap-2">
+                      <RefreshCw className="h-4 w-4 text-violet-600" />Cambio
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowExpense(true)} className="gap-2">
+                      <Receipt className="h-4 w-4 text-amber-600" />Gasto
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowTodaySales(true)} className="gap-2">
+                      <ReceiptText className="h-4 w-4 text-gray-600" />Ventas del día
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowCloseSession(true)} className="gap-2 text-red-600">
+                      <Lock className="h-4 w-4" />Cerrar caja
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>) : (
+                <Button variant="outline" size="sm"
+                  className="text-green-700 border-green-300 hover:bg-green-50 gap-1.5 text-xs"
+                  onClick={() => setShowOpenSession(true)}>
+                  <Unlock className="h-3.5 w-3.5" />Abrir caja
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       </header>
 
       {/* ── Cuerpo principal ─────────────────────────────────────────────── */}
@@ -1313,6 +1455,18 @@ export default function PosTerminal() {
           onClose={() => setShowTodaySales(false)}
           branchId={parseInt(branchId)}
           settings={businessSettings as ReceiptSettings}
+        />
+      )}
+
+      {/* Modal de bienvenida al abrir caja */}
+      {showWelcome && (
+        <WelcomeModal
+          userName={
+            currentUserId
+              ? (users.find(u => u.id === currentUserId)?.name.split(' ')[0] ?? null)
+              : null
+          }
+          onClose={() => setShowWelcome(false)}
         />
       )}
     </div>

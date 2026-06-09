@@ -1,12 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 
-/**
- * GET /api/sales/today?branch_id=1
- *
- * Devuelve todas las ventas del día para una sucursal, con sus ítems.
- * No incluye cambios (exchanges).
- */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const branchId = parseInt(searchParams.get('branch_id') ?? '')
@@ -16,7 +10,6 @@ export async function GET(req: Request) {
   }
 
   try {
-    // ── Cabeceras de ventas del día ───────────────────────────────────────
     const { rows: sales } = await pool.query<{
       id: number
       invoice_number: string | null
@@ -26,6 +19,8 @@ export async function GET(req: Request) {
       total_amount: number
       payment_method: string
       notes: string | null
+      user_id: number | null
+      user_name: string | null
     }>(
       `SELECT
          s.id,
@@ -35,8 +30,11 @@ export async function GET(req: Request) {
          s.discount_amount::float AS discount_amount,
          s.total_amount::float    AS total_amount,
          s.payment_method,
-         s.notes
+         s.notes,
+         s.user_id,
+         u.name                   AS user_name
        FROM sales s
+       LEFT JOIN app_users u ON u.id = s.user_id
        WHERE s.branch_id = $1
          AND s.sold_at >= CURRENT_DATE
          AND s.sold_at <  CURRENT_DATE + INTERVAL '1 day'
@@ -45,13 +43,10 @@ export async function GET(req: Request) {
       [branchId]
     )
 
-    if (sales.length === 0) {
-      return NextResponse.json([])
-    }
+    if (sales.length === 0) return NextResponse.json([])
 
     const saleIds = sales.map(s => s.id)
 
-    // ── Ítems de todas esas ventas en una sola query ───────────────────────
     const { rows: items } = await pool.query<{
       sale_id: number
       variant_id: number
@@ -77,7 +72,6 @@ export async function GET(req: Request) {
       [saleIds]
     )
 
-    // ── Armar respuesta agrupada ───────────────────────────────────────────
     const itemsBySale = items.reduce<Record<number, typeof items>>((acc, item) => {
       if (!acc[item.sale_id]) acc[item.sale_id] = []
       acc[item.sale_id].push(item)
@@ -87,14 +81,10 @@ export async function GET(req: Request) {
     const result = sales.map(s => ({
       ...s,
       items: (itemsBySale[s.id] ?? []).map(i => ({
-        id:           i.variant_id,
-        variant_id:   i.variant_id,
-        sku:          i.sku,
-        product_name: i.product_name,
-        color:        i.color,
-        size:         i.size,
-        unit_price:   i.unit_price,
-        base_price:   i.unit_price, // precio de venta = base para reimpresión (sin tachado)
+        id: i.variant_id, variant_id: i.variant_id,
+        sku: i.sku, product_name: i.product_name,
+        color: i.color, size: i.size,
+        unit_price: i.unit_price, base_price: i.unit_price,
       })),
     }))
 

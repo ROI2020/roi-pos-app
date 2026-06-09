@@ -123,3 +123,21 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── Estilos globales de impresion ── */
+@media print {
+  /* Ocultar navegacion y elementos de UI en CUALQUIER pagina */
+  nav,
+  .no-print {
+    display: none !important;
+  }
+  /* Resetear contenedores para impresion de etiquetas */
+  .print-reset {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    background: transparent !important;
+    gap: 0 !important;
+  }
+}

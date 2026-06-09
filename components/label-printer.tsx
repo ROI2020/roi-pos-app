@@ -18,6 +18,7 @@ import {
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface LookupItem { id: number; name: string }
 interface Branch    { id: number; name: string }
+interface LabelSettings { businessName: string | null; businessLogo: string | null }
 
 interface LabelVariant {
   id: number
@@ -82,22 +83,32 @@ function BarcodeImg({ value, height = 40 }: { value: string; height?: number }) 
 }
 
 // ── Etiqueta individual ────────────────────────────────────────────────────────
-// Dimensiones de impresión: 60mm × 38mm  (3 columnas en A4 con 5mm de margen)
-function LabelCard({ variant }: { variant: LabelVariant }) {
-  const printed = !!variant.label_printed_at
+// Dimensiones de impresión: 60mm × 30mm  (rollo continuo)
+function LabelCard({ variant, settings }: { variant: LabelVariant; settings: LabelSettings }) {
+  const printed  = !!variant.label_printed_at
+  const bizName  = settings.businessName ?? 'ROI POS'
 
   return (
     <div className="label-card">
-      {/* Encabezado de marca / sucursal */}
+      {/* Header: logo izquierda | nombre centrado | by ROIPOS derecha */}
       <div className="label-header">
-        <span className="label-brand">ROI POS</span>
-        {variant.branch_name && (
-          <span className="label-branch">{variant.branch_name}</span>
+        {settings.businessLogo && (
+          <img
+            src={settings.businessLogo}
+            alt=""
+            className="label-logo"
+            onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+          />
         )}
+        <span className="label-brand">{bizName}</span>
+        <span className="label-by">by ROIPOS</span>
       </div>
 
-      {/* Nombre del producto */}
-      <p className="label-product">{variant.product_name}</p>
+      {/* Nombre del producto (izq) + Precio (der) */}
+      <div className="label-product-row">
+        <p className="label-product">{variant.product_name}</p>
+        <p className="label-price">{fmtPrice(variant.base_price)}</p>
+      </div>
 
       {/* Color + Talle */}
       <div className="label-attrs">
@@ -106,12 +117,9 @@ function LabelCard({ variant }: { variant: LabelVariant }) {
         <span className="label-size">T.{variant.size}</span>
       </div>
 
-      {/* Precio */}
-      <p className="label-price">{fmtPrice(variant.base_price)}</p>
-
       {/* Código de barras */}
       <div className="label-barcode">
-        <BarcodeImg value={variant.barcode} height={32} />
+        <BarcodeImg value={variant.barcode} height={22} />
       </div>
 
       {/* Marca de ya impresa (solo visible en pantalla) */}
@@ -477,9 +485,11 @@ function SelectionPanel({
 function PreviewPanel({
   variants,
   onBack,
+  settings,
 }: {
-  variants: LabelVariant[]
-  onBack: () => void
+  variants:  LabelVariant[]
+  onBack:    () => void
+  settings:  LabelSettings
 }) {
   const [marking,  setMarking ] = useState(false)
   const [marked,   setMarked  ] = useState(false)
@@ -560,103 +570,180 @@ function PreviewPanel({
       <div className="no-print bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3 text-sm text-emerald-700">
         <strong>Consejo:</strong> en el diálogo de impresión, desactivá los encabezados/pies de página
         y ajustá el margen a 5mm para que las etiquetas queden bien alineadas.
-        Tamaño de etiqueta: <strong>60mm × 38mm</strong> · 3 por fila en A4.
+        Tamaño de etiqueta: <strong>60mm × 30mm</strong> · rollo continuo.
       </div>
 
       {/* Grilla de etiquetas */}
       <div className="label-print-area">
-        {variants.map(v => <LabelCard key={v.id} variant={v} />)}
+        {variants.map(v => <LabelCard key={v.id} variant={v} settings={settings} />)}
       </div>
 
       {/* Estilos de impresión inyectados inline */}
       <style>{`
-        /* ── Pantalla: etiquetas con escala cómoda ── */
+
+        /* ════════════════════════════════════════
+           PANTALLA: preview compacto ~240 x 115px
+        ════════════════════════════════════════ */
         .label-print-area {
           display: flex;
           flex-wrap: wrap;
-          gap: 12px;
+          gap: 10px;
           padding: 8px 0;
         }
 
         .label-card {
           position: relative;
           width: 240px;
-          min-height: 152px;
           border: 1px solid #d1d5db;
           border-radius: 6px;
-          padding: 8px 10px;
+          padding: 6px 10px 4px;
           background: #fff;
           display: flex;
           flex-direction: column;
-          gap: 2px;
+          gap: 1px;
           box-shadow: 0 1px 3px rgba(0,0,0,.08);
+          overflow: hidden;
         }
 
+        /* Header: logo izq | nombre centrado | by ROIPOS der */
         .label-header {
+          position: relative;
           display: flex;
-          justify-content: space-between;
           align-items: center;
+          justify-content: space-between;
+          min-height: 20px;
           border-bottom: 1px solid #e5e7eb;
-          padding-bottom: 4px;
+          padding-bottom: 3px;
           margin-bottom: 2px;
         }
-        .label-brand  { font-size: 9px; font-weight: 700; color: #4c1d95; letter-spacing: .05em; text-transform: uppercase; }
-        .label-branch { font-size: 8px; color: #6b7280; }
-        .label-product { font-size: 11px; font-weight: 600; color: #111827; line-height: 1.3; }
-        .label-attrs   { font-size: 10px; color: #4b5563; display: flex; align-items: center; gap: 4px; }
-        .label-sep     { color: #9ca3af; }
-        .label-size    { font-weight: 600; color: #111827; }
-        .label-price   { font-size: 15px; font-weight: 700; color: #111827; margin-top: 2px; }
-        .label-barcode { margin-top: 4px; }
+        .label-logo {
+          height: 18px; width: auto; max-width: 38px;
+          object-fit: contain; flex-shrink: 0; z-index: 1;
+        }
+        .label-brand {
+          position: absolute; left: 0; right: 0;
+          text-align: center; pointer-events: none;
+          font-size: 8px; font-weight: 700; color: #4c1d95;
+          letter-spacing: .05em; text-transform: uppercase;
+        }
+        .label-by { font-size: 6px; color: #999; z-index: 1; flex-shrink: 0; }
+
+        /* Nombre + precio en la misma fila */
+        .label-product-row {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 4px;
+        }
+        .label-product { font-size: 10px; font-weight: 600; color: #111; line-height: 1.2; }
+        .label-price   { font-size: 12px; font-weight: 700; color: #111; white-space: nowrap; flex-shrink: 0; }
+        .label-attrs   { font-size: 9px; color: #333; display: flex; align-items: center; gap: 3px; }
+        .label-sep     { color: #999; }
+        .label-size    { font-weight: 600; }
+        .label-barcode { margin-top: 2px; }
         .label-barcode svg { width: 100%; height: auto; }
 
         .label-printed-badge {
-          position: absolute;
-          top: 4px; right: 4px;
-          font-size: 8px; color: #16a34a;
+          position: absolute; top: 3px; right: 3px;
+          font-size: 7px; color: #16a34a;
           background: #f0fdf4; border: 1px solid #bbf7d0;
-          border-radius: 4px; padding: 1px 5px;
+          border-radius: 3px; padding: 1px 4px;
         }
 
-        /* ── Impresión ── */
+
+        /* ════════════════════════════════════════
+           IMPRESIÓN: rollo 60 mm × 30 mm
+           Negro puro — sin grises ni colores
+        ════════════════════════════════════════ */
         @media print {
-          .no-print { display: none !important; }
 
-          body { margin: 0 !important; padding: 0 !important; background: white !important; }
+          /* 1. Ocultar toda la UI */
+          nav, header, .no-print, [data-sonner-toaster] {
+            display: none !important;
+          }
 
-          @page { size: A4 portrait; margin: 5mm; }
+          /* 2. Reset nuclear: eliminar CUALQUIER margen/padding que desplace las etiquetas */
+          * {
+            margin: 0 !important;
+            padding: 0 !important;
+            box-sizing: border-box !important;
+          }
 
+          body { background: white !important; }
+
+          /* 3. Una etiqueta = una página del rollo (60 × 30 mm) */
+          @page { size: 60mm 30mm; margin: 0; }
+
+          /* 4. Contenedor: bloque sin espacio */
           .label-print-area {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0;
-            padding: 0;
+            display: block !important;
+            width: 60mm !important;
           }
 
+          /* 5. Cada etiqueta ocupa exactamente 1 página.
+                page-break-BEFORE en todas excepto la primera →
+                sin página en blanco al final */
           .label-card {
-            width: 60mm;
-            min-height: 38mm;
-            max-height: 38mm;
-            overflow: hidden;
-            border: 0.4mm solid #333;
-            border-radius: 0;
-            padding: 2mm 2.5mm;
-            gap: 0.5mm;
-            box-shadow: none;
-            page-break-inside: avoid;
-            break-inside: avoid;
-            box-sizing: border-box;
+            display: flex !important;
+            flex-direction: column !important;
+            width: 60mm !important;
+            height: 30mm !important;
+            padding: 1.5mm 2.5mm 1mm !important;
+            overflow: hidden !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            background: white !important;
+            page-break-before: always !important;
+            break-before: page !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
 
-          .label-header   { padding-bottom: 1mm; margin-bottom: 0.5mm; }
-          .label-brand    { font-size: 6pt; }
-          .label-branch   { font-size: 5.5pt; }
-          .label-product  { font-size: 7.5pt; }
-          .label-attrs    { font-size: 6.5pt; }
-          .label-price    { font-size: 10pt; margin-top: 0.5mm; }
-          .label-barcode  { margin-top: 1mm; }
-          .label-barcode svg { height: 10mm !important; }
-          .label-printed-badge { display: none; }
+          /* Primera etiqueta: empieza sin salto previo */
+          .label-card:first-child {
+            page-break-before: auto !important;
+            break-before: auto !important;
+          }
+
+          /* Negro puro en todo */
+          .label-card, .label-card * { color: #000 !important; }
+
+          /* Header: logo izq | nombre centrado | by ROIPOS der */
+          .label-header {
+            position: relative !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            min-height: 5.5mm !important;
+            border-bottom: 0.3mm solid #000 !important;
+            padding-bottom: 0.7mm !important;
+            margin-bottom: 0.7mm !important;
+            padding-top: 0 !important;
+          }
+          .label-logo  { max-height: 5mm !important; width: auto !important; max-width: 14mm !important; }
+          .label-brand { font-size: 6.5pt !important; font-weight: 700 !important; text-transform: uppercase !important; }
+          .label-by    { font-size: 4pt !important; }
+
+          /* Nombre + precio en la misma fila */
+          .label-product-row {
+            display: flex !important;
+            align-items: baseline !important;
+            justify-content: space-between !important;
+            gap: 1mm !important;
+          }
+          .label-product { font-size: 7pt !important;   font-weight: 600 !important; line-height: 1.25 !important; }
+          .label-price   { font-size: 8.5pt !important; font-weight: 700 !important; white-space: nowrap !important; flex-shrink: 0 !important; }
+
+          /* Color · Talle */
+          .label-attrs   { font-size: 6.5pt !important; display: flex !important; align-items: center !important; }
+
+          /* Barcode */
+          .label-barcode { margin-top: 0.5mm !important; }
+          .label-barcode svg { width: 100% !important; height: 7.5mm !important; }
+
+          /* Ocultar badge */
+          .label-printed-badge { display: none !important; }
         }
       `}</style>
     </div>
@@ -665,8 +752,23 @@ function PreviewPanel({
 
 // ── Componente principal ───────────────────────────────────────────────────────
 export default function LabelPrinter() {
-  const [step,             setStep            ] = useState<Step>('select')
-  const [previewVariants,  setPreviewVariants ] = useState<LabelVariant[]>([])
+  const [step,            setStep           ] = useState<Step>('select')
+  const [previewVariants, setPreviewVariants] = useState<LabelVariant[]>([])
+  const [labelSettings,   setLabelSettings  ] = useState<LabelSettings>({
+    businessName: null, businessLogo: null,
+  })
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then((s: Record<string, string | null>) => {
+        setLabelSettings({
+          businessName: s.business_name ?? null,
+          businessLogo: s.business_logo ?? null,
+        })
+      })
+      .catch(() => {})
+  }, [])
 
   const handlePreview = (variants: LabelVariant[]) => {
     setPreviewVariants(variants)
@@ -674,8 +776,8 @@ export default function LabelPrinter() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-5xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gray-50 p-4 md:p-8 print-reset">
+      <div className="max-w-5xl mx-auto space-y-6 print-reset">
 
         {/* Título */}
         {step === 'select' && (
@@ -692,7 +794,11 @@ export default function LabelPrinter() {
 
         {step === 'select'
           ? <SelectionPanel onPreview={handlePreview} />
-          : <PreviewPanel   variants={previewVariants} onBack={() => setStep('select')} />
+          : <PreviewPanel
+              variants={previewVariants}
+              onBack={() => setStep('select')}
+              settings={labelSettings}
+            />
         }
       </div>
     </div>

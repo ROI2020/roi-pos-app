@@ -1,10 +1,13 @@
 "use client"
 
-import { Printer, Gift } from "lucide-react"
+import { useState } from "react"
+import { Printer, Gift, Loader2, Thermometer } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import { imprimirTicket, buildTicketData } from "@/lib/print-ticket"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface ReceiptItem {
@@ -70,7 +73,7 @@ function buildReceiptHTML(data: ReceiptData, settings: ReceiptSettings, gift: bo
     const priceCell = gift ? '' : `
       <td style="text-align:right;vertical-align:top;white-space:nowrap;padding-left:8px;">
         ${hasItemDiscount
-          ? `<div style="font-size:11px;color:#999;text-decoration:line-through;line-height:1.3;">${fmt(item.base_price)}</div>`
+          ? `<div style="font-size:11px;color:#000;text-decoration:line-through;line-height:1.3;">${fmt(item.base_price)}</div>`
           : ''}
         <div style="font-size:13px;font-weight:600;line-height:1.3;">${fmt(item.unit_price)}</div>
       </td>`
@@ -79,33 +82,33 @@ function buildReceiptHTML(data: ReceiptData, settings: ReceiptSettings, gift: bo
       <tr>
         <td style="padding:5px 0;vertical-align:top;">
           <div style="font-weight:600;font-size:13px;line-height:1.3;">1x ${item.product_name}</div>
-          <div style="font-size:11px;color:#666;line-height:1.3;">${item.color} · T.${item.size}</div>
-          <div style="font-size:10px;color:#999;font-family:monospace;line-height:1.4;">SKU: ${item.sku}</div>
+          <div style="font-size:11px;color:#000;line-height:1.3;">${item.color} · T.${item.size}</div>
+          <div style="font-size:10px;color:#000;font-family:monospace;line-height:1.4;">SKU: ${item.sku}</div>
         </td>
         ${priceCell}
       </tr>`
   }).join('')
 
   const totalsHTML = gift ? '' : `
-    <tr><td colspan="2" style="padding:6px 0 0;"><hr style="border:none;border-top:1px dashed #ccc;margin:0;" /></td></tr>
+    <tr><td colspan="2" style="padding:6px 0 0;"><hr style="border:none;border-top:1px solid #000;margin:0;" /></td></tr>
     <tr>
-      <td style="font-size:12px;color:#666;padding:3px 0;">Subtotal</td>
-      <td style="text-align:right;font-size:12px;color:#666;">${fmt(data.subtotal)}</td>
+      <td style="font-size:12px;color:#000;padding:3px 0;">Subtotal</td>
+      <td style="text-align:right;font-size:12px;color:#000;">${fmt(data.subtotal)}</td>
     </tr>
     ${data.discountAmount > 0 ? `
     <tr>
-      <td style="font-size:12px;color:#e74c3c;padding:3px 0;">
+      <td style="font-size:12px;color:#000;padding:3px 0;">
         Descuento${data.discountType === 'pct' ? ` (${data.discountValue}%)` : ''}
       </td>
-      <td style="text-align:right;font-size:12px;color:#e74c3c;">−${fmt(data.discountAmount)}</td>
+      <td style="text-align:right;font-size:12px;color:#000;">−${fmt(data.discountAmount)}</td>
     </tr>` : ''}
     <tr>
       <td style="font-size:17px;font-weight:700;padding:4px 0 3px;"><strong>Total:</strong></td>
       <td style="text-align:right;font-size:17px;font-weight:700;"><strong>${fmt(data.total)}</strong></td>
     </tr>
     <tr>
-      <td style="font-size:12px;color:#555;">${data.payMethodLabel}:</td>
-      <td style="text-align:right;font-size:12px;color:#555;">${fmt(data.total)}</td>
+      <td style="font-size:12px;color:#000;">${data.payMethodLabel}:</td>
+      <td style="text-align:right;font-size:12px;color:#000;">${fmt(data.total)}</td>
     </tr>`
 
   const noInvoice = settings.receipt_no_invoice_text || 'No válido como factura'
@@ -116,7 +119,7 @@ function buildReceiptHTML(data: ReceiptData, settings: ReceiptSettings, gift: bo
   <meta charset="UTF-8" />
   <title>Recibo #${receiptId}${gift ? ' - Para regalo' : ''}</title>
   <style>
-    *{margin:0;padding:0;box-sizing:border-box;}
+    *{margin:0;padding:0;box-sizing:border-box;color:#000!important;}
     body{font-family:Arial,Helvetica,sans-serif;max-width:310px;margin:0 auto;padding:14px 16px;}
     @media print{
       @page{margin:6mm;size:80mm auto;}
@@ -129,15 +132,15 @@ function buildReceiptHTML(data: ReceiptData, settings: ReceiptSettings, gift: bo
   <div style="text-align:center;margin-bottom:10px;">
     ${logoHTML}
     <div style="font-size:18px;font-weight:700;">${settings.business_name || ''}</div>
-    ${settings.receipt_phone   ? `<div style="font-size:12px;color:#555;margin-top:2px;">${settings.receipt_phone}</div>`   : ''}
-    ${settings.receipt_address ? `<div style="font-size:11px;color:#666;margin-top:2px;">${settings.receipt_address}</div>` : ''}
-    ${settings.receipt_footer  ? `<div style="font-size:11px;color:#666;margin-top:4px;">${settings.receipt_footer}</div>`  : ''}
-    ${gift ? `<div style="font-size:11px;color:#888;font-style:italic;margin-top:4px;">(Comprobante para cambios)</div>` : ''}
+    ${settings.receipt_phone   ? `<div style="font-size:12px;color:#000;margin-top:2px;">${settings.receipt_phone}</div>`   : ''}
+    ${settings.receipt_address ? `<div style="font-size:11px;color:#000;margin-top:2px;">${settings.receipt_address}</div>` : ''}
+    ${settings.receipt_footer  ? `<div style="font-size:11px;color:#000;margin-top:4px;">${settings.receipt_footer}</div>`  : ''}
+    ${gift ? `<div style="font-size:11px;color:#000;font-style:italic;margin-top:4px;">(Comprobante para cambios)</div>` : ''}
   </div>
 
   <!-- Número de recibo + cantidad -->
-  <div style="display:flex;justify-content:space-between;align-items:center;border-top:2px solid #222;border-bottom:2px solid #222;padding:5px 0;margin-bottom:10px;">
-    <span style="font-size:12px;color:#555;">${data.items.length} item${data.items.length !== 1 ? 's' : ''} (Ctd.: ${data.items.length})</span>
+  <div style="display:flex;justify-content:space-between;align-items:center;border-top:2px solid #000;border-bottom:2px solid #000;padding:5px 0;margin-bottom:10px;">
+    <span style="font-size:12px;color:#000;">${data.items.length} item${data.items.length !== 1 ? 's' : ''} (Ctd.: ${data.items.length})</span>
     <span style="font-size:14px;font-weight:700;">RECIBO #${receiptId}</span>
   </div>
 
@@ -150,9 +153,9 @@ function buildReceiptHTML(data: ReceiptData, settings: ReceiptSettings, gift: bo
   </table>
 
   <!-- Pie -->
-  <div style="border-top:2px solid #222;margin-top:10px;padding-top:8px;text-align:center;">
-    <div style="font-size:12px;color:#888;">${noInvoice}</div>
-    <div style="font-size:11px;color:#aaa;margin-top:3px;">${dateStr} ${timeStr}</div>
+  <div style="border-top:2px solid #000;margin-top:10px;padding-top:8px;text-align:center;">
+    <div style="font-size:12px;color:#000;">${noInvoice}</div>
+    <div style="font-size:11px;color:#000;margin-top:3px;">${dateStr} ${timeStr}</div>
   </div>
 </body>
 </html>`
@@ -160,6 +163,25 @@ function buildReceiptHTML(data: ReceiptData, settings: ReceiptSettings, gift: bo
 
 // ── Componente ─────────────────────────────────────────────────────────────────
 export function ReceiptDialog({ open, onClose, data, settings }: Props) {
+  const [thermalLoading, setThermalLoading] = useState(false)
+
+  const handleThermalPrint = async () => {
+    setThermalLoading(true)
+    try {
+      const result = await imprimirTicket(buildTicketData(data, settings))
+      if (result.ok) {
+        toast.success('Ticket enviado a la impresora')
+        onClose()
+      } else {
+        toast.error(result.error ?? 'Error al imprimir', { duration: 6000 })
+      }
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally {
+      setThermalLoading(false)
+    }
+  }
+
   const handlePrint = (gift: boolean) => {
     const html = buildReceiptHTML(data, settings, gift)
     const w = window.open('', '_blank', 'width=400,height=650,scrollbars=yes')
@@ -252,17 +274,39 @@ export function ReceiptDialog({ open, onClose, data, settings }: Props) {
           </div>
         </div>
 
-        {/* Acciones */}
-        <div className="flex gap-2 pt-1">
-          <Button className="flex-1 gap-1.5" onClick={() => handlePrint(false)}>
-            <Printer className="h-4 w-4" />
-            Imprimir
+        {/* Acción principal: impresora térmica */}
+        <Button
+          className="w-full gap-2"
+          onClick={handleThermalPrint}
+          disabled={thermalLoading}
+        >
+          {thermalLoading
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : <Thermometer className="h-4 w-4" />
+          }
+          {thermalLoading ? 'Enviando a impresora…' : 'Imprimir ticket (térmica)'}
+        </Button>
+
+        {/* Opciones browser: normal / regalo */}
+        <div className="flex gap-2">
+          <Button
+            variant="outline" size="sm"
+            className="flex-1 gap-1.5 text-xs text-gray-600"
+            onClick={() => handlePrint(false)}
+          >
+            <Printer className="h-3.5 w-3.5" />
+            PDF / browser
           </Button>
-          <Button variant="outline" className="flex-1 gap-1.5" onClick={() => handlePrint(true)}>
-            <Gift className="h-4 w-4" />
+          <Button
+            variant="outline" size="sm"
+            className="flex-1 gap-1.5 text-xs text-gray-600"
+            onClick={() => handlePrint(true)}
+          >
+            <Gift className="h-3.5 w-3.5" />
             Para regalo
           </Button>
         </div>
+
         <Button variant="ghost" size="sm" className="w-full -mt-1 text-gray-400" onClick={onClose}>
           Cerrar sin imprimir
         </Button>

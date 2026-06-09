@@ -21,6 +21,7 @@ interface Movement {
   branch_name:    string
   branch_id:      number
   payment_method: string
+  user_name:      string
   total:          number
   efectivo:       number
   debito:         number
@@ -84,12 +85,13 @@ const fmtAmtFull = (n: number) =>
 
 // ── CSV export ────────────────────────────────────────────────────────────────
 function downloadCSV(movements: Movement[], from: string, to: string) {
-  const headers = ['Fecha','Hora','Tipo','Descripción','Sucursal','Efectivo','Débito','Crédito','MP','Transferencia','Total']
+  const headers = ['Fecha','Hora','Tipo','Descripción','Vendedor','Sucursal','Efectivo','Débito','Crédito','MP','Transferencia','Total']
   const rows = movements.map(m => [
     fmtDateShort(m.datetime),
     fmtHour(m.datetime),
     m.type,
     m.description.replace(/"/g,'""'),
+    m.user_name,
     m.branch_name,
     m.efectivo, m.debito, m.credito, m.mp, m.transferencia, m.total,
   ])
@@ -499,6 +501,7 @@ export default function CashFlowReport() {
                     <th className="px-2 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Hora</th>
                     <SortTh field="type"          label="Tipo"          sort={sortField} dir={sortDir} onSort={handleSort} />
                     <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Descripción</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Vendedor</th>
                     {branches.length > 1 && (
                       <SortTh field="branch_name" label="Sucursal"      sort={sortField} dir={sortDir} onSort={handleSort} />
                     )}
@@ -534,6 +537,9 @@ export default function CashFlowReport() {
                             <p className="text-xs text-gray-400 truncate">{m.notes}</p>
                           )}
                         </td>
+                        <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                          {m.user_name || <span className="text-gray-300">—</span>}
+                        </td>
                         {branches.length > 1 && (
                           <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
                             {m.branch_name}
@@ -557,7 +563,7 @@ export default function CashFlowReport() {
                 {/* Pie de tabla con totales del filtro actual */}
                 <tfoot>
                   <tr className="border-t-2 border-gray-200 bg-gray-50 font-semibold text-sm">
-                    <td colSpan={branches.length > 1 ? 5 : 4} className="px-4 py-2.5 text-gray-600">
+                    <td colSpan={branches.length > 1 ? 6 : 5} className="px-4 py-2.5 text-gray-600">
                       {sorted.length} movimiento{sorted.length !== 1 ? 's' : ''}
                     </td>
                     {[grandTotal.efectivo, grandTotal.debito, grandTotal.credito, grandTotal.mp, grandTotal.transferencia].map((v, i) => (

@@ -1,0 +1,13 @@
+{
+  "name": "roi-pos-print-server",
+  "version": "1.0.0",
+  "description": "Servidor de impresion local ROI POS - Xprinter XP-E200M",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-thermal-printer": "^4.4.1"
+  }
+}

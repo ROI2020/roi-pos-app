@@ -294,8 +294,8 @@ function ProductCard({
 
         {badges.length > 0 && (
           <div className="flex flex-wrap gap-1">
-            {badges.map(b => (
-              <span key={b} className="text-[10px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">
+            {badges.map((b, i) => (
+              <span key={i} className="text-[10px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">
                 {b}
               </span>
             ))}

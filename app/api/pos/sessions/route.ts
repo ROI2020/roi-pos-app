@@ -37,6 +37,25 @@ export async function GET(req: Request) {
        (SELECT COALESCE(SUM(e.amount),0)::float FROM daily_expenses e WHERE e.pos_session_id = ps.id AND e.payment_method = 'mp')            AS expense_mp_total,
        (SELECT COALESCE(SUM(e.amount),0)::float FROM daily_expenses e WHERE e.pos_session_id = ps.id AND e.payment_method = 'transferencia') AS expense_transfer_total,
 
+       -- ── Ventas agrupadas por vendedor ─────────────────────────────────
+       (SELECT json_agg(
+          json_build_object(
+            'user_id',     ub.uid,
+            'user_name',   ub.uname,
+            'sales_count', ub.cnt,
+            'sales_total', ub.tot
+          ) ORDER BY ub.tot DESC
+        ) FROM (
+          SELECT s.user_id AS uid,
+                 COALESCE(u2.name, 'Sin usuario') AS uname,
+                 COUNT(*)::int                    AS cnt,
+                 SUM(s.total_amount)::float       AS tot
+          FROM sales s
+          LEFT JOIN app_users u2 ON u2.id = s.user_id
+          WHERE s.pos_session_id = ps.id
+          GROUP BY s.user_id, u2.name
+        ) ub) AS sales_by_user,
+
        -- ── Nombres de sucursal y usuarios ────────────────────────────────
        br.name                    AS branch_name,
        opened_u.name              AS opened_by_user_name,

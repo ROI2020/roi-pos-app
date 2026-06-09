@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   try {
     const {
       branch_id, pos_session_id, invoice_number,
-      discount_amount, payment_method, notes, items,
+      discount_amount, payment_method, notes, items, user_id,
     } = await req.json()
 
     // ── Validaciones básicas ─────────────────────────────────────────────
@@ -50,8 +50,8 @@ export async function POST(req: Request) {
       `INSERT INTO sales
          (branch_id, pos_session_id, invoice_number,
           subtotal, discount_amount, total_amount,
-          payment_method, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+          payment_method, notes, user_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        RETURNING id`,
       [
         branch_id,
@@ -60,6 +60,7 @@ export async function POST(req: Request) {
         subtotal, discount, total,
         payment_method,
         notes?.trim() || null,
+        user_id ?? null,
       ]
     )
 

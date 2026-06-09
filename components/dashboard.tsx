@@ -25,6 +25,9 @@ interface ClassificationRow {
   revenue:    number
 }
 
+interface SalesSummary { count: number; total: number }
+interface RoiSummary   { vendido: number; costo: number; gastos: number }
+
 interface DashboardData {
   summary: {
     total:            number
@@ -32,8 +35,8 @@ interface DashboardData {
     unassigned:       number
     sold_count:       number
     stock_cost:       number
-    stock_potential:  number   // base_price de prendas en stock
-    revenue:          number   // ingresos reales (sale_details.unit_price)
+    stock_potential:  number
+    revenue:          number
     unclassified_products: number
   }
   by_category:  ClassificationRow[]
@@ -41,6 +44,12 @@ interface DashboardData {
   by_season:    ClassificationRow[]
   by_gender:    ClassificationRow[]
   by_branch:    ClassificationRow[]
+  sales_today:  SalesSummary
+  sales_week:   SalesSummary
+  sales_month:  SalesSummary
+  roi_today:    RoiSummary
+  roi_week:     RoiSummary
+  roi_month:    RoiSummary
 }
 
 // ── Formateo ───────────────────────────────────────────────────────────────────
@@ -104,6 +113,34 @@ function CountTooltip({
   )
 }
 
+function MixTooltip({
+  active, payload, label,
+}: { active?: boolean; payload?: { dataKey: string; value: number }[]; label?: string }) {
+  if (!active || !payload?.length) return null
+  const stockPct = payload.find(p => p.dataKey === 'stock_pct')?.value ?? 0
+  const soldPct  = payload.find(p => p.dataKey === 'sold_pct')?.value ?? 0
+  const gap      = soldPct - stockPct
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm space-y-1.5">
+      <p className="font-semibold text-gray-800 mb-1">{label}</p>
+      <p className="flex justify-between gap-4">
+        <span className="text-gray-500">% en stock</span>
+        <span className="font-medium text-purple-500 tabular-nums">{stockPct}%</span>
+      </p>
+      <p className="flex justify-between gap-4">
+        <span className="text-gray-500">% de ventas</span>
+        <span className="font-medium text-indigo-600 tabular-nums">{soldPct}%</span>
+      </p>
+      <div className={`flex justify-between gap-4 border-t border-gray-100 pt-1 font-semibold ${
+        gap > 0 ? 'text-emerald-600' : gap < 0 ? 'text-red-500' : 'text-gray-400'
+      }`}>
+        <span>Diferencia</span>
+        <span className="tabular-nums">{gap > 0 ? '+' : ''}{gap.toFixed(1)}%</span>
+      </div>
+    </div>
+  )
+}
+
 // ── KPI Card ───────────────────────────────────────────────────────────────────
 function KpiCard({
   label, value, sub, icon: Icon, accent,
@@ -129,17 +166,10 @@ function KpiCard({
 }
 
 // ── Classification Chart Card ──────────────────────────────────────────────────
-type ChartView = 'stock_values' | 'stock_count' | 'sales'
+type ChartView = 'stock_values' | 'stock_count' | 'sales' | 'mix'
 
 function ClassificationCard({ title, data }: { title: string; data: ClassificationRow[] }) {
-  const [view, setView] = useState<ChartView>('stock_values')
-
-  const chartData = useMemo(() => data.map(d => ({
-    ...d,
-    label: view === 'sales'
-      ? `${d.name} (${d.sold_count})`
-      : `${d.name} (${d.count})`,
-  })), [data, view])
+  const [view, setView] = useState<ChartView>('mix')
 
   const totals = useMemo(() => data.reduce(
     (a, d) => ({
@@ -152,12 +182,31 @@ function ClassificationCard({ title, data }: { title: string; data: Classificati
     { count: 0, cost: 0, sale: 0, sold_count: 0, revenue: 0 }
   ), [data])
 
+  const chartData = useMemo(() => data.map(d => ({
+    ...d,
+    label: view === 'sales'
+      ? `${d.name} (${d.sold_count})`
+      : `${d.name} (${d.count})`,
+  })), [data, view])
+
+  // Datos para la vista Mix %: porcentaje de stock vs porcentaje de ventas
+  const mixData = useMemo(() =>
+    data
+      .map(d => ({
+        label:     d.name,
+        stock_pct: totals.count      > 0 ? +((d.count      / totals.count)      * 100).toFixed(1) : 0,
+        sold_pct:  totals.sold_count > 0 ? +((d.sold_count / totals.sold_count) * 100).toFixed(1) : 0,
+      }))
+      .sort((a, b) => b.sold_pct - a.sold_pct),
+  [data, totals])
+
   const chartHeight = Math.max(data.length * 52 + 48, 120)
 
   const TABS: { key: ChartView; label: string }[] = [
     { key: 'stock_values', label: '$ Stock'   },
     { key: 'stock_count',  label: '# Stock'   },
     { key: 'sales',        label: '$ Vendido' },
+    { key: 'mix',          label: 'Mix %'     },
   ]
 
   return (
@@ -188,7 +237,21 @@ function ClassificationCard({ title, data }: { title: string; data: Classificati
         <>
           {/* Chart */}
           <ResponsiveContainer width="100%" height={chartHeight}>
-            {view === 'stock_values' ? (
+            {view === 'mix' ? (
+              <BarChart data={mixData} layout="vertical"
+                margin={{ top: 0, right: 20, bottom: 0, left: 8 }}
+                barCategoryGap="30%" barGap={3}
+              >
+                <XAxis type="number" tickFormatter={v => `${v}%`}
+                  tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="label" width={145}
+                  tick={{ fontSize: 11, fill: '#374151' }} axisLine={false} tickLine={false} />
+                <RechartTooltip content={<MixTooltip />} />
+                <Legend iconType="square" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="stock_pct" name="% en stock"  fill="#c4b5fd" radius={[0,3,3,0]} maxBarSize={14} />
+                <Bar dataKey="sold_pct"  name="% de ventas" fill="#6366f1" radius={[0,3,3,0]} maxBarSize={14} />
+              </BarChart>
+            ) : view === 'stock_values' ? (
               <BarChart data={chartData} layout="vertical"
                 margin={{ top: 0, right: 12, bottom: 0, left: 8 }}
                 barCategoryGap="30%" barGap={3}
@@ -232,31 +295,84 @@ function ClassificationCard({ title, data }: { title: string; data: Classificati
             )}
           </ResponsiveContainer>
 
-          {/* Footer: totales de stock + ventas */}
-          <div className="border-t border-gray-100 pt-3 space-y-1.5">
-            {/* Stock */}
-            <div className="flex items-center justify-between text-xs text-gray-600">
-              <span className="font-semibold">Stock actual</span>
-              <div className="flex items-center gap-4">
-                <span className="text-gray-500">{fmtNum(totals.count)} prendas</span>
-                <span style={{ color: COST_COLOR }}>{fmtCurrency(totals.cost)}</span>
-                <span style={{ color: SALE_COLOR }}>{fmtCurrency(totals.sale)}</span>
-              </div>
+          {/* ── Vista Mix %: tabla de gap stock vs ventas ── */}
+          {view === 'mix' && (
+            <div className="border-t border-gray-100 pt-3 space-y-2">
+
+              {totals.sold_count === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-2">
+                  Sin ventas registradas — no hay comparativa disponible
+                </p>
+              ) : (
+                <>
+                  {/* Header */}
+                  <div className="flex items-center text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                    <span className="flex-1">Segmento</span>
+                    <span className="w-14 text-right text-purple-400">Stock %</span>
+                    <span className="w-14 text-right text-indigo-500">Ventas %</span>
+                    <span className="w-14 text-right">Gap</span>
+                  </div>
+
+                  {/* Rows */}
+                  {mixData.map(d => {
+                    const gap    = d.sold_pct - d.stock_pct
+                    const isHot  = gap >  4
+                    const isSlow = gap < -4
+                    return (
+                      <div key={d.label} className="flex items-center text-xs gap-1">
+                        <span className="flex-1 text-gray-700 truncate pr-1">{d.label}</span>
+                        <span className="w-14 text-right tabular-nums text-purple-400">
+                          {d.stock_pct}%
+                        </span>
+                        <span className="w-14 text-right tabular-nums text-indigo-600 font-medium">
+                          {d.sold_pct}%
+                        </span>
+                        <span className={`w-14 text-right tabular-nums font-semibold ${
+                          isHot ? 'text-emerald-600' : isSlow ? 'text-red-500' : 'text-gray-400'
+                        }`}>
+                          {gap > 0 ? '+' : ''}{gap.toFixed(1)}%
+                        </span>
+                      </div>
+                    )
+                  })}
+
+                  {/* Leyenda */}
+                  <p className="text-[10px] text-gray-400 pt-1.5 border-t border-gray-50 leading-relaxed">
+                    <span className="text-emerald-600 font-medium">Gap positivo</span>
+                    {' '}— vende más de lo que representa en stock (comprá más) · {' '}
+                    <span className="text-red-500 font-medium">Gap negativo</span>
+                    {' '}— bajo rendimiento relativo al stock
+                  </p>
+                </>
+              )}
             </div>
-            {/* Vendido */}
-            {totals.sold_count > 0 && (
-              <div className="flex items-center justify-between text-xs text-gray-400">
-                <span className="flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3 text-indigo-400" />
-                  Vendido
-                </span>
+          )}
+
+          {/* Footer estándar: totales de stock + ventas (se oculta en mix) */}
+          {view !== 'mix' && (
+            <div className="border-t border-gray-100 pt-3 space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-gray-600">
+                <span className="font-semibold">Stock actual</span>
                 <div className="flex items-center gap-4">
-                  <span>{fmtNum(totals.sold_count)} prendas</span>
-                  <span style={{ color: REVENUE_COLOR }} className="font-medium">{fmtCurrency(totals.revenue)}</span>
+                  <span className="text-gray-500">{fmtNum(totals.count)} prendas</span>
+                  <span style={{ color: COST_COLOR }}>{fmtCurrency(totals.cost)}</span>
+                  <span style={{ color: SALE_COLOR }}>{fmtCurrency(totals.sale)}</span>
                 </div>
               </div>
-            )}
-          </div>
+              {totals.sold_count > 0 && (
+                <div className="flex items-center justify-between text-xs text-gray-400">
+                  <span className="flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3 text-indigo-400" />
+                    Vendido
+                  </span>
+                  <div className="flex items-center gap-4">
+                    <span>{fmtNum(totals.sold_count)} prendas</span>
+                    <span style={{ color: REVENUE_COLOR }} className="font-medium">{fmtCurrency(totals.revenue)}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -372,6 +488,67 @@ function BranchTable({ data }: { data: ClassificationRow[] }) {
   )
 }
 
+// ── ROI Card ───────────────────────────────────────────────────────────────────
+function RoiCard({ title, data }: { title: string; data: RoiSummary }) {
+  const { vendido, costo, gastos } = data
+  const beneficio = vendido - costo - gastos
+
+  const pct = (v: number) =>
+    vendido > 0 ? Math.round((v / vendido) * 100) : 0
+
+  return (
+    <div className="bg-white rounded-xl border shadow-sm p-4 space-y-3">
+      <p className="text-sm font-semibold text-gray-700">{title}</p>
+
+      <div className="space-y-1.5">
+        {/* Vendido */}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-gray-500">Vendido</span>
+          <div className="flex items-center gap-3 tabular-nums">
+            <span className="text-sm font-bold text-gray-800">{fmtCurrency(vendido)}</span>
+            <span className="text-xs text-gray-400 w-9 text-right">100%</span>
+          </div>
+        </div>
+
+        {/* Costo */}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-gray-500">Costo</span>
+          <div className="flex items-center gap-3 tabular-nums">
+            <span className="text-sm font-medium text-orange-600">{fmtCurrency(costo)}</span>
+            <span className="text-xs text-orange-400 w-9 text-right">{pct(costo)}%</span>
+          </div>
+        </div>
+
+        {/* Gastos */}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-gray-500">Gastos</span>
+          <div className="flex items-center gap-3 tabular-nums">
+            <span className="text-sm font-medium text-amber-600">{fmtCurrency(gastos)}</span>
+            <span className="text-xs text-amber-400 w-9 text-right">{pct(gastos)}%</span>
+          </div>
+        </div>
+
+        {/* Divider + Beneficio / Pérdida */}
+        <div className="border-t border-gray-100 pt-2 mt-0.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className={`text-xs font-semibold ${beneficio >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+              {beneficio >= 0 ? 'Beneficio' : 'Pérdida'}
+            </span>
+            <div className="flex items-center gap-3 tabular-nums">
+              <span className={`text-sm font-bold ${beneficio >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                {fmtCurrency(beneficio)}
+              </span>
+              <span className={`text-xs font-medium w-9 text-right ${beneficio >= 0 ? 'text-emerald-500' : 'text-red-400'}`}>
+                {pct(beneficio)}%
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Componente principal ───────────────────────────────────────────────────────
 export default function Dashboard() {
   const [data,    setData   ] = useState<DashboardData | null>(null)
@@ -426,6 +603,33 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
+
+        {/* ── Ventas del período ── */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[
+            { label: 'Hoy',          data: data.sales_today, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+            { label: 'Esta semana',  data: data.sales_week,  color: 'text-violet-600',  bg: 'bg-violet-50',  border: 'border-violet-200'  },
+            { label: 'Este mes',     data: data.sales_month, color: 'text-blue-600',    bg: 'bg-blue-50',    border: 'border-blue-200'    },
+          ].map(({ label, data: d, color, bg, border }) => (
+            <div key={label} className={`${bg} border ${border} rounded-xl p-4 flex items-center gap-4`}>
+              <div className={`p-2.5 rounded-lg bg-white shadow-sm shrink-0`}>
+                <ShoppingCart className={`h-5 w-5 ${color}`} />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 font-medium">{label}</p>
+                <p className={`text-xl font-bold ${color}`}>{fmtCurrency(d.total)}</p>
+                <p className="text-xs text-gray-400">{d.count} venta{d.count !== 1 ? 's' : ''}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── ROI: Vendido / Costo / Gastos / Beneficio ── */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <RoiCard title="Hoy"         data={data.roi_today} />
+          <RoiCard title="Esta semana" data={data.roi_week}  />
+          <RoiCard title="Este mes"    data={data.roi_month} />
+        </div>
 
         {/* Título */}
         <div className="flex flex-wrap items-center justify-between gap-4">

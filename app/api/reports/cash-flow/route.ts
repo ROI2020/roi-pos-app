@@ -35,6 +35,7 @@ export async function GET(req: Request) {
       br.name                            AS branch_name,
       s.branch_id,
       s.payment_method,
+      COALESCE(uv.name, '')              AS user_name,
       s.total_amount::float              AS total,
       CASE WHEN s.payment_method='efectivo'      THEN  s.total_amount::float ELSE 0 END AS efectivo,
       CASE WHEN s.payment_method='debito'        THEN  s.total_amount::float ELSE 0 END AS debito,
@@ -43,6 +44,7 @@ export async function GET(req: Request) {
       CASE WHEN s.payment_method='transferencia' THEN  s.total_amount::float ELSE 0 END AS transferencia
     FROM sales s
     JOIN branches br ON br.id = s.branch_id
+    LEFT JOIN app_users uv ON uv.id = s.user_id
     LEFT JOIN LATERAL (
       SELECT COUNT(*)::int AS n FROM sale_details WHERE sale_id = s.id
     ) cnt ON true
@@ -65,6 +67,7 @@ export async function GET(req: Request) {
       br.name                            AS branch_name,
       s.branch_id,
       COALESCE(s.payment_method,'cambio') AS payment_method,
+      COALESCE(uc.name, '')              AS user_name,
       s.total_amount::float              AS total,
       CASE WHEN s.payment_method='efectivo'      THEN  s.total_amount::float ELSE 0 END AS efectivo,
       CASE WHEN s.payment_method='debito'        THEN  s.total_amount::float ELSE 0 END AS debito,
@@ -74,6 +77,7 @@ export async function GET(req: Request) {
     FROM sales s
     JOIN branches br   ON br.id  = s.branch_id
     JOIN exchanges ex  ON ex.exchange_sale_id = s.id
+    LEFT JOIN app_users uc ON uc.id = ex.user_id
     LEFT JOIN product_variants rv ON rv.id = ex.returned_variant_id
     LEFT JOIN products          rp ON rp.id = rv.product_id
     LEFT JOIN product_variants nv ON nv.id = ex.new_variant_id
@@ -96,6 +100,7 @@ export async function GET(req: Request) {
       br.name                            AS branch_name,
       e.branch_id,
       e.payment_method,
+      COALESCE(ug.name, '')              AS user_name,
       (-e.amount)::float                 AS total,
       CASE WHEN e.payment_method='efectivo'      THEN (-e.amount)::float ELSE 0 END AS efectivo,
       CASE WHEN e.payment_method='debito'        THEN (-e.amount)::float ELSE 0 END AS debito,
@@ -104,6 +109,7 @@ export async function GET(req: Request) {
       CASE WHEN e.payment_method='transferencia' THEN (-e.amount)::float ELSE 0 END AS transferencia
     FROM daily_expenses e
     JOIN branches br      ON br.id  = e.branch_id
+    LEFT JOIN app_users ug ON ug.id = e.user_id
     LEFT JOIN expense_types et ON et.id = e.expense_type_id
     WHERE e.created_at::date BETWEEN $1::date AND $2::date
 
