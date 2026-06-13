@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   try {
     const {
       branch_id, pos_session_id, invoice_number,
-      discount_amount, payment_method, notes, items, user_id,
+      discount_amount, payment_method, payment_split, notes, items, user_id,
     } = await req.json()
 
     // ── Validaciones básicas ─────────────────────────────────────────────
@@ -46,12 +46,17 @@ export async function POST(req: Request) {
     await client.query('BEGIN')
 
     // ── 1. Encabezado de venta ────────────────────────────────────────────
+    // payment_split es un objeto { efectivo: 2000, mp: 3000 } — solo cuando pago mixto
+    const splitJson = payment_split && Object.keys(payment_split).length > 1
+      ? JSON.stringify(payment_split)
+      : null
+
     const { rows: [sale] } = await client.query(
       `INSERT INTO sales
          (branch_id, pos_session_id, invoice_number,
           subtotal, discount_amount, total_amount,
-          payment_method, notes, user_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+          payment_method, payment_split, notes, user_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING id`,
       [
         branch_id,
@@ -59,6 +64,7 @@ export async function POST(req: Request) {
         invoice_number?.trim() || null,
         subtotal, discount, total,
         payment_method,
+        splitJson,
         notes?.trim() || null,
         user_id ?? null,
       ]

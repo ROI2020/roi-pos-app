@@ -29,9 +29,9 @@ export function middleware(req: NextRequest) {
   try {
     const { role } = JSON.parse(decodeURIComponent(session)) as { id: number; role: string }
 
-    // Vendedor y Encargado solo pueden ir a /venta
+    // Vendedor y Encargado: acceso a venta y productos
     if (role !== 'administrador') {
-      const allowed = ['/venta']
+      const allowed = ['/venta', '/productos']
       if (!allowed.some(p => pathname.startsWith(p))) {
         return NextResponse.redirect(new URL('/venta', req.url))
       }

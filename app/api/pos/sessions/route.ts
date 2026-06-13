@@ -22,11 +22,20 @@ export async function GET(req: Request) {
        -- ── Ventas del turno ──────────────────────────────────────────────
        (SELECT COUNT(*)::int          FROM sales s WHERE s.pos_session_id = ps.id)           AS sales_count,
        (SELECT COALESCE(SUM(s.total_amount),0)::float FROM sales s WHERE s.pos_session_id = ps.id) AS sales_total,
-       (SELECT COALESCE(SUM(s.total_amount),0)::float FROM sales s WHERE s.pos_session_id = ps.id AND s.payment_method = 'efectivo')      AS cash_total,
-       (SELECT COALESCE(SUM(s.total_amount),0)::float FROM sales s WHERE s.pos_session_id = ps.id AND s.payment_method = 'debito')        AS debit_total,
-       (SELECT COALESCE(SUM(s.total_amount),0)::float FROM sales s WHERE s.pos_session_id = ps.id AND s.payment_method = 'credito')       AS credit_total,
-       (SELECT COALESCE(SUM(s.total_amount),0)::float FROM sales s WHERE s.pos_session_id = ps.id AND s.payment_method = 'mp')            AS mp_total,
-       (SELECT COALESCE(SUM(s.total_amount),0)::float FROM sales s WHERE s.pos_session_id = ps.id AND s.payment_method = 'transferencia') AS transfer_total,
+       -- Totales por método: sin split → usa total_amount; con split → usa el monto del split
+       (SELECT COALESCE(SUM(CASE WHEN s.payment_split IS NULL THEN s.total_amount ELSE COALESCE((s.payment_split->>'efectivo')::numeric,0) END),0)::float
+        FROM sales s WHERE s.pos_session_id = ps.id AND (s.payment_method='efectivo' OR s.payment_split ? 'efectivo')) AS cash_total,
+       (SELECT COALESCE(SUM(CASE WHEN s.payment_split IS NULL THEN s.total_amount ELSE COALESCE((s.payment_split->>'debito')::numeric,0) END),0)::float
+        FROM sales s WHERE s.pos_session_id = ps.id AND (s.payment_method='debito' OR s.payment_split ? 'debito')) AS debit_total,
+       (SELECT COALESCE(SUM(CASE WHEN s.payment_split IS NULL THEN s.total_amount ELSE COALESCE((s.payment_split->>'credito')::numeric,0) END),0)::float
+        FROM sales s WHERE s.pos_session_id = ps.id AND (s.payment_method='credito' OR s.payment_split ? 'credito')) AS credit_total,
+       (SELECT COALESCE(SUM(CASE WHEN s.payment_split IS NULL THEN s.total_amount ELSE COALESCE((s.payment_split->>'mp')::numeric,0) END),0)::float
+        FROM sales s WHERE s.pos_session_id = ps.id AND (s.payment_method='mp' OR s.payment_split ? 'mp')) AS mp_total,
+       (SELECT COALESCE(SUM(CASE WHEN s.payment_split IS NULL THEN s.total_amount ELSE COALESCE((s.payment_split->>'transferencia')::numeric,0) END),0)::float
+        FROM sales s WHERE s.pos_session_id = ps.id AND (s.payment_method='transferencia' OR s.payment_split ? 'transferencia')) AS transfer_total,
+
+       -- ── Retiros a Caja Central del turno ─────────────────────────────
+       (SELECT COALESCE(SUM(ct.amount),0)::float FROM cash_transfers ct WHERE ct.pos_session_id = ps.id) AS withdrawal_total,
 
        -- ── Gastos del turno ──────────────────────────────────────────────
        (SELECT COUNT(*)::int          FROM daily_expenses e WHERE e.pos_session_id = ps.id)           AS expense_count,

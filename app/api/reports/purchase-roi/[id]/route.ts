@@ -17,6 +17,7 @@ export async function GET(
     SELECT
       p.id                                                                         AS product_id,
       p.name                                                                       AS product_name,
+      p.base_price::float                                                          AS base_price,
       COUNT(DISTINCT pv.id)::int                                                   AS total_units,
       COALESCE(SUM(pd.unit_cost), 0)::float                                        AS total_cost,
       COUNT(DISTINCT pv.id) FILTER (WHERE sd.id IS NOT NULL)::int                  AS sold_units,
@@ -57,7 +58,7 @@ export async function GET(
     LEFT JOIN sales        sal ON sal.id                = sd.sale_id
     LEFT JOIN branch_inventory bi ON bi.product_variant_id = pv.id
     WHERE pu.id = $1
-    GROUP BY p.id, p.name, pu.purchase_date
+    GROUP BY p.id, p.name, p.base_price, pu.purchase_date
     ORDER BY p.name
   `, [parseInt(id)])
 

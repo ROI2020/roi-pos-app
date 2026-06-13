@@ -37,11 +37,22 @@ export async function GET(req: Request) {
       s.payment_method,
       COALESCE(uv.name, '')              AS user_name,
       s.total_amount::float              AS total,
-      CASE WHEN s.payment_method='efectivo'      THEN  s.total_amount::float ELSE 0 END AS efectivo,
-      CASE WHEN s.payment_method='debito'        THEN  s.total_amount::float ELSE 0 END AS debito,
-      CASE WHEN s.payment_method='credito'       THEN  s.total_amount::float ELSE 0 END AS credito,
-      CASE WHEN s.payment_method='mp'            THEN  s.total_amount::float ELSE 0 END AS mp,
-      CASE WHEN s.payment_method='transferencia' THEN  s.total_amount::float ELSE 0 END AS transferencia
+      -- Si la venta tiene split, usar el monto por método del JSON; si no, lógica original
+      CASE WHEN s.payment_split IS NULL
+        THEN CASE WHEN s.payment_method='efectivo'      THEN s.total_amount::float ELSE 0 END
+        ELSE COALESCE((s.payment_split->>'efectivo')::float,      0) END AS efectivo,
+      CASE WHEN s.payment_split IS NULL
+        THEN CASE WHEN s.payment_method='debito'        THEN s.total_amount::float ELSE 0 END
+        ELSE COALESCE((s.payment_split->>'debito')::float,        0) END AS debito,
+      CASE WHEN s.payment_split IS NULL
+        THEN CASE WHEN s.payment_method='credito'       THEN s.total_amount::float ELSE 0 END
+        ELSE COALESCE((s.payment_split->>'credito')::float,       0) END AS credito,
+      CASE WHEN s.payment_split IS NULL
+        THEN CASE WHEN s.payment_method='mp'            THEN s.total_amount::float ELSE 0 END
+        ELSE COALESCE((s.payment_split->>'mp')::float,            0) END AS mp,
+      CASE WHEN s.payment_split IS NULL
+        THEN CASE WHEN s.payment_method='transferencia' THEN s.total_amount::float ELSE 0 END
+        ELSE COALESCE((s.payment_split->>'transferencia')::float, 0) END AS transferencia
     FROM sales s
     JOIN branches br ON br.id = s.branch_id
     LEFT JOIN app_users uv ON uv.id = s.user_id
@@ -112,6 +123,55 @@ export async function GET(req: Request) {
     LEFT JOIN app_users ug ON ug.id = e.user_id
     LEFT JOIN expense_types et ON et.id = e.expense_type_id
     WHERE e.created_at::date BETWEEN $1::date AND $2::date
+
+    UNION ALL
+
+    -- ── Retiros a Caja Central — salida de la sucursal (negativo) ──────
+    SELECT
+      'retiro'                           AS type,
+      ct.id::text                        AS source_id,
+      ct.created_at                      AS datetime,
+      COALESCE('Retiro: ' || ct.notes, 'Retiro a Caja Central') AS description,
+      ct.notes,
+      br.name                            AS branch_name,
+      ct.from_branch_id                  AS branch_id,
+      'efectivo'                         AS payment_method,
+      COALESCE(ur.name, '')              AS user_name,
+      (-ct.amount)::float                AS total,
+      (-ct.amount)::float                AS efectivo,
+      0                                  AS debito,
+      0                                  AS credito,
+      0                                  AS mp,
+      0                                  AS transferencia
+    FROM cash_transfers ct
+    JOIN branches br     ON br.id = ct.from_branch_id
+    LEFT JOIN app_users ur ON ur.id = ct.user_id
+    WHERE ct.created_at::date BETWEEN $1::date AND $2::date
+
+    UNION ALL
+
+    -- ── Retiros a Caja Central — entrada en Caja Central (positivo) ─────
+    SELECT
+      'retiro'                           AS type,
+      ('c' || ct.id::text)               AS source_id,
+      ct.created_at                      AS datetime,
+      COALESCE('Retiro de ' || br.name || CASE WHEN ct.notes IS NOT NULL THEN ': ' || ct.notes ELSE '' END,
+               'Ingreso desde ' || br.name) AS description,
+      ct.notes,
+      'Caja Central'                     AS branch_name,
+      0                                  AS branch_id,
+      'efectivo'                         AS payment_method,
+      COALESCE(ur.name, '')              AS user_name,
+      ct.amount::float                   AS total,
+      ct.amount::float                   AS efectivo,
+      0                                  AS debito,
+      0                                  AS credito,
+      0                                  AS mp,
+      0                                  AS transferencia
+    FROM cash_transfers ct
+    JOIN branches br     ON br.id = ct.from_branch_id
+    LEFT JOIN app_users ur ON ur.id = ct.user_id
+    WHERE ct.created_at::date BETWEEN $1::date AND $2::date
 
     ORDER BY datetime DESC
   `, [from, to])

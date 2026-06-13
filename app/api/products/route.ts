@@ -27,7 +27,7 @@ export async function GET(req: Request) {
   const hasPhoto        = searchParams.get('has_photo')
   const exportable      = searchParams.get('exportable')
   const sort            = searchParams.get('sort') ?? 'name_asc'
-  const limit           = Math.min(parseInt(searchParams.get('limit') ?? '52'), 53)
+  const limit           = Math.min(parseInt(searchParams.get('limit') ?? '52'), 2000)
   const offset          = parseInt(searchParams.get('offset') ?? '0')
 
   const conditions: string[] = []

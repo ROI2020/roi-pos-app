@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react"
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightSm,
   Loader2, Pencil, Check, X, TrendingUp, Package, ShoppingBag,
+  AlertTriangle, Search,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -40,6 +41,7 @@ interface VariantDetail {
 interface ProductGroup {
   product_id:          number
   product_name:        string
+  base_price:          number
   total_units:         number
   total_cost:          number
   sold_units:          number
@@ -306,6 +308,22 @@ export default function PurchaseRoiReport() {
   const fromYMD = toYMD(fromDate)
   const toYMD2  = toYMD(toDate)
 
+  // ── Filtros de búsqueda con debounce ──────────────────────────────────────
+  const [supplierSearch,  setSupplierSearch ] = useState('')
+  const [productSearch,   setProductSearch  ] = useState('')
+  const [debouncedSup,    setDebouncedSup   ] = useState('')
+  const [debouncedProd,   setDebouncedProd  ] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSup(supplierSearch), 400)
+    return () => clearTimeout(t)
+  }, [supplierSearch])
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedProd(productSearch), 400)
+    return () => clearTimeout(t)
+  }, [productSearch])
+
   // ── Datos ─────────────────────────────────────────────────────────────────
   const [purchases,    setPurchases   ] = useState<PurchaseSummary[]>([])
   const [loading,      setLoading     ] = useState(false)
@@ -318,13 +336,16 @@ export default function PurchaseRoiReport() {
     setLoading(true)
     setExpandedPur(new Set()); setExpandedProd(new Set()); setDetails({})
     try {
+      const qs = new URLSearchParams({ from: fromYMD, to: toYMD2 })
+      if (debouncedSup)  qs.set('supplier', debouncedSup)
+      if (debouncedProd) qs.set('product',  debouncedProd)
       const data: PurchaseSummary[] = await fetch(
-        `/api/reports/purchase-roi?from=${fromYMD}&to=${toYMD2}`
+        `/api/reports/purchase-roi?${qs}`
       ).then(r => r.json())
       setPurchases(data)
     } catch { toast.error('Error al cargar el reporte') }
     finally  { setLoading(false) }
-  }, [fromYMD, toYMD2])
+  }, [fromYMD, toYMD2, debouncedSup, debouncedProd])
 
   useEffect(() => { load() }, [load])
 
@@ -449,6 +470,36 @@ export default function PurchaseRoiReport() {
               </div>
             )}
           </div>
+
+          {/* Filtros de búsqueda */}
+          <div className="flex flex-wrap items-center gap-2 pb-1">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none"/>
+              <Input
+                className="h-8 w-48 pl-8 text-sm"
+                placeholder="Proveedor…"
+                value={supplierSearch}
+                onChange={e => setSupplierSearch(e.target.value)}
+              />
+            </div>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none"/>
+              <Input
+                className="h-8 w-48 pl-8 text-sm"
+                placeholder="Producto…"
+                value={productSearch}
+                onChange={e => setProductSearch(e.target.value)}
+              />
+            </div>
+            {(supplierSearch || productSearch) && (
+              <button
+                className="text-xs text-gray-400 hover:text-gray-600 underline"
+                onClick={() => { setSupplierSearch(''); setProductSearch('') }}
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -558,15 +609,18 @@ export default function PurchaseRoiReport() {
 
                     // ── Filas de detalle (productos) ────────────────────────
                     ...(isExp && details[pu.id] ? details[pu.id].map(pg => {
-                      const prodKey = `${pu.id}-${pg.product_id}`
+                      const prodKey   = `${pu.id}-${pg.product_id}`
                       const isProdExp = expandedProd.has(prodKey)
-                      const pctMP = margin(pg.revenue, pg.cost_of_sold)
+                      const costZero  = pg.unit_cost_per_item === 0
+                      const lowMargin = !costZero && pg.base_price > 0
+                        && pg.unit_cost_per_item >= pg.base_price * 0.90
+                      const hasAlert  = costZero || lowMargin
 
                       return [
                         // Fila de producto
                         <tr
                           key={`prod-${prodKey}`}
-                          className="bg-violet-50/60 cursor-pointer hover:bg-violet-100/40"
+                          className={`cursor-pointer hover:bg-violet-100/40 ${hasAlert ? 'bg-red-50/60' : 'bg-violet-50/60'}`}
                           onClick={() => toggleProduct(prodKey)}
                         >
                           <td/>
@@ -576,10 +630,23 @@ export default function PurchaseRoiReport() {
                               : <ChevronRightSm className="h-3.5 w-3.5 text-gray-300"/>
                             }
                           </td>
-                          <td className="px-3 py-2" colSpan={1}>
-                            <div className="flex items-center gap-1.5">
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <Package className="h-3.5 w-3.5 text-violet-400 shrink-0"/>
                               <span className="font-medium text-gray-800 text-sm">{pg.product_name}</span>
+                              {costZero && (
+                                <span className="inline-flex items-center gap-0.5 text-[11px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-semibold">
+                                  <AlertTriangle className="h-3 w-3"/> Costo $0
+                                </span>
+                              )}
+                              {lowMargin && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 text-[11px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-semibold"
+                                  title={`Costo $${pg.unit_cost_per_item.toLocaleString('es-AR')} vs precio $${pg.base_price.toLocaleString('es-AR')}`}
+                                >
+                                  <AlertTriangle className="h-3 w-3"/> Margen &lt;10%
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums text-xs text-gray-600">
@@ -596,11 +663,7 @@ export default function PurchaseRoiReport() {
                                       ...prev,
                                       [pu.id]: prev[pu.id].map(g =>
                                         g.product_id === pg.product_id
-                                          ? {
-                                              ...g,
-                                              unit_cost_per_item: newUnitCost,
-                                              total_cost: newUnitCost * g.total_units,
-                                            }
+                                          ? { ...g, unit_cost_per_item: newUnitCost, total_cost: newUnitCost * g.total_units }
                                           : g
                                       ),
                                     }))

@@ -7,8 +7,9 @@ import {
   ShoppingCart, Search, Trash2, Loader2, CheckCircle2,
   AlertTriangle, X, CreditCard, Banknote, Smartphone,
   ArrowDownUp, Lock, Unlock, ChevronDown, Camera, Plus,
-  Receipt, RefreshCw, ReceiptText,
+  Receipt, RefreshCw, ReceiptText, Vault,
 } from "lucide-react"
+import { getSession }      from "@/lib/session"
 import { CameraScanner }   from "@/components/camera-scanner"
 import { ExchangeDialog }  from "@/components/exchange-dialog"
 import { ReceiptDialog, type ReceiptData, type ReceiptSettings } from "@/components/receipt-dialog"
@@ -56,6 +57,8 @@ interface PosSession {
   expense_count: number; expense_total: number
   expense_cash_total: number; expense_debit_total: number
   expense_credit_total: number; expense_mp_total: number; expense_transfer_total: number
+  // retiros a Caja Central
+  withdrawal_total: number
 }
 
 interface BusinessSettings {
@@ -220,6 +223,7 @@ function buildWhatsAppText(
     `Saldo inicial: ${fmtArs(Number(session.opening_balance))}`,
     `+ Ventas efectivo: ${fmtArs(session.cash_total)}`,
     session.expense_cash_total > 0 ? `- Gastos efectivo: ${fmtArs(session.expense_cash_total)}` : '',
+    Number(session.withdrawal_total) > 0 ? `- Retiros Caja Central: ${fmtArs(Number(session.withdrawal_total))}` : '',
     `= Esperado: ${fmtArs(expectedCash)}`,
     hasCounted ? `Contado: ${fmtArs(counted)}` : '',
     hasCounted ? `Diferencia: ${diff >= 0 ? '+' : ''}${fmtArs(diff)}` : '',
@@ -253,9 +257,11 @@ function CloseSessionDialog({
   const expectedCash =
     Number(session.opening_balance) +
     Number(session.cash_total) -
-    Number(session.expense_cash_total)
-  const difference   = (parseFloat(closing) || 0) - expectedCash
-  const hasExpenses  = session.expense_count > 0
+    Number(session.expense_cash_total) -
+    Number(session.withdrawal_total)
+  const difference       = (parseFloat(closing) || 0) - expectedCash
+  const hasExpenses      = session.expense_count > 0
+  const hasWithdrawals   = Number(session.withdrawal_total) > 0
 
   const businessName = businessSettings.business_name ?? 'ROI POS'
   const waNumber     = businessSettings.whatsapp_report_number
@@ -378,6 +384,9 @@ function CloseSessionDialog({
           <Row label="+ Ventas efectivo"  value={fmt(session.cash_total)}              small />
           {session.expense_cash_total > 0 &&
             <Row label="− Gastos efectivo" value={fmt(session.expense_cash_total)}     small />
+          }
+          {hasWithdrawals &&
+            <Row label="− Retiros Caja Central" value={fmt(session.withdrawal_total)}  small />
           }
           <div className="border-t border-gray-200 pt-1.5 mt-0.5">
             <Row label="Efectivo esperado" value={fmt(expectedCash)} />
@@ -659,6 +668,96 @@ function ExpenseDialog({
   )
 }
 
+// ── Diálogo: Retiro a Caja Central ────────────────────────────────────────────
+function WithdrawalDialog({
+  session,
+  branchId,
+  currentUserId,
+  onClose,
+  onSaved,
+}: {
+  session:       PosSession
+  branchId:      number
+  currentUserId: number | null
+  onClose:       () => void
+  onSaved:       () => void
+}) {
+  const [amount,  setAmount ] = useState('')
+  const [notes,   setNotes  ] = useState('')
+  const [saving,  setSaving ] = useState(false)
+
+  const handleSave = async () => {
+    const amt = parseFloat(amount)
+    if (!amount || isNaN(amt) || amt <= 0) { toast.error('Ingresá un monto válido'); return }
+    setSaving(true)
+    try {
+      const res = await fetch('/api/cash-transfers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pos_session_id: session.id,
+          from_branch_id: branchId,
+          amount:         amt,
+          notes:          notes.trim() || null,
+          user_id:        currentUserId ?? null,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(`Retiro de ${fmt(amt)} registrado en Caja Central`)
+      onSaved()
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={v => !v && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Vault className="h-5 w-5 text-orange-600" />
+            Retiro a Caja Central
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <p className="text-xs text-gray-500">
+            El efectivo sale de esta sucursal y queda registrado en Caja Central.
+          </p>
+          <div className="space-y-1.5">
+            <Label>Monto a retirar ($) <span className="text-red-500">*</span></Label>
+            <Input
+              autoFocus type="number" min={0} step="0.01" placeholder="0"
+              value={amount} onChange={e => setAmount(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSave()}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Motivo / Notas <span className="text-gray-400 text-xs">(opcional)</span></Label>
+            <Input
+              placeholder="Ej: Pago proveedor, depósito banco…"
+              value={notes} onChange={e => setNotes(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button
+            onClick={handleSave}
+            disabled={saving || !amount || parseFloat(amount) <= 0}
+            className="gap-2 bg-orange-600 hover:bg-orange-700"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Confirmar retiro
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ── Mensajes motivadores ───────────────────────────────────────────────────────
 const WELCOME_MESSAGES = [
   { emoji: '🌟', phrase: '¡Que fluyan las ventas hoy!',                        accent: '#7c3aed' },
@@ -789,16 +888,41 @@ export default function PosTerminal() {
   const [invoiceNum,    setInvoiceNum   ] = useState('')
   const [processing,    setProcessing   ] = useState(false)
 
+  // ── Pago mixto ─────────────────────────────────────────────────────────
+  const [mixedMode, setMixedMode] = useState(false)
+  const [splitAmts, setSplitAmts] = useState<Partial<Record<PayMethod, string>>>({})
+
+  const splitTotal   = (t: number) => Object.values(splitAmts).reduce((s, v) => s + (parseFloat(v || '0') || 0), 0)
+  const splitDiff    = (t: number) => t - splitTotal(t)
+  const activeSplits = Object.entries(splitAmts).filter(([, v]) => parseFloat(v || '0') > 0) as [PayMethod, string][]
+
+  const toggleMixedMode = (t: number) => {
+    if (!mixedMode) {
+      setSplitAmts({ [payMethod]: String(t) })
+    } else {
+      setSplitAmts({})
+    }
+    setMixedMode(v => !v)
+  }
+
+  const setSplitAmt = (method: PayMethod, value: string) => {
+    setSplitAmts(prev => ({ ...prev, [method]: value }))
+  }
+
   // ── Dialogs ────────────────────────────────────────────────────────────
-  const [showOpenSession,  setShowOpenSession ] = useState(false)
-  const [showCloseSession, setShowCloseSession] = useState(false)
-  const [showWelcome,      setShowWelcome     ] = useState(false)
-  const [cameraOpen,       setCameraOpen      ] = useState(false)
-  const [showExpense,      setShowExpense     ] = useState(false)
-  const [showExchange,     setShowExchange    ] = useState(false)
-  const [showReceipt,      setShowReceipt     ] = useState(false)
-  const [lastReceiptData,  setLastReceiptData ] = useState<ReceiptData | null>(null)
-  const [showTodaySales,   setShowTodaySales  ] = useState(false)
+  const [showOpenSession,  setShowOpenSession  ] = useState(false)
+  const [showCloseSession, setShowCloseSession ] = useState(false)
+  const [showWelcome,      setShowWelcome      ] = useState(false)
+  const [cameraOpen,       setCameraOpen       ] = useState(false)
+  const [showExpense,      setShowExpense      ] = useState(false)
+  const [showExchange,     setShowExchange     ] = useState(false)
+  const [showReceipt,      setShowReceipt      ] = useState(false)
+  const [lastReceiptData,  setLastReceiptData  ] = useState<ReceiptData | null>(null)
+  const [showTodaySales,   setShowTodaySales   ] = useState(false)
+  const [showWithdrawal,   setShowWithdrawal   ] = useState(false)
+
+  // Rol del usuario logueado (para controles exclusivos de admin)
+  const isAdmin = getSession()?.role === 'administrador'
 
   // ── Totales ────────────────────────────────────────────────────────────
   const subtotal = cart.reduce((s, i) => s + i.unit_price, 0)
@@ -942,6 +1066,7 @@ export default function PosTerminal() {
   const clearCart = () => {
     setCart([]); setDiscountValue(''); setInvoiceNum('')
     setPayMethod('efectivo')
+    setMixedMode(false); setSplitAmts({})
     searchRef.current?.focus()
   }
 
@@ -950,21 +1075,43 @@ export default function PosTerminal() {
     if (cart.length === 0) { toast.error('El carrito está vacío'); return }
     if (!session)          { toast.error('Abrí la caja primero');  return }
 
+    // Validación pago mixto
+    if (mixedMode) {
+      const diff = splitDiff(total)
+      if (Math.abs(diff) > 1) {
+        toast.error(`El total asignado (${fmt(splitTotal(total))}) no coincide con el total de la venta (${fmt(total)}).`)
+        return
+      }
+    }
+
     setProcessing(true)
 
-    // Capturar estado del carrito antes de limpiar
-    const snapItems         = [...cart]
-    const snapSubtotal      = subtotal
-    const snapDiscountAmt   = discountAmount
-    const snapDiscountVal   = discountValue
-    const snapDiscountType  = discountType
-    const snapTotal         = total
-    const snapPayMethod     = payMethod
-    const snapInvoiceNum    = invoiceNum
-    const snapBranchId      = parseInt(branchId)
+    const snapItems        = [...cart]
+    const snapSubtotal     = subtotal
+    const snapDiscountAmt  = discountAmount
+    const snapDiscountVal  = discountValue
+    const snapDiscountType = discountType
+    const snapTotal        = total
+    const snapPayMethod    = payMethod
+    const snapInvoiceNum   = invoiceNum
+    const snapBranchId     = parseInt(branchId)
+
+    // Construir split para la API
+    const snapSplit: Partial<Record<PayMethod, number>> | null = mixedMode
+      ? Object.fromEntries(
+          Object.entries(splitAmts)
+            .map(([k, v]) => [k, parseFloat(v || '0') || 0])
+            .filter(([, v]) => (v as number) > 0)
+        ) as Partial<Record<PayMethod, number>>
+      : null
+
+    // Método principal = el de mayor monto en el split (o el único)
+    const snapPrimaryMethod = snapSplit
+      ? (Object.entries(snapSplit).sort(([, a], [, b]) => (b as number) - (a as number))[0]?.[0] as PayMethod ?? snapPayMethod)
+      : snapPayMethod
 
     try {
-      const res  = await fetch('/api/sales', {
+      const res = await fetch('/api/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -972,7 +1119,8 @@ export default function PosTerminal() {
           pos_session_id:  session.id,
           invoice_number:  snapInvoiceNum.trim() || null,
           discount_amount: snapDiscountAmt,
-          payment_method:  snapPayMethod,
+          payment_method:  snapPrimaryMethod,
+          payment_split:   snapSplit,
           user_id:         currentUserId ?? null,
           items: snapItems.map(i => ({ variant_id: i.id, unit_price: i.unit_price })),
         }),
@@ -984,8 +1132,14 @@ export default function PosTerminal() {
       clearCart()
       loadSession(branchId)
 
-      // Preparar datos del recibo y mostrarlo
-      const payDef = PAY_METHODS.find(p => p.value === snapPayMethod)
+      // Preparar datos del recibo
+      const payLabel = snapSplit
+        ? Object.entries(snapSplit)
+            .filter(([, amt]) => (amt as number) > 0)
+            .map(([k, amt]) => `${PAY_METHODS.find(p => p.value === k)?.label ?? k}: ${fmt(amt as number)}`)
+            .join(' / ')
+        : (PAY_METHODS.find(p => p.value === snapPayMethod)?.label ?? snapPayMethod)
+
       setLastReceiptData({
         items:          snapItems,
         subtotal:       snapSubtotal,
@@ -993,7 +1147,8 @@ export default function PosTerminal() {
         discountValue:  snapDiscountVal,
         discountType:   snapDiscountType,
         total:          snapTotal,
-        payMethodLabel: payDef?.label ?? snapPayMethod,
+        payMethodLabel: payLabel,
+        paymentSplit:   snapSplit ?? undefined,
         invoiceNum:     snapInvoiceNum,
         saleId:         data.id,
         branchId:       snapBranchId,
@@ -1042,6 +1197,14 @@ export default function PosTerminal() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
+
+      // Grabar snapshot de stock del día (silencioso — no bloquea si falla)
+      fetch('/api/snapshots/stock', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ branch_id: parseInt(branchId), pos_session_id: session.id }),
+      }).catch(() => {})
+
       setSession(null)
       setShowCloseSession(false)
       clearCart()
@@ -1113,6 +1276,13 @@ export default function PosTerminal() {
                   onClick={() => setShowTodaySales(true)}>
                   <ReceiptText className="h-3.5 w-3.5" />Ventas del día
                 </Button>
+                {isAdmin && (
+                  <Button variant="outline" size="sm"
+                    className="hidden sm:flex text-orange-600 border-orange-200 hover:bg-orange-50 gap-1.5"
+                    onClick={() => setShowWithdrawal(true)}>
+                    <Vault className="h-3.5 w-3.5" />Caja Central
+                  </Button>
+                )}
                 <Button variant="outline" size="sm"
                   className="hidden sm:flex text-red-600 border-red-200 hover:bg-red-50 gap-1.5"
                   onClick={() => setShowCloseSession(true)}>
@@ -1136,6 +1306,11 @@ export default function PosTerminal() {
                     <DropdownMenuItem onClick={() => setShowTodaySales(true)} className="gap-2">
                       <ReceiptText className="h-4 w-4 text-gray-600" />Ventas del día
                     </DropdownMenuItem>
+                    {isAdmin && (
+                      <DropdownMenuItem onClick={() => setShowWithdrawal(true)} className="gap-2 text-orange-600">
+                        <Vault className="h-4 w-4" />Caja Central
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem onClick={() => setShowCloseSession(true)} className="gap-2 text-red-600">
                       <Lock className="h-4 w-4" />Cerrar caja
                     </DropdownMenuItem>
@@ -1366,26 +1541,88 @@ export default function PosTerminal() {
               </div>
 
               {/* Forma de pago */}
-              <div className="grid grid-cols-5 gap-1">
-                {PAY_METHODS.map(pm => (
-                  <button
-                    key={pm.value}
-                    title={pm.label}
-                    onClick={() => setPayMethod(pm.value)}
-                    className={`flex flex-col items-center gap-0.5 py-2 rounded-lg border text-xs font-medium transition-colors ${
-                      payMethod === pm.value
-                        ? pm.color + ' border-2'
-                        : 'border-gray-200 text-gray-400 hover:border-gray-300'
-                    }`}
-                  >
-                    {pm.icon}
-                    <span className="text-[9px] leading-none hidden sm:block">{pm.label.split(' ')[0]}</span>
-                  </button>
-                ))}
-              </div>
-              <p className="text-center text-xs text-gray-500 -mt-1">
-                {payMethodDef.label}
-              </p>
+              {!mixedMode ? (
+                <>
+                  <div className="grid grid-cols-5 gap-1">
+                    {PAY_METHODS.map(pm => (
+                      <button
+                        key={pm.value}
+                        title={pm.label}
+                        onClick={() => setPayMethod(pm.value)}
+                        className={`flex flex-col items-center gap-0.5 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                          payMethod === pm.value
+                            ? pm.color + ' border-2'
+                            : 'border-gray-200 text-gray-400 hover:border-gray-300'
+                        }`}
+                      >
+                        {pm.icon}
+                        <span className="text-[9px] leading-none hidden sm:block">{pm.label.split(' ')[0]}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between -mt-1">
+                    <p className="text-xs text-gray-500">{payMethodDef.label}</p>
+                    <button
+                      className="text-xs text-violet-500 hover:text-violet-700 underline"
+                      onClick={() => toggleMixedMode(total)}
+                    >
+                      + Pago mixto
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-600">Pago mixto</span>
+                    <button
+                      className="text-xs text-gray-400 hover:text-gray-600 underline"
+                      onClick={() => toggleMixedMode(total)}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                  {PAY_METHODS.map(pm => (
+                    <div key={pm.value} className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          const current = parseFloat(splitAmts[pm.value] || '0') || 0
+                          setSplitAmt(pm.value, current > 0 ? '' : String(total))
+                        }}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-xs font-medium shrink-0 transition-colors ${
+                          parseFloat(splitAmts[pm.value] || '0') > 0
+                            ? pm.color + ' border-2'
+                            : 'border-gray-200 text-gray-400'
+                        }`}
+                      >
+                        {pm.icon}
+                        <span className="w-16 text-left truncate">{pm.label}</span>
+                      </button>
+                      <div className="relative flex-1">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">$</span>
+                        <input
+                          type="number" min={0}
+                          placeholder="0"
+                          value={splitAmts[pm.value] ?? ''}
+                          onChange={e => setSplitAmt(pm.value, e.target.value)}
+                          className="w-full pl-5 pr-2 py-1 text-sm text-right border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-violet-400"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  {/* Diferencia */}
+                  {total > 0 && (
+                    <div className={`flex justify-between text-xs font-medium px-1 ${
+                      Math.abs(splitDiff(total)) <= 1 ? 'text-green-600' : 'text-orange-600'
+                    }`}>
+                      <span>Asignado: {fmt(splitTotal(total))}</span>
+                      {Math.abs(splitDiff(total)) > 1 && (
+                        <span>Resta: {fmt(splitDiff(total))}</span>
+                      )}
+                      {Math.abs(splitDiff(total)) <= 1 && <span>✓ OK</span>}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Botón confirmar */}
               <Button
@@ -1455,6 +1692,15 @@ export default function PosTerminal() {
           onClose={() => setShowTodaySales(false)}
           branchId={parseInt(branchId)}
           settings={businessSettings as ReceiptSettings}
+        />
+      )}
+      {showWithdrawal && session && (
+        <WithdrawalDialog
+          session={session}
+          branchId={parseInt(branchId)}
+          currentUserId={currentUserId}
+          onClose={() => setShowWithdrawal(false)}
+          onSaved={() => { setShowWithdrawal(false); loadSession(branchId) }}
         />
       )}
 

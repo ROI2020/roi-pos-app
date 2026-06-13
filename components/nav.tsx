@@ -101,6 +101,15 @@ export default function Nav() {
             <ShoppingCart className="h-4 w-4" />Ventas
           </Link>
 
+          {/* Productos visible para vendedor y encargado (no-admin) */}
+          {!isAdmin && (
+            <Link href="/productos"
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+                ${path === '/productos' ? "bg-violet-100 text-violet-700" : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"}`}>
+              <Package className="h-4 w-4" />Productos
+            </Link>
+          )}
+
           {/* Solo admin */}
           {isAdmin && <>
             <Link href="/"
@@ -235,6 +244,15 @@ export default function Nav() {
           <ShoppingCart className={`h-5 w-5 ${path === '/venta' ? "text-violet-600" : ""}`} />
           Ventas
         </Link>
+        {/* Productos para no-admin */}
+        {!isAdmin && (
+          <Link href="/productos"
+            className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-medium transition-colors
+              ${path === '/productos' ? "text-violet-700" : "text-gray-400"}`}>
+            <Package className={`h-5 w-5 ${path === '/productos' ? "text-violet-600" : ""}`} />
+            Productos
+          </Link>
+        )}
         {isAdmin && <>
           <Link href="/"
             className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-medium transition-colors

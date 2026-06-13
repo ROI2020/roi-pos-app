@@ -2,22 +2,50 @@ import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 
 /**
- * GET /api/reports/purchase-roi?from=YYYY-MM-DD&to=YYYY-MM-DD
+ * GET /api/reports/purchase-roi
  *
- * Una fila por compra dentro del rango de fechas.
- * Devuelve: id, fecha, título, proveedor, total_units, total_cost,
- *           sold_units, revenue, cost_of_sold, last_sale_at,
- *           days_since_purchase
- *
- * Los porcentajes (margen, % vendido) y colores se calculan en el cliente.
+ * Query params:
+ *   from       YYYY-MM-DD  (requerido)
+ *   to         YYYY-MM-DD  (requerido)
+ *   supplier   texto libre — ILIKE sobre company_name
+ *   product    texto libre — ILIKE sobre product name (filtra compras que contengan ese producto)
  */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
-  const from = searchParams.get('from')
-  const to   = searchParams.get('to')
+  const from     = searchParams.get('from')
+  const to       = searchParams.get('to')
+  const supplier = searchParams.get('supplier')?.trim() ?? ''
+  const product  = searchParams.get('product')?.trim()  ?? ''
 
   if (!from || !to)
     return NextResponse.json({ error: 'from y to requeridos' }, { status: 400 })
+
+  const params: (string | number)[] = [from, to]
+  let p = 3
+
+  const extraConditions: string[] = []
+
+  if (supplier) {
+    extraConditions.push(`s.company_name ILIKE $${p++}`)
+    params.push(`%${supplier}%`)
+  }
+
+  if (product) {
+    // Filtra solo las compras que contengan al menos un producto con ese nombre
+    extraConditions.push(`
+      pu.id IN (
+        SELECT DISTINCT pd2.purchase_id
+        FROM purchase_details pd2
+        JOIN products pr2 ON pr2.id = pd2.product_id
+        WHERE pr2.name ILIKE $${p++}
+      )
+    `)
+    params.push(`%${product}%`)
+  }
+
+  const extraWhere = extraConditions.length
+    ? 'AND ' + extraConditions.join(' AND ')
+    : ''
 
   const { rows } = await pool.query(`
     SELECT
@@ -40,9 +68,10 @@ export async function GET(req: Request) {
     LEFT JOIN sale_details      sd  ON sd.product_variant_id = pv.id
     LEFT JOIN sales             sal ON sal.id = sd.sale_id
     WHERE pu.purchase_date::date BETWEEN $1 AND $2
+    ${extraWhere}
     GROUP BY pu.id, pu.purchase_date, pu.title, pu.invoice_number, s.company_name
     ORDER BY pu.purchase_date DESC
-  `, [from, to])
+  `, params)
 
   return NextResponse.json(rows)
 }

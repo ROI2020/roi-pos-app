@@ -1,13 +1,10 @@
 "use client"
 
-import { useState } from "react"
-import { Printer, Gift, Loader2, Thermometer } from "lucide-react"
-import { toast } from "sonner"
+import { Printer, Gift } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
-import { imprimirTicket, buildTicketData } from "@/lib/print-ticket"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface ReceiptItem {
@@ -37,6 +34,7 @@ export interface ReceiptData {
   discountType:   'pct' | 'amt'
   total:          number
   payMethodLabel: string
+  paymentSplit?:  Partial<Record<string, number>>
   invoiceNum:     string
   saleId:         number
   branchId:       number
@@ -106,10 +104,19 @@ function buildReceiptHTML(data: ReceiptData, settings: ReceiptSettings, gift: bo
       <td style="font-size:17px;font-weight:700;padding:4px 0 3px;"><strong>Total:</strong></td>
       <td style="text-align:right;font-size:17px;font-weight:700;"><strong>${fmt(data.total)}</strong></td>
     </tr>
+    ${data.paymentSplit && Object.keys(data.paymentSplit).length > 1
+        ? Object.entries(data.paymentSplit)
+            .filter(([, amt]) => (amt ?? 0) > 0)
+            .map(([method, amt]) => `
     <tr>
+      <td style="font-size:12px;color:#000;">${method.charAt(0).toUpperCase() + method.slice(1)}:</td>
+      <td style="text-align:right;font-size:12px;color:#000;">${fmt(amt ?? 0)}</td>
+    </tr>`).join('')
+        : `<tr>
       <td style="font-size:12px;color:#000;">${data.payMethodLabel}:</td>
       <td style="text-align:right;font-size:12px;color:#000;">${fmt(data.total)}</td>
     </tr>`
+    }`
 
   const noInvoice = settings.receipt_no_invoice_text || 'No válido como factura'
 
@@ -163,25 +170,6 @@ function buildReceiptHTML(data: ReceiptData, settings: ReceiptSettings, gift: bo
 
 // ── Componente ─────────────────────────────────────────────────────────────────
 export function ReceiptDialog({ open, onClose, data, settings }: Props) {
-  const [thermalLoading, setThermalLoading] = useState(false)
-
-  const handleThermalPrint = async () => {
-    setThermalLoading(true)
-    try {
-      const result = await imprimirTicket(buildTicketData(data, settings))
-      if (result.ok) {
-        toast.success('Ticket enviado a la impresora')
-        onClose()
-      } else {
-        toast.error(result.error ?? 'Error al imprimir', { duration: 6000 })
-      }
-    } catch (err: unknown) {
-      toast.error((err as Error).message)
-    } finally {
-      setThermalLoading(false)
-    }
-  }
-
   const handlePrint = (gift: boolean) => {
     const html = buildReceiptHTML(data, settings, gift)
     const w = window.open('', '_blank', 'width=400,height=650,scrollbars=yes')
@@ -261,9 +249,19 @@ export function ReceiptDialog({ open, onClose, data, settings }: Props) {
             <div className="flex justify-between text-sm font-bold">
               <span>Total</span><span>{fmt(data.total)}</span>
             </div>
-            <div className="flex justify-between text-[11px] text-gray-500">
-              <span>{data.payMethodLabel}</span><span>{fmt(data.total)}</span>
-            </div>
+            {data.paymentSplit && Object.keys(data.paymentSplit).length > 1
+              ? Object.entries(data.paymentSplit)
+                  .filter(([, amt]) => (amt ?? 0) > 0)
+                  .map(([method, amt]) => (
+                    <div key={method} className="flex justify-between text-[11px] text-gray-500">
+                      <span>{method.charAt(0).toUpperCase() + method.slice(1)}</span>
+                      <span>{fmt(amt ?? 0)}</span>
+                    </div>
+                  ))
+              : <div className="flex justify-between text-[11px] text-gray-500">
+                  <span>{data.payMethodLabel}</span><span>{fmt(data.total)}</span>
+                </div>
+            }
           </div>
 
           {/* Pie */}
@@ -274,35 +272,21 @@ export function ReceiptDialog({ open, onClose, data, settings }: Props) {
           </div>
         </div>
 
-        {/* Acción principal: impresora térmica */}
-        <Button
-          className="w-full gap-2"
-          onClick={handleThermalPrint}
-          disabled={thermalLoading}
-        >
-          {thermalLoading
-            ? <Loader2 className="h-4 w-4 animate-spin" />
-            : <Thermometer className="h-4 w-4" />
-          }
-          {thermalLoading ? 'Enviando a impresora…' : 'Imprimir ticket (térmica)'}
-        </Button>
-
-        {/* Opciones browser: normal / regalo */}
+        {/* Botones de impresión */}
         <div className="flex gap-2">
           <Button
-            variant="outline" size="sm"
-            className="flex-1 gap-1.5 text-xs text-gray-600"
+            className="flex-1 gap-2"
             onClick={() => handlePrint(false)}
           >
-            <Printer className="h-3.5 w-3.5" />
+            <Printer className="h-4 w-4" />
             PDF / browser
           </Button>
           <Button
-            variant="outline" size="sm"
-            className="flex-1 gap-1.5 text-xs text-gray-600"
+            variant="outline"
+            className="flex-1 gap-2"
             onClick={() => handlePrint(true)}
           >
-            <Gift className="h-3.5 w-3.5" />
+            <Gift className="h-4 w-4" />
             Para regalo
           </Button>
         </div>

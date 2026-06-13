@@ -5,6 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip as RechartTooltip,
   ResponsiveContainer, Legend, Cell,
 } from "recharts"
+import StockTrendCharts from "@/components/stock-trend-charts"
 import {
   LayoutDashboard, Package, Warehouse, AlertTriangle,
   TrendingUp, ShoppingCart, Loader2, RefreshCw, Tag,
@@ -720,6 +721,9 @@ export default function Dashboard() {
 
         {/* ── Por Sucursal — ancho completo ── */}
         <BranchTable data={data.by_branch} />
+
+        {/* ── Evolución histórica (snapshots de cierre de caja) ── */}
+        <StockTrendCharts />
 
       </div>
     </div>
