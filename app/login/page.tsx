@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { setSession, getSession, landingRoute } from "@/lib/session"
 import { Loader2, ShieldAlert, ArrowLeft } from "lucide-react"
@@ -31,15 +31,31 @@ declare global {
   }
 }
 
-export default function LoginPage() {
-  const router       = useRouter()
+// Separado en componente propio para cumplir el requisito de Suspense de Next.js
+function ErrorDominio() {
   const searchParams = useSearchParams()
-  const btnRef       = useRef<HTMLDivElement>(null)
-  const [loading, setLoading] = useState(false)
-  const [error,   setError  ] = useState<string | null>(null)
-
   const errorParam   = searchParams.get('error')
   const errorDominio = errorParam ? ERRORES_DOMINIO[errorParam] : null
+
+  if (!errorDominio) return null
+
+  return (
+    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-left">
+      <ShieldAlert className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-amber-800">{errorDominio.titulo}</p>
+        <p className="text-xs text-amber-700">{errorDominio.mensaje}</p>
+        <p className="text-xs text-amber-500">Contactá a soporte · {errorDominio.codigo}</p>
+      </div>
+    </div>
+  )
+}
+
+export default function LoginPage() {
+  const router  = useRouter()
+  const btnRef  = useRef<HTMLDivElement>(null)
+  const [loading, setLoading] = useState(false)
+  const [error,   setError  ] = useState<string | null>(null)
 
   useEffect(() => {
     const s = getSession()
@@ -126,16 +142,9 @@ export default function LoginPage() {
             </div>
           )}
 
-          {errorDominio && (
-            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-left">
-              <ShieldAlert className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-amber-800">{errorDominio.titulo}</p>
-                <p className="text-xs text-amber-700">{errorDominio.mensaje}</p>
-                <p className="text-xs text-amber-500">Contactá a soporte · {errorDominio.codigo}</p>
-              </div>
-            </div>
-          )}
+          <Suspense fallback={null}>
+            <ErrorDominio />
+          </Suspense>
 
           {error && (
             <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-left">
