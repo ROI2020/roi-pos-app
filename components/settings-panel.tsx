@@ -5,12 +5,14 @@ import {
   Building2, Users, Warehouse, Plus, Pencil, Trash2,
   Loader2, Save, Upload, X, CheckCircle2, Star,
   Globe, Copy, RefreshCw, Eye, EyeOff, Rss,
+  Wallet, ChevronDown, ChevronRight, CreditCard, Sparkles, Receipt,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button }   from "@/components/ui/button"
 import { Input }    from "@/components/ui/input"
 import { Label }    from "@/components/ui/label"
 import { Badge }    from "@/components/ui/badge"
+import { Switch }   from "@/components/ui/switch"
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
@@ -25,8 +27,27 @@ interface AppUser {
   active: boolean; created_at: string
 }
 interface Branch { id: number; name: string; address: string | null; arca_pos_number: number; is_default: boolean }
+interface Fop { id: number; name: string; use_for_sales: boolean }
+interface Account {
+  id: number; name: string; type: string; currency: string
+  branch_id: number | null; branch_name: string; fops: Fop[]
+}
 
-type Tab = 'negocio' | 'usuarios' | 'sucursales' | 'catalogo'
+type Tab = 'negocio' | 'usuarios' | 'sucursales' | 'cuentas' | 'catalogo' | 'ia' | 'gastos'
+
+interface ExpenseType {
+  id: number
+  name: string
+  type: 'fijo' | 'variable'
+  budget: number
+}
+
+const ACCOUNT_TYPES = [
+  { value: 'efectivo',    label: 'Efectivo'           },
+  { value: 'mercadopago', label: 'Mercado Pago'       },
+  { value: 'banco',       label: 'Cuenta bancaria'    },
+  { value: 'otro',        label: 'Otro'               },
+] as const
 
 const ROLES = [
   { value: 'vendedor',       label: 'Vendedor'       },
@@ -985,13 +1006,755 @@ function CatalogoTab() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// Diálogo: cuenta (alta y edición)
+// ══════════════════════════════════════════════════════════════════════════════
+function AccountDialog({
+  account,
+  branches,
+  onSaved,
+  onClose,
+}: {
+  account?: Account            // undefined = nueva cuenta
+  branches: Branch[]
+  onSaved:  (a: Account) => void
+  onClose:  () => void
+}) {
+  const [name,     setName    ] = useState(account?.name ?? '')
+  const [type,     setType    ] = useState(account?.type ?? 'efectivo')
+  const [currency, setCurrency] = useState(account?.currency ?? 'ARS')
+  const [branchId, setBranchId] = useState<string>(
+    account ? (account.branch_id === null ? 'central' : String(account.branch_id)) : 'central'
+  )
+  const [saving, setSaving] = useState(false)
+
+  const handleSubmit = async () => {
+    if (!name.trim()) { toast.error('El nombre es obligatorio'); return }
+    setSaving(true)
+    try {
+      const payload = {
+        name: name.trim(),
+        type,
+        currency: currency.trim() || 'ARS',
+        branch_id: branchId === 'central' ? null : parseInt(branchId),
+      }
+      const res = account
+        ? await fetch(`/api/accounts/${account.id}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        : await fetch('/api/accounts', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      const branchName = branchId === 'central'
+        ? 'Caja Central'
+        : branches.find(b => b.id === parseInt(branchId))?.name ?? ''
+      toast.success(account ? 'Cuenta actualizada' : 'Cuenta creada')
+      onSaved({ ...data, branch_name: branchName, fops: account?.fops ?? [] })
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={v => !v && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{account ? 'Editar cuenta' : 'Nueva cuenta'}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="space-y-1.5">
+            <Label>Nombre <span className="text-red-500">*</span></Label>
+            <Input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="Mercado Pago MC" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Tipo</Label>
+            <Select value={type} onValueChange={setType}>
+              <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {ACCOUNT_TYPES.map(t => (
+                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Sucursal</Label>
+            <Select value={branchId} onValueChange={setBranchId}>
+              <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="central">Caja Central</SelectItem>
+                {branches.map(b => (
+                  <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-400">
+              "Caja Central" es una cuenta a nivel negocio, no atada a una sucursal puntual.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Moneda</Label>
+            <Input value={currency} onChange={e => setCurrency(e.target.value.toUpperCase())} placeholder="ARS" className="font-mono" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={handleSubmit} disabled={saving} className="gap-2">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {account ? 'Guardar' : 'Crear cuenta'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Diálogo: forma de pago (alta y edición)
+// ══════════════════════════════════════════════════════════════════════════════
+function FopDialog({
+  accountId,
+  fop,
+  onSaved,
+  onClose,
+}: {
+  accountId: number
+  fop?:      Fop              // undefined = nueva forma de pago
+  onSaved:   (f: Fop) => void
+  onClose:   () => void
+}) {
+  const [name,        setName       ] = useState(fop?.name ?? '')
+  const [useForSales, setUseForSales] = useState(fop?.use_for_sales ?? true)
+  const [saving,      setSaving     ] = useState(false)
+
+  const handleSubmit = async () => {
+    if (!name.trim()) { toast.error('El nombre es obligatorio'); return }
+    setSaving(true)
+    try {
+      const res = fop
+        ? await fetch(`/api/fops/${fop.id}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ use_for_sales: useForSales }),
+          })
+        : await fetch('/api/fops', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account_id: accountId, name: name.trim(), use_for_sales: useForSales }),
+          })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(fop ? 'Forma de pago actualizada' : 'Forma de pago creada')
+      onSaved(data)
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={v => !v && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{fop ? 'Editar forma de pago' : 'Nueva forma de pago'}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="space-y-1.5">
+            <Label>Nombre <span className="text-red-500">*</span></Label>
+            <Input
+              autoFocus={!fop} value={name} onChange={e => setName(e.target.value)}
+              placeholder="Débito" disabled={!!fop}
+            />
+            {fop && (
+              <p className="text-xs text-gray-400">
+                El nombre no se puede editar una vez creada (lo usan internamente las ventas y los reportes).
+              </p>
+            )}
+          </div>
+          <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
+            <div>
+              <Label className="cursor-pointer" onClick={() => setUseForSales(v => !v)}>
+                Usar en ventas
+              </Label>
+              <p className="text-xs text-gray-400">Aparece como opción de pago en el POS.</p>
+            </div>
+            <Switch checked={useForSales} onCheckedChange={setUseForSales} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={handleSubmit} disabled={saving} className="gap-2">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {fop ? 'Guardar' : 'Crear'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Pestaña: Cuentas y Formas de Pago
+// ══════════════════════════════════════════════════════════════════════════════
+function CuentasTab() {
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [loading,  setLoading ] = useState(true)
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  const [showNewAccount, setShowNewAccount] = useState(false)
+  const [editAccount,    setEditAccount   ] = useState<Account | null>(null)
+  const [newFopFor,      setNewFopFor     ] = useState<number | null>(null)
+  const [editFop,        setEditFop       ] = useState<{ accountId: number; fop: Fop } | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const [accs, brs] = await Promise.all([
+        fetch('/api/accounts').then(r => r.json()),
+        fetch('/api/branches').then(r => r.json()),
+      ])
+      setAccounts(accs)
+      setBranches(brs)
+    } catch { toast.error('Error al cargar cuentas') }
+    finally  { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const toggleExpand = (id: number) => {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const handleDeleteAccount = async (a: Account) => {
+    if (!confirm(`¿Eliminar la cuenta "${a.name}"?`)) return
+    const res = await fetch(`/api/accounts/${a.id}`, { method: 'DELETE' })
+    const data = await res.json()
+    if (!res.ok) { toast.error(data.error); return }
+    setAccounts(prev => prev.filter(x => x.id !== a.id))
+    toast.success('Cuenta eliminada')
+  }
+
+  const handleDeleteFop = async (accountId: number, fop: Fop) => {
+    if (!confirm(`¿Eliminar la forma de pago "${fop.name}"?`)) return
+    const res = await fetch(`/api/fops/${fop.id}`, { method: 'DELETE' })
+    const data = await res.json()
+    if (!res.ok) { toast.error(data.error); return }
+    setAccounts(prev => prev.map(a => a.id === accountId
+      ? { ...a, fops: a.fops.filter(f => f.id !== fop.id) }
+      : a
+    ))
+    toast.success('Forma de pago eliminada')
+  }
+
+  const toggleUseForSales = async (accountId: number, fop: Fop) => {
+    const next = !fop.use_for_sales
+    setAccounts(prev => prev.map(a => a.id === accountId
+      ? { ...a, fops: a.fops.map(f => f.id === fop.id ? { ...f, use_for_sales: next } : f) }
+      : a
+    ))
+    const res = await fetch(`/api/fops/${fop.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ use_for_sales: next }),
+    })
+    if (!res.ok) {
+      setAccounts(prev => prev.map(a => a.id === accountId
+        ? { ...a, fops: a.fops.map(f => f.id === fop.id ? { ...f, use_for_sales: !next } : f) }
+        : a
+      ))
+      toast.error('No se pudo actualizar')
+    }
+  }
+
+  if (loading) return (
+    <div className="flex items-center gap-2 text-gray-400 py-8">
+      <Loader2 className="h-5 w-5 animate-spin" /> Cargando…
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-500 max-w-md">
+          Cada cuenta agrupa las formas de pago que se concilian ahí. "Usar en ventas" controla
+          si esa forma de pago aparece como opción al cobrar en el POS.
+        </p>
+        <Button onClick={() => setShowNewAccount(true)} className="gap-2 shrink-0">
+          <Plus className="h-4 w-4" />
+          Nueva cuenta
+        </Button>
+      </div>
+
+      {accounts.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-2">
+          <Wallet className="h-10 w-10 text-gray-300" />
+          <p>No hay cuentas aún. Creá la primera.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden divide-y divide-gray-100">
+          {accounts.map(a => {
+            const isOpen = expanded.has(a.id)
+            return (
+              <div key={a.id}>
+                {/* Fila de cuenta */}
+                <div className="flex items-center gap-2 px-4 py-3 hover:bg-gray-50">
+                  <button onClick={() => toggleExpand(a.id)} className="text-gray-400 hover:text-gray-700 shrink-0">
+                    {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  </button>
+                  <Wallet className="h-4 w-4 text-violet-400 shrink-0" />
+                  <div className="min-w-0 flex-1 cursor-pointer" onClick={() => toggleExpand(a.id)}>
+                    <p className="text-sm font-medium text-gray-900 truncate">{a.name}</p>
+                    <p className="text-xs text-gray-400">
+                      {a.branch_name} · {ACCOUNT_TYPES.find(t => t.value === a.type)?.label ?? a.type} · {a.currency}
+                      {' · '}{a.fops.length} forma{a.fops.length !== 1 ? 's' : ''} de pago
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-violet-700"
+                    title="Editar cuenta" onClick={() => setEditAccount(a)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-red-600"
+                    title="Eliminar cuenta" onClick={() => handleDeleteAccount(a)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+
+                {/* Formas de pago de la cuenta */}
+                {isOpen && (
+                  <div className="bg-gray-50/60 px-4 pb-3 pl-12">
+                    {a.fops.length === 0 ? (
+                      <p className="text-xs text-gray-400 py-2">Sin formas de pago todavía.</p>
+                    ) : (
+                      <div className="divide-y divide-gray-100">
+                        {a.fops.map(f => (
+                          <div key={f.id} className="flex items-center gap-3 py-2">
+                            <CreditCard className="h-3.5 w-3.5 text-gray-300 shrink-0" />
+                            <span className="text-sm text-gray-700 flex-1 min-w-0 truncate">{f.name}</span>
+                            {f.use_for_sales ? (
+                              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">en ventas</Badge>
+                            ) : (
+                              <Badge className="bg-gray-100 text-gray-400 border-gray-200 text-[10px]">oculta</Badge>
+                            )}
+                            <Switch
+                              checked={f.use_for_sales}
+                              onCheckedChange={() => toggleUseForSales(a.id, f)}
+                            />
+                            <Button
+                              variant="ghost" size="icon" className="h-6 w-6 text-gray-400 hover:text-violet-700"
+                              title="Editar" onClick={() => setEditFop({ accountId: a.id, fop: f })}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost" size="icon" className="h-6 w-6 text-gray-400 hover:text-red-600"
+                              title="Eliminar" onClick={() => handleDeleteFop(a.id, f)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <Button
+                      variant="outline" size="sm" className="gap-1.5 mt-2 h-7 text-xs"
+                      onClick={() => setNewFopFor(a.id)}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Nueva forma de pago
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {showNewAccount && (
+        <AccountDialog
+          branches={branches}
+          onSaved={a => { setAccounts(prev => [...prev, a]); setShowNewAccount(false) }}
+          onClose={() => setShowNewAccount(false)}
+        />
+      )}
+      {editAccount && (
+        <AccountDialog
+          account={editAccount}
+          branches={branches}
+          onSaved={a => {
+            setAccounts(prev => prev.map(x => x.id === a.id ? { ...x, ...a } : x))
+            setEditAccount(null)
+          }}
+          onClose={() => setEditAccount(null)}
+        />
+      )}
+      {newFopFor !== null && (
+        <FopDialog
+          accountId={newFopFor}
+          onSaved={f => {
+            setAccounts(prev => prev.map(a => a.id === newFopFor ? { ...a, fops: [...a.fops, f] } : a))
+            setNewFopFor(null)
+          }}
+          onClose={() => setNewFopFor(null)}
+        />
+      )}
+      {editFop && (
+        <FopDialog
+          accountId={editFop.accountId}
+          fop={editFop.fop}
+          onSaved={f => {
+            setAccounts(prev => prev.map(a => a.id === editFop.accountId
+              ? { ...a, fops: a.fops.map(x => x.id === f.id ? f : x) }
+              : a
+            ))
+            setEditFop(null)
+          }}
+          onClose={() => setEditFop(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Pestaña: Descripción con IA
+// ══════════════════════════════════════════════════════════════════════════════
+const AI_MODELOS = [
+  { value: 'claude-haiku-4-5-20251001', label: 'Haiku — rápido y económico'  },
+  { value: 'claude-sonnet-4-6',         label: 'Sonnet — más creativo'        },
+]
+const AI_ESTILOS = [
+  { value: 'comercial',   label: 'Comercial — tono coloquial argentino (vos)' },
+  { value: 'descriptivo', label: 'Descriptivo — objetivo y detallado'          },
+  { value: 'emocional',   label: 'Emocional — conecta con el comprador'        },
+  { value: 'minimalista', label: 'Minimalista — 1 o 2 oraciones'               },
+]
+
+function IATab() {
+  const [modelo, setModelo] = useState('claude-haiku-4-5-20251001')
+  const [estilo, setEstilo] = useState('comercial')
+
+  useEffect(() => {
+    setModelo(localStorage.getItem('ai_modelo') ?? 'claude-haiku-4-5-20251001')
+    setEstilo(localStorage.getItem('ai_estilo') ?? 'comercial')
+  }, [])
+
+  const handleSave = () => {
+    localStorage.setItem('ai_modelo', modelo)
+    localStorage.setItem('ai_estilo', estilo)
+    toast.success('Configuración de IA guardada')
+  }
+
+  return (
+    <div className="space-y-6 max-w-md">
+      <div>
+        <h2 className="text-base font-semibold text-gray-900">Descripción con IA</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Configurá el modelo y el estilo por defecto al generar descripciones de productos desde la ficha del producto.
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        <div className="space-y-1.5">
+          <Label>Modelo</Label>
+          <Select value={modelo} onValueChange={setModelo}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AI_MODELOS.map(m => (
+                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Estilo</Label>
+          <Select value={estilo} onValueChange={setEstilo}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AI_ESTILOS.map(e => (
+                <SelectItem key={e.value} value={e.value}>{e.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <Button onClick={handleSave} className="gap-2">
+          <Save className="h-4 w-4" />
+          Guardar
+        </Button>
+      </div>
+
+      <div className="bg-violet-50 border border-violet-200 rounded-lg px-4 py-3 text-xs text-violet-700 space-y-1">
+        <p><strong>Haiku</strong> es más rápido y económico. Ideal para uso frecuente.</p>
+        <p><strong>Sonnet</strong> genera textos más creativos y elaborados.</p>
+        <p className="text-violet-500 pt-1">Requiere configurar <code className="bg-violet-100 px-1 rounded">ANTHROPIC_API_KEY</code> en el servidor.</p>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GastosTab — ABM de tipos de gasto
+// ══════════════════════════════════════════════════════════════════════════════
+const TYPE_OPTIONS: { value: 'fijo' | 'variable'; label: string; desc: string }[] = [
+  { value: 'fijo',     label: 'Fijo',     desc: 'Importe mensual constante (alquiler, sueldos…)' },
+  { value: 'variable', label: 'Variable', desc: 'Varía con las ventas (comisiones, packaging…)' },
+]
+
+function GastosTab() {
+  const [items,   setItems  ] = useState<ExpenseType[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editId,  setEditId ] = useState<number | null>(null)
+  const [showNew, setShowNew] = useState(false)
+
+  const [form, setForm] = useState<{ name: string; type: 'fijo' | 'variable'; budget: string }>({
+    name: '', type: 'fijo', budget: '',
+  })
+  const [saving,   setSaving  ] = useState(false)
+  const [deleting, setDeleting] = useState<number | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await fetch('/api/expense-types').then(r => r.json())
+      setItems(Array.isArray(data) ? data : [])
+    } catch { toast.error('Error al cargar tipos de gasto') }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const openNew = () => {
+    setEditId(null)
+    setForm({ name: '', type: 'fijo', budget: '' })
+    setShowNew(true)
+  }
+
+  const openEdit = (et: ExpenseType) => {
+    setShowNew(false)
+    setEditId(et.id)
+    setForm({ name: et.name, type: et.type, budget: et.budget > 0 ? String(et.budget) : '' })
+  }
+
+  const cancelEdit = () => { setEditId(null); setShowNew(false) }
+
+  const handleSave = async () => {
+    if (!form.name.trim()) { toast.error('El nombre es requerido'); return }
+    setSaving(true)
+    try {
+      const payload = { name: form.name.trim(), type: form.type, budget: parseFloat(form.budget) || 0 }
+      let res: Response
+      if (editId) {
+        res = await fetch(`/api/expense-types/${editId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      } else {
+        res = await fetch('/api/expense-types', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      }
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(editId ? 'Tipo actualizado' : 'Tipo creado')
+      cancelEdit()
+      load()
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally { setSaving(false) }
+  }
+
+  const handleDelete = async (id: number) => {
+    setDeleting(id)
+    try {
+      const res = await fetch(`/api/expense-types/${id}`, { method: 'DELETE' })
+      if (!res.ok && res.status !== 204) {
+        const data = await res.json()
+        throw new Error(data.error)
+      }
+      toast.success('Tipo eliminado')
+      load()
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally { setDeleting(null) }
+  }
+
+  const fmt = (n: number) =>
+    new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n)
+
+  const totalFijo = items.filter(i => i.type === 'fijo').reduce((s, i) => s + i.budget, 0)
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-gray-500">
+            Definí tipos de gasto con su categoría y presupuesto mensual estimado.
+            Estos datos se usan para calcular el <strong>Punto de Equilibrio</strong>.
+          </p>
+        </div>
+        <Button size="sm" onClick={openNew} className="gap-1.5 shrink-0">
+          <Plus className="h-4 w-4" />Nuevo tipo
+        </Button>
+      </div>
+
+      {/* Formulario nuevo / editar inline */}
+      {(showNew || editId !== null) && (
+        <div className="border rounded-xl p-4 bg-violet-50/40 space-y-3">
+          <p className="text-sm font-semibold text-violet-700">
+            {editId ? 'Editar tipo de gasto' : 'Nuevo tipo de gasto'}
+          </p>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Nombre</Label>
+              <Input
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="Ej: Alquiler"
+                className="text-sm"
+                autoFocus
+                onKeyDown={e => e.key === 'Enter' && handleSave()}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Tipo</Label>
+                <Select value={form.type} onValueChange={v => setForm(f => ({ ...f, type: v as 'fijo' | 'variable' }))}>
+                  <SelectTrigger className="text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TYPE_OPTIONS.map(o => (
+                      <SelectItem key={o.value} value={o.value}>
+                        <span className="font-medium">{o.label}</span>
+                        <span className="text-xs text-gray-400 ml-1.5">{o.desc}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Presupuesto mensual ($)</Label>
+                <Input
+                  type="number" min={0} step="1"
+                  value={form.budget}
+                  onChange={e => setForm(f => ({ ...f, budget: e.target.value }))}
+                  placeholder="0"
+                  className="text-sm"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {editId ? 'Guardar' : 'Crear'}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={cancelEdit}>Cancelar</Button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-10">
+          <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+        </div>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-10">
+          No hay tipos de gasto. Creá uno para habilitar el Punto de Equilibrio.
+        </p>
+      ) : (
+        <div className="rounded-xl border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                <th className="px-4 py-2.5 text-left">Nombre</th>
+                <th className="px-4 py-2.5 text-left">Tipo</th>
+                <th className="px-4 py-2.5 text-right">Presupuesto / mes</th>
+                <th className="px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {items.map(et => (
+                <tr key={et.id} className={`hover:bg-gray-50 ${editId === et.id ? 'bg-violet-50/30' : ''}`}>
+                  <td className="px-4 py-2.5 font-medium text-gray-800">{et.name}</td>
+                  <td className="px-4 py-2.5">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                      et.type === 'fijo'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      {et.type === 'fijo' ? 'Fijo' : 'Variable'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-right tabular-nums text-gray-700">
+                    {et.budget > 0 ? fmt(et.budget) : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex justify-end gap-1">
+                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(et)}>
+                        <Pencil className="h-3.5 w-3.5 text-gray-400" />
+                      </Button>
+                      <Button
+                        size="icon" variant="ghost" className="h-7 w-7"
+                        onClick={() => handleDelete(et.id)}
+                        disabled={deleting === et.id}
+                      >
+                        {deleting === et.id
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />
+                          : <Trash2 className="h-3.5 w-3.5 text-red-400" />
+                        }
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-gray-200 bg-gray-50 text-sm font-semibold">
+                <td colSpan={2} className="px-4 py-2.5 text-gray-600">
+                  Total costos fijos mensuales
+                </td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-violet-700">
+                  {fmt(totalFijo)}
+                </td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Componente principal
 // ══════════════════════════════════════════════════════════════════════════════
 const TABS: { value: Tab; label: string; Icon: React.ElementType }[] = [
   { value: 'negocio',    label: 'Negocio',    Icon: Building2 },
   { value: 'usuarios',   label: 'Usuarios',   Icon: Users     },
   { value: 'sucursales', label: 'Sucursales', Icon: Warehouse  },
+  { value: 'cuentas',    label: 'Cuentas',    Icon: Wallet     },
   { value: 'catalogo',   label: 'Catálogo',   Icon: Rss       },
+  { value: 'ia',         label: 'IA',          Icon: Sparkles  },
+  { value: 'gastos',     label: 'Gastos',      Icon: Receipt   },
 ]
 
 export default function SettingsPanel() {
@@ -1035,7 +1798,10 @@ export default function SettingsPanel() {
             {tab === 'negocio'    && <NegocioTab />}
             {tab === 'usuarios'   && <UsuariosTab />}
             {tab === 'sucursales' && <SucursalesTab />}
+            {tab === 'cuentas'    && <CuentasTab />}
             {tab === 'catalogo'   && <CatalogoTab />}
+            {tab === 'ia'         && <IATab />}
+            {tab === 'gastos'     && <GastosTab />}
           </div>
         </div>
       </div>

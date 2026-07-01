@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireFeature } from '@/lib/plan-gate'
 
 /**
  * GET /api/reports/purchase-roi
@@ -11,6 +12,9 @@ import pool from '@/lib/db'
  *   product    texto libre — ILIKE sobre product name (filtra compras que contengan ese producto)
  */
 export async function GET(req: Request) {
+  const blocked = await requireFeature('finance.reports')
+  if (blocked) return blocked
+
   const { searchParams } = new URL(req.url)
   const from     = searchParams.get('from')
   const to       = searchParams.get('to')

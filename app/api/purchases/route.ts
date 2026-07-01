@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { parseTalles } from '@/lib/talles'
+import { getFopId, insertTransaction } from '@/lib/transactions'
 
 // ── Helper: slug del color para el SKU ──────────────────────────────────────
 // "Negro"  → "NEG"
@@ -78,7 +79,7 @@ export async function POST(request: Request) {
     const { rows: [purchase] } = await client.query(
       `INSERT INTO purchases (supplier_id, total_amount, invoice_number, purchase_date, title)
        VALUES ($1, $2, $3, $4, $5)
-       RETURNING id`,
+       RETURNING id, business_id`,
       [
         parseInt(supplier_id),
         totalAmount,
@@ -157,6 +158,17 @@ export async function POST(request: Request) {
             }
           }
         }
+      }
+    }
+
+    // Compras se asumen pagadas desde Efectivo Caja Central
+    if (totalAmount > 0) {
+      const fopId = await getFopId(client, null, 'efectivo')
+      if (fopId) {
+        await insertTransaction(client, {
+          businessId: purchase.business_id, branchId: null, fopId,
+          type: 'purchase', typeId: purchase.id, amount: -totalAmount,
+        })
       }
     }
 

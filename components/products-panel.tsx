@@ -1,16 +1,18 @@
 "use client"
 
-import {
+import React, {
   useState, useEffect, useCallback, useRef, useMemo,
 } from "react"
 import {
   LayoutGrid, List, Search, SlidersHorizontal, Pencil, Upload,
   ImageOff, Loader2, X, ChevronDown, Package, Plus, Rows3,
-  Globe, CheckCircle2, Circle,
+  Globe, CheckCircle2, Circle, History, Calendar, ShoppingCart,
+  Tag, ArrowLeftRight,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button }   from "@/components/ui/button"
 import { Input }    from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label }    from "@/components/ui/label"
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -51,6 +53,29 @@ interface Variant {
   sold_at:     string | null
 }
 
+interface HistoryEvent {
+  type:        'creacion' | 'compra' | 'venta' | 'cambio_devuelto' | 'cambio_recibido'
+  date:        string
+  description: string
+  amount:      number | null
+  extra: {
+    quantity?:         number
+    title?:            string
+    invoice?:          string
+    supplier?:         string
+    purchase_id?:      number
+    sale_id?:          number
+    discount?:         number
+    total?:            number
+    branch?:           string
+    user?:             string
+    exchange_id?:      number
+    new_variant?:      string
+    returned_variant?: string
+    difference?:       number
+  }
+}
+
 type View    = 'grid' | 'list'
 type SortKey = 'name_asc' | 'name_desc' | 'price_asc' | 'price_desc' | 'stock_desc'
 
@@ -85,7 +110,7 @@ async function resizeImage(file: File, maxPx = 800): Promise<string> {
       canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
       resolve(canvas.toDataURL('image/jpeg', 0.82))
     }
-    img.onerror = reject
+    img.onerror = () => reject(new Error('No se pudo leer la imagen'))
     img.src = url
   })
 }
@@ -171,11 +196,15 @@ function PhotoUploadButton({
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body:   JSON.stringify({ photo_url: dataUrl }),
       })
-      if (!res.ok) throw new Error((await res.json()).error)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Error al guardar la foto')
+      }
       onUploaded(dataUrl)
       toast.success('Foto actualizada')
     } catch (err: unknown) {
-      toast.error((err as Error).message)
+      const msg = err instanceof Error && err.message ? err.message : 'Error al subir la foto'
+      toast.error(msg)
     } finally {
       setBusy(false)
       if (ref.current) ref.current.value = ''
@@ -318,13 +347,156 @@ function VariantsDialog({
 }
 
 // ── Tarjeta de producto (vista cuadrícula) ─────────────────────────────────────
+// ── Historial del producto ────────────────────────────────────────────────────
+const EVENT_CFG = {
+  creacion:        { icon: Calendar,       cls: 'text-gray-400',   label: 'Creación'          },
+  compra:          { icon: ShoppingCart,   cls: 'text-violet-500', label: 'Compra'            },
+  venta:           { icon: Tag,            cls: 'text-green-500',  label: 'Venta'             },
+  cambio_devuelto: { icon: ArrowLeftRight, cls: 'text-amber-500',  label: 'Cambio — devuelto' },
+  cambio_recibido: { icon: ArrowLeftRight, cls: 'text-sky-500',    label: 'Cambio — entregado'},
+} satisfies Record<HistoryEvent['type'], { icon: React.ElementType; cls: string; label: string }>
+
+function ProductHistoryDialog({
+  product, onClose,
+}: { product: Product; onClose: () => void }) {
+  const [events,  setEvents ] = useState<HistoryEvent[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch(`/api/products/${product.id}/history`)
+      .then(r => r.json())
+      .then(setEvents)
+      .catch(() => toast.error('Error al cargar historial'))
+      .finally(() => setLoading(false))
+  }, [product.id])
+
+  return (
+    <Dialog open onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <History className="h-4 w-4 text-violet-500" />
+            Historial — {product.name}
+          </DialogTitle>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+            <Loader2 className="h-5 w-5 animate-spin" /> Cargando…
+          </div>
+        ) : events.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-12">Sin movimientos registrados.</p>
+        ) : (
+          <div className="overflow-y-auto pr-1 space-y-0">
+            {events.map((ev, i) => {
+              const cfg  = EVENT_CFG[ev.type]
+              const Icon = cfg.icon
+              const x    = ev.extra
+              return (
+                <div key={i} className="flex gap-3 py-3 border-b border-gray-50 last:border-0">
+                  {/* icono + línea vertical */}
+                  <div className="flex flex-col items-center gap-1 shrink-0 pt-0.5">
+                    <div className={`rounded-full bg-gray-100 p-1.5 ${cfg.cls}`}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </div>
+                    {i < events.length - 1 && <div className="w-px flex-1 bg-gray-100" />}
+                  </div>
+
+                  {/* contenido */}
+                  <div className="flex-1 min-w-0 pb-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">
+                        {cfg.label}
+                      </span>
+                      <span className="text-[11px] text-gray-400 whitespace-nowrap shrink-0">
+                        {fmtDate(ev.date)}
+                      </span>
+                    </div>
+
+                    {ev.type === 'creacion' && (
+                      <p className="text-sm text-gray-700 mt-0.5">
+                        Precio base: <span className="font-semibold text-violet-700">{fmt(ev.amount ?? 0)}</span>
+                      </p>
+                    )}
+
+                    {ev.type === 'compra' && (
+                      <>
+                        <p className="text-sm font-medium text-gray-800 mt-0.5">
+                          {product.name} {ev.description}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {x.quantity} {x.quantity === 1 ? 'unidad' : 'unidades'} · Costo{' '}
+                          <span className="font-semibold">{fmt(ev.amount ?? 0)}</span> c/u
+                          {x.supplier ? ` · ${x.supplier}` : ''}
+                          {x.title    ? ` · ${x.title}`    : ''}
+                        </p>
+                      </>
+                    )}
+
+                    {ev.type === 'venta' && (
+                      <>
+                        <p className="text-sm font-medium text-gray-800 mt-0.5">
+                          {ev.description}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Importe: <span className="font-semibold text-green-700">{fmt(ev.amount ?? 0)}</span>
+                          {(x.discount ?? 0) > 0 && (
+                            <> · Descuento: {fmt(x.discount!)} (total {fmt(x.total!)})</>
+                          )}
+                          {x.user   ? ` · ${x.user}`   : ''}
+                          {x.branch ? ` · ${x.branch}` : ''}
+                        </p>
+                      </>
+                    )}
+
+                    {ev.type === 'cambio_devuelto' && (
+                      <>
+                        <p className="text-sm font-medium text-gray-800 mt-0.5">
+                          Devolvió: {ev.description}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Precio original: <span className="font-semibold">{fmt(ev.amount ?? 0)}</span>
+                          {x.new_variant ? ` · Recibió: ${x.new_variant}` : ''}
+                          {(x.difference ?? 0) !== 0 && ` · Diferencia: ${fmt(x.difference!)}`}
+                          {x.user   ? ` · ${x.user}`   : ''}
+                          {x.branch ? ` · ${x.branch}` : ''}
+                        </p>
+                      </>
+                    )}
+
+                    {ev.type === 'cambio_recibido' && (
+                      <>
+                        <p className="text-sm font-medium text-gray-800 mt-0.5">
+                          Entregado por cambio: {ev.description}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Precio: <span className="font-semibold">{fmt(ev.amount ?? 0)}</span>
+                          {x.returned_variant ? ` · A cambio de: ${x.returned_variant}` : ''}
+                          {(x.difference ?? 0) !== 0 && ` · Diferencia: ${fmt(x.difference!)}`}
+                          {x.user   ? ` · ${x.user}`   : ''}
+                          {x.branch ? ` · ${x.branch}` : ''}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function ProductCard({
-  product, onUpdate, onEdit, onVariants,
+  product, onUpdate, onEdit, onVariants, onHistory,
 }: {
   product:    Product
   onUpdate:   (patch: Partial<Product>) => void
   onEdit:     () => void
   onVariants: () => void
+  onHistory:  () => void
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
@@ -344,11 +516,15 @@ function ProductCard({
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body:   JSON.stringify({ photo_url: dataUrl }),
       })
-      if (!res.ok) throw new Error((await res.json()).error)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Error al guardar la foto')
+      }
       toast.success('Foto actualizada')
     } catch (err: unknown) {
       onUpdate({ photo_url: prev })
-      toast.error((err as Error).message)
+      const msg = err instanceof Error && err.message ? err.message : 'Error al subir la foto'
+      toast.error(msg)
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -391,11 +567,12 @@ function ProductCard({
             </div>
           )
         }
-        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1">
           {uploading
             ? <Loader2 className="h-8 w-8 text-white animate-spin" />
             : <Upload  className="h-8 w-8 text-white" />
           }
+          {!uploading && <span className="text-white text-xs drop-shadow">JPG/PNG · máx. 5 MB</span>}
         </div>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
       </div>
@@ -434,6 +611,11 @@ function ProductCard({
               <Rows3 className="h-3.5 w-3.5" /> Variantes
             </Button>
           )}
+          <Button variant="ghost" size="icon"
+            className="h-7 w-7 text-gray-400 hover:text-violet-700 shrink-0"
+            title="Ver historial" onClick={onHistory}>
+            <History className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </div>
     </div>
@@ -442,12 +624,13 @@ function ProductCard({
 
 // ── Fila de producto (vista lista) ────────────────────────────────────────────
 function ProductRow({
-  product, onUpdate, onEdit, onVariants,
+  product, onUpdate, onEdit, onVariants, onHistory,
 }: {
   product:    Product
   onUpdate:   (patch: Partial<Product>) => void
   onEdit:     () => void
   onVariants: () => void
+  onHistory:  () => void
 }) {
   const handleRedesToggle = async (updates: Partial<Product>) => {
     onUpdate(updates)
@@ -509,6 +692,11 @@ function ProductRow({
           )}
           <Button variant="ghost" size="icon"
             className="h-7 w-7 text-gray-400 hover:text-violet-700"
+            title="Ver historial" onClick={onHistory}>
+            <History className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon"
+            className="h-7 w-7 text-gray-400 hover:text-violet-700"
             title="Editar" onClick={onEdit}>
             <Pencil className="h-3.5 w-3.5" />
           </Button>
@@ -540,6 +728,9 @@ function EditProductDialog({
   const [photoUrl,    setPhotoUrl   ] = useState(product.photo_url)
   const [photoUploading, setPhotoUploading] = useState(false)
   const [saving,      setSaving     ] = useState(false)
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiGenerated,  setAiGenerated ] = useState(false)
+  const [aiInfo,       setAiInfo      ] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   const handlePhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -577,6 +768,46 @@ function EditProductDialog({
     } catch (err: unknown) {
       toast.error((err as Error).message)
     } finally { setSaving(false) }
+  }
+
+  const generateDescription = async () => {
+    if (!photoUrl) { toast.error('Cargá una imagen primero'); return }
+    const modelo = (typeof localStorage !== 'undefined' ? localStorage.getItem('ai_modelo') : null) ?? 'claude-haiku-4-5-20251001'
+    const estilo = (typeof localStorage !== 'undefined' ? localStorage.getItem('ai_estilo') : null) ?? 'comercial'
+    setAiGenerating(true)
+    try {
+      const [meta, data] = photoUrl.split(',')
+      const mimeType = meta.match(/:(.*?);/)?.[1] ?? 'image/jpeg'
+      const categoryName = categories.find(c => String(c.id) === categoryId)?.name
+      const res = await fetch('/api/generar-descripcion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imagenBase64: data,
+          mimeType,
+          nombre: name,
+          precio: price || undefined,
+          categoria: categoryName,
+          modelo,
+          estilo,
+          descripcionAnterior: aiGenerated ? description : undefined,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Error al generar descripción')
+      }
+      const result = await res.json()
+      setDescription(result.descripcion)
+      setAiGenerated(true)
+      const modeloLabel = modelo.includes('haiku') ? 'Haiku' : 'Sonnet'
+      const estiloLabels: Record<string, string> = { comercial: 'Comercial', descriptivo: 'Descriptivo', emocional: 'Emocional', minimalista: 'Minimalista' }
+      setAiInfo(`${modeloLabel} · ${estiloLabels[estilo] ?? estilo}`)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error && err.message ? err.message : 'Error al generar descripción')
+    } finally {
+      setAiGenerating(false)
+    }
   }
 
   const anyRedes = EXPORT_KEYS.some(k => product[k])
@@ -635,8 +866,32 @@ function EditProductDialog({
 
           {/* Descripción */}
           <div className="space-y-1.5">
-            <Label>Descripción</Label>
-            <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Opcional" />
+            <div className="flex items-center justify-between">
+              <Label>Descripción</Label>
+              <button
+                type="button"
+                onClick={generateDescription}
+                disabled={aiGenerating || !photoUrl}
+                title={!photoUrl ? 'Cargá una imagen primero' : undefined}
+                className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors
+                  ${!photoUrl || aiGenerating
+                    ? 'text-gray-300 cursor-not-allowed'
+                    : 'text-violet-600 hover:text-violet-700 hover:bg-violet-50 cursor-pointer'}`}
+              >
+                {aiGenerating
+                  ? <><Loader2 className="h-3 w-3 animate-spin inline mr-0.5" />Generando...</>
+                  : aiGenerated ? '✨ Regenerar' : '✨ Generar descripción'}
+              </button>
+            </div>
+            <Textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Opcional"
+              className="resize-none text-sm"
+            />
+            {aiInfo && (
+              <p className="text-[11px] text-gray-400">Generado con {aiInfo}</p>
+            )}
           </div>
 
           {/* Precio */}
@@ -724,6 +979,7 @@ export default function ProductsPanel() {
   const [view,           setView          ] = useState<View>('grid')
   const [editTarget,     setEditTarget    ] = useState<Product | null>(null)
   const [variantsTarget, setVariantsTarget] = useState<Product | null>(null)
+  const [historyTarget,  setHistoryTarget ] = useState<Product | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -942,6 +1198,7 @@ export default function ProductsPanel() {
                 onUpdate={patch => updateProduct(p.id, patch)}
                 onEdit={() => setEditTarget(p)}
                 onVariants={() => setVariantsTarget(p)}
+                onHistory={() => setHistoryTarget(p)}
               />
             ))}
           </div>
@@ -965,6 +1222,7 @@ export default function ProductsPanel() {
                     onUpdate={patch => updateProduct(p.id, patch)}
                     onEdit={() => setEditTarget(p)}
                     onVariants={() => setVariantsTarget(p)}
+                    onHistory={() => setHistoryTarget(p)}
                   />
                 ))}
               </tbody>
@@ -995,6 +1253,11 @@ export default function ProductsPanel() {
       {/* Diálogo de variantes */}
       {variantsTarget && (
         <VariantsDialog product={variantsTarget} onClose={() => setVariantsTarget(null)} />
+      )}
+
+      {/* Diálogo de historial */}
+      {historyTarget && (
+        <ProductHistoryDialog product={historyTarget} onClose={() => setHistoryTarget(null)} />
       )}
     </div>
   )

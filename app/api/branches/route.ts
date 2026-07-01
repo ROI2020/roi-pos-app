@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireFeature } from '@/lib/plan-gate'
 
 /** GET /api/branches — lista todas las sucursales */
 export async function GET() {
@@ -13,6 +14,9 @@ export async function GET() {
 
 /** POST /api/branches — crea una nueva sucursal */
 export async function POST(req: Request) {
+  const blocked = await requireFeature('branch.multi')
+  if (blocked) return blocked
+
   try {
     const { name, address, arca_pos_number } = await req.json()
 

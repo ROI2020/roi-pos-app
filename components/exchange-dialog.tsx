@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import {
   Search, X, Camera, Loader2, ArrowRight, RefreshCw,
   Banknote, CreditCard, Smartphone, ArrowDownUp,
@@ -16,6 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import { CameraScanner } from "@/components/camera-scanner"
+import { fetchEnabledPaymentMethods, type PayMethod } from "@/lib/payment-methods"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface PosSession { id: number }
@@ -36,8 +37,6 @@ interface StockVariant {
   id: number; sku: string; barcode: string; color: string; size: string
   product_name: string; base_price: number
 }
-
-type PayMethod = 'efectivo' | 'debito' | 'credito' | 'mp' | 'transferencia'
 
 const PAY_METHODS: { value: PayMethod; label: string; icon: React.ReactNode }[] = [
   { value: 'efectivo',      label: 'Efectivo',      icon: <Banknote    className="h-3.5 w-3.5" /> },
@@ -328,9 +327,23 @@ export function ExchangeDialog({
   const [newItem,      setNewItem      ] = useState<StockVariant | null>(null)
   const [newPrice,     setNewPrice     ] = useState('')
   const [payMethod,    setPayMethod    ] = useState<PayMethod>('efectivo')
+  const [payMethods,   setPayMethods   ] = useState(PAY_METHODS)
   const [userId,       setUserId       ] = useState(currentUserId ? String(currentUserId) : '__none__')
   const [notes,        setNotes        ] = useState('')
   const [saving,       setSaving       ] = useState(false)
+
+  useEffect(() => {
+    fetchEnabledPaymentMethods(branchId)
+      .then(enabled => {
+        const filtered = PAY_METHODS.filter(pm => enabled.has(pm.value))
+        setPayMethods(filtered.length > 0 ? filtered : PAY_METHODS)
+      })
+      .catch(() => setPayMethods(PAY_METHODS))
+  }, [branchId])
+
+  useEffect(() => {
+    if (!payMethods.some(pm => pm.value === payMethod)) setPayMethod(payMethods[0]?.value ?? 'efectivo')
+  }, [payMethods, payMethod])
 
   const handleNewItemSelect = (item: StockVariant | null) => {
     setNewItem(item)
@@ -462,7 +475,7 @@ export function ExchangeDialog({
                   {difference > 0 ? 'El cliente paga con' : 'Devolución mediante'}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {PAY_METHODS.map(pm => (
+                  {payMethods.map(pm => (
                     <button
                       key={pm.value}
                       onClick={() => setPayMethod(pm.value)}

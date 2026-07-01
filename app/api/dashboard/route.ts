@@ -57,28 +57,8 @@ export async function GET() {
     WHERE sold_at >= ${fromExpr}
   `)
 
-  // ROI: vendido (neto descuentos) + costo de compra + gastos
-  const roiQueryFrom = (fromExpr: string) => pool.query(`
-    SELECT
-      (SELECT COALESCE(SUM(s.total_amount), 0)::float
-       FROM sales s
-       WHERE s.sold_at >= ${fromExpr}) AS vendido,
-
-      (SELECT COALESCE(SUM(COALESCE(pd.unit_cost, 0)), 0)::float
-       FROM sale_details sd
-       JOIN sales sv ON sv.id = sd.sale_id
-       JOIN product_variants pv ON pv.id = sd.product_variant_id
-       LEFT JOIN purchase_details pd ON pd.id = pv.purchase_detail_id
-       WHERE sv.sold_at >= ${fromExpr}) AS costo,
-
-      (SELECT COALESCE(SUM(e.amount), 0)::float
-       FROM daily_expenses e
-       WHERE e.created_at >= ${fromExpr}) AS gastos
-  `)
-
   const [summary, byCategory, byAgeGroup, bySeason, byGender, byBranch, unclassified,
-         salesToday, salesWeek, salesMonth,
-         roiToday, roiWeek, roiMonth] =
+         salesToday, salesWeek, salesMonth] =
     await Promise.all([
 
       // ── Resumen global ───────────────────────────────────────────────────
@@ -190,11 +170,6 @@ export async function GET() {
       salesQueryFrom(todayStart),
       salesQueryFrom(weekStart),
       salesQueryFrom(monthStart),
-
-      // ── ROI por período (vendido + costo + gastos) ───────────────────────
-      roiQueryFrom(todayStart),
-      roiQueryFrom(weekStart),
-      roiQueryFrom(monthStart),
     ])
 
   const s = summary.rows[0]
@@ -218,8 +193,5 @@ export async function GET() {
     sales_today:  { count: salesToday.rows[0].count, total: salesToday.rows[0].total },
     sales_week:   { count: salesWeek.rows[0].count,  total: salesWeek.rows[0].total  },
     sales_month:  { count: salesMonth.rows[0].count, total: salesMonth.rows[0].total },
-    roi_today:    { vendido: roiToday.rows[0].vendido, costo: roiToday.rows[0].costo, gastos: roiToday.rows[0].gastos },
-    roi_week:     { vendido: roiWeek.rows[0].vendido,  costo: roiWeek.rows[0].costo,  gastos: roiWeek.rows[0].gastos  },
-    roi_month:    { vendido: roiMonth.rows[0].vendido, costo: roiMonth.rows[0].costo, gastos: roiMonth.rows[0].gastos },
   })
 }

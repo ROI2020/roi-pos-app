@@ -1,9 +1,22 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { setSession, getSession, landingRoute } from "@/lib/session"
 import { Loader2, ShieldAlert, ArrowLeft } from "lucide-react"
+
+const ERRORES_DOMINIO: Record<string, { titulo: string; mensaje: string; codigo: string }> = {
+  dominio_no_encontrado: {
+    titulo: 'Dominio no reconocido',
+    mensaje: 'Este dominio no está asociado a ningún negocio en el sistema.',
+    codigo: 'ERR_DOMAIN_404',
+  },
+  negocio_incorrecto: {
+    titulo: 'Acceso incorrecto',
+    mensaje: 'Tu cuenta no corresponde a este negocio.',
+    codigo: 'ERR_TENANT_MISMATCH',
+  },
+}
 
 declare global {
   interface Window {
@@ -19,10 +32,14 @@ declare global {
 }
 
 export default function LoginPage() {
-  const router  = useRouter()
-  const btnRef  = useRef<HTMLDivElement>(null)
+  const router       = useRouter()
+  const searchParams = useSearchParams()
+  const btnRef       = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(false)
   const [error,   setError  ] = useState<string | null>(null)
+
+  const errorParam   = searchParams.get('error')
+  const errorDominio = errorParam ? ERRORES_DOMINIO[errorParam] : null
 
   useEffect(() => {
     const s = getSession()
@@ -106,6 +123,17 @@ export default function LoginPage() {
                   Configurá <code>NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> en Netlify para activar el login.
                 </div>
               )}
+            </div>
+          )}
+
+          {errorDominio && (
+            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-left">
+              <ShieldAlert className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-amber-800">{errorDominio.titulo}</p>
+                <p className="text-xs text-amber-700">{errorDominio.mensaje}</p>
+                <p className="text-xs text-amber-500">Contactá a soporte · {errorDominio.codigo}</p>
+              </div>
             </div>
           )}
 

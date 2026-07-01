@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { getFopId, insertTransaction } from '@/lib/transactions'
 
 /**
  * POST /api/exchanges
@@ -108,7 +109,7 @@ export async function POST(req: Request) {
          (branch_id, pos_session_id, subtotal, discount_amount, total_amount,
           payment_method, notes, sold_at)
        VALUES ($1, $2, $3, 0, $4, $5, $6, NOW())
-       RETURNING id`,
+       RETURNING id, business_id`,
       [
         parseInt(branch_id),
         pos_session_id ?? null,
@@ -119,6 +120,7 @@ export async function POST(req: Request) {
       ]
     )
     const exchangeSaleId = saleRows[0].id as number
+    const businessId     = saleRows[0].business_id as number
 
     // 7. sale_detail para el artículo nuevo (queda registrado como vendido)
     await client.query(
@@ -150,6 +152,21 @@ export async function POST(req: Request) {
         notes?.trim()   || null,
       ]
     )
+
+    // 9. Registrar movimiento de caja por la diferencia (si hubo pago real)
+    if (payment_method && difference_amount !== 0) {
+      const fopId = await getFopId(client, parseInt(branch_id), payment_method)
+      if (fopId) {
+        await insertTransaction(client, {
+          businessId: businessId,
+          branchId:   parseInt(branch_id),
+          fopId,
+          type:       'exchange',
+          typeId:     exRows[0].id,
+          amount:     difference_amount,
+        })
+      }
+    }
 
     await client.query('COMMIT')
     return NextResponse.json(

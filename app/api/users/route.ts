@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireFeature } from '@/lib/plan-gate'
 
 const VALID_ROLES = ['vendedor', 'encargado', 'administrador'] as const
 
 /** GET /api/users — lista todos los usuarios activos (y opcionalmente inactivos) */
 export async function GET(req: Request) {
+  const blocked = await requireFeature('users.manage')
+  if (blocked) return blocked
+
   const { searchParams } = new URL(req.url)
   const all = searchParams.get('all') === 'true'
 
@@ -22,6 +26,9 @@ export async function GET(req: Request) {
  * Body: { name, email, role }
  */
 export async function POST(req: Request) {
+  const blocked = await requireFeature('users.manage')
+  if (blocked) return blocked
+
   try {
     const { name, email, role } = await req.json()
     if (!name?.trim())  return NextResponse.json({ error: 'name requerido'  }, { status: 400 })

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import {
   Loader2, Printer, ReceiptText, RefreshCw, ChevronDown, ChevronRight,
   Banknote, CreditCard, Smartphone, ArrowDownUp, User,
+  FileCheck, FileText,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge }  from "@/components/ui/badge"
@@ -11,6 +12,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { ReceiptDialog, type ReceiptData, type ReceiptSettings } from "@/components/receipt-dialog"
+import { useFacturacion } from "@/hooks/useFacturacion"
+import type { FacturacionOutput } from "@/lib/facturacion/types"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface SaleItem {
@@ -35,14 +38,17 @@ interface Sale {
   notes: string | null
   user_id: number | null
   user_name: string | null
+  arca_cae: string | null
+  factura_id: string | null
   items: SaleItem[]
 }
 
 interface Props {
-  open:      boolean
-  onClose:   () => void
-  branchId:  number
-  settings:  ReceiptSettings
+  open:          boolean
+  onClose:       () => void
+  branchId:      number
+  settings:      ReceiptSettings
+  cuitEmisor?:   string   // si está presente, habilita facturación inline
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -80,12 +86,73 @@ const PAY_COLORS: Record<string, string> = {
   transferencia: 'border-amber-300  text-amber-700  bg-amber-50',
 }
 
+// ── Botón de facturación inline por venta ──────────────────────────────────────
+function FacturarSaleButton({
+  saleId,
+  cuitEmisor,
+  onEmitida,
+}: {
+  saleId: number
+  cuitEmisor: string
+  onEmitida: (output: FacturacionOutput) => void
+}) {
+  const { cargando, exitoso, fallido, error, resultado, facturar } = useFacturacion({
+    ventaId: String(saleId),
+    cuitEmisor,
+    onSuccess: onEmitida,
+  })
+
+  if (exitoso && resultado) {
+    return (
+      <a
+        href={resultado.pdfUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`CAE: ${resultado.cae}`}
+        className="flex items-center"
+        onClick={e => e.stopPropagation()}
+      >
+        <FileCheck className="h-3.5 w-3.5 text-green-600" />
+      </a>
+    )
+  }
+
+  if (fallido && error) {
+    return (
+      <button
+        title={`Error: ${error.mensaje}. Clic para reintentar`}
+        className="flex items-center"
+        onClick={e => { e.stopPropagation(); facturar() }}
+      >
+        <FileText className="h-3.5 w-3.5 text-red-400" />
+      </button>
+    )
+  }
+
+  return (
+    <Button
+      size="icon" variant="ghost"
+      className="h-7 w-7 shrink-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+      title="Emitir factura B"
+      disabled={cargando}
+      onClick={e => { e.stopPropagation(); facturar() }}
+    >
+      {cargando
+        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        : <FileText className="h-3.5 w-3.5" />
+      }
+    </Button>
+  )
+}
+
 // ── Componente ─────────────────────────────────────────────────────────────────
-export function TodaySalesDialog({ open, onClose, branchId, settings }: Props) {
+export function TodaySalesDialog({ open, onClose, branchId, settings, cuitEmisor }: Props) {
   const [sales,       setSales      ] = useState<Sale[]>([])
   const [loading,     setLoading    ] = useState(false)
   const [expandedId,  setExpandedId ] = useState<number | null>(null)
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null)
+  // Output de facturación obtenido inline, por sale.id
+  const [facturaLocal, setFacturaLocal] = useState<Record<number, FacturacionOutput>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -289,6 +356,60 @@ export function TodaySalesDialog({ open, onClose, branchId, settings }: Props) {
                               >
                                 <Printer className="h-3.5 w-3.5" />
                               </Button>
+
+                              {/* Indicador / botón de facturación ARCA */}
+                              {(() => {
+                                const facturaEmitida = facturaLocal[sale.id]
+                                const yaFacturada    = !!sale.arca_cae || !!facturaEmitida
+
+                                if (yaFacturada) {
+                                  const pdfUrl    = facturaEmitida?.pdfUrl
+                                  // factura_id viene de la DB; si se acaba de emitir, lo extraemos del pdfUrl
+                                  const facturaId = sale.factura_id
+                                    ?? pdfUrl?.split('/').at(-1)
+                                  const ticketUrl = facturaId
+                                    ? `/api/facturacion/pdf/${facturaId}?formato=ticket`
+                                    : null
+
+                                  return (
+                                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                      <a
+                                        href={pdfUrl ?? '#'}
+                                        target={pdfUrl ? '_blank' : undefined}
+                                        rel="noopener noreferrer"
+                                        title={`Factura emitida — CAE: ${facturaEmitida?.cae ?? sale.arca_cae}`}
+                                        className="flex items-center"
+                                        onClick={e => { if (!pdfUrl) e.preventDefault() }}
+                                      >
+                                        <FileCheck className="h-3.5 w-3.5 text-green-600" />
+                                      </a>
+                                      {ticketUrl && (
+                                        <a
+                                          href={ticketUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          title="Imprimir ticket 80mm"
+                                          className="flex items-center"
+                                        >
+                                          <Printer className="h-3.5 w-3.5 text-violet-500" />
+                                        </a>
+                                      )}
+                                    </div>
+                                  )
+                                }
+                                if (cuitEmisor) {
+                                  return (
+                                    <FacturarSaleButton
+                                      saleId={sale.id}
+                                      cuitEmisor={cuitEmisor}
+                                      onEmitida={output => {
+                                        setFacturaLocal(prev => ({ ...prev, [sale.id]: output }))
+                                      }}
+                                    />
+                                  )
+                                }
+                                return null
+                              })()}
                             </div>
 
                             {/* Detalle expandido */}

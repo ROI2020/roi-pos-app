@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { getFopId, insertTransaction } from '@/lib/transactions'
 
 /**
  * GET /api/expenses
@@ -47,6 +48,7 @@ export async function GET(req: Request) {
  *         description?, amount, payment_method }
  */
 export async function POST(req: Request) {
+  const client = await pool.connect()
   try {
     const {
       pos_session_id, branch_id, user_id, expense_type_id,
@@ -57,25 +59,47 @@ export async function POST(req: Request) {
     if (!amount || isNaN(parseFloat(amount)))
       return NextResponse.json({ error: 'amount requerido y debe ser numérico' }, { status: 400 })
 
-    const { rows } = await pool.query(`
+    const method = payment_method ?? 'efectivo'
+    const branchIdNum = parseInt(branch_id)
+
+    await client.query('BEGIN')
+
+    const { rows } = await client.query(`
       INSERT INTO daily_expenses
         (pos_session_id, branch_id, user_id, expense_type_id,
          description, amount, payment_method)
       VALUES ($1,$2,$3,$4,$5,$6,$7)
-      RETURNING id, amount::float, payment_method, created_at
+      RETURNING id, business_id, amount::float, payment_method, created_at
     `, [
       pos_session_id   ?? null,
-      parseInt(branch_id),
+      branchIdNum,
       user_id          ?? null,
       expense_type_id  ?? null,
       description?.trim() || null,
       parseFloat(amount),
-      payment_method   ?? 'efectivo',
+      method,
     ])
+    const expense = rows[0]
 
-    return NextResponse.json(rows[0], { status: 201 })
+    const fopId = await getFopId(client, branchIdNum, method)
+    if (fopId) {
+      await insertTransaction(client, {
+        businessId: expense.business_id,
+        branchId:   branchIdNum,
+        fopId,
+        type:       'expense',
+        typeId:     expense.id,
+        amount:     -expense.amount,
+      })
+    }
+
+    await client.query('COMMIT')
+    return NextResponse.json(expense, { status: 201 })
   } catch (err) {
+    await client.query('ROLLBACK')
     console.error('[POST /api/expenses]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
+  } finally {
+    client.release()
   }
 }

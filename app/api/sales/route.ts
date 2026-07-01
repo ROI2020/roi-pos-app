@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { insertSaleTransactions } from '@/lib/transactions'
 
 /**
  * POST /api/sales
@@ -57,7 +58,7 @@ export async function POST(req: Request) {
           subtotal, discount_amount, total_amount,
           payment_method, payment_split, notes, user_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       RETURNING id`,
+       RETURNING id, business_id`,
       [
         branch_id,
         pos_session_id ?? null,
@@ -106,6 +107,16 @@ export async function POST(req: Request) {
         [item.variant_id, branch_id]
       )
     }
+
+    // ── 3. Registrar movimiento(s) de caja ──────────────────────────────────
+    await insertSaleTransactions(client, {
+      businessId: sale.business_id,
+      branchId:   branch_id,
+      saleId:     sale.id,
+      amountByMethod: splitJson
+        ? (payment_split as Record<string, number>)
+        : { [payment_method]: total },
+    })
 
     await client.query('COMMIT')
 

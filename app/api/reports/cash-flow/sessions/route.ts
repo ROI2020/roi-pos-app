@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireFeature } from '@/lib/plan-gate'
 
 /**
  * GET /api/reports/cash-flow/sessions?from=YYYY-MM-DD&to=YYYY-MM-DD[&branch_id=N]
@@ -9,6 +10,9 @@ import pool from '@/lib/db'
  * Ordenadas por apertura ASC para que el frontend pueda tomar la primera y la última.
  */
 export async function GET(req: Request) {
+  const blocked = await requireFeature('finance.transactions')
+  if (blocked) return blocked
+
   const { searchParams } = new URL(req.url)
   const from     = searchParams.get('from')
   const to       = searchParams.get('to')

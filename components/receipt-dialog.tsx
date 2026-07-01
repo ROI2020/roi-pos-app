@@ -1,10 +1,12 @@
 "use client"
 
-import { Printer, Gift } from "lucide-react"
+import { Printer, Gift, FileText, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import { BotonFacturar } from "@/components/facturacion/BotonFacturar"
+import type { FacturacionOutput } from "@/lib/facturacion/types"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface ReceiptItem {
@@ -41,10 +43,12 @@ export interface ReceiptData {
 }
 
 interface Props {
-  open:     boolean
-  onClose:  () => void
-  data:     ReceiptData
-  settings: ReceiptSettings
+  open:          boolean
+  onClose:       () => void
+  data:          ReceiptData
+  settings:      ReceiptSettings
+  cuitEmisor?:   string                          // si está presente, muestra sección facturación
+  onNuevaVenta?: () => void                      // botón "Realizar otra venta"
 }
 
 // ── Formateo ───────────────────────────────────────────────────────────────────
@@ -169,7 +173,7 @@ function buildReceiptHTML(data: ReceiptData, settings: ReceiptSettings, gift: bo
 }
 
 // ── Componente ─────────────────────────────────────────────────────────────────
-export function ReceiptDialog({ open, onClose, data, settings }: Props) {
+export function ReceiptDialog({ open, onClose, data, settings, cuitEmisor, onNuevaVenta }: Props) {
   const handlePrint = (gift: boolean) => {
     const html = buildReceiptHTML(data, settings, gift)
     const w = window.open('', '_blank', 'width=400,height=650,scrollbars=yes')
@@ -279,7 +283,7 @@ export function ReceiptDialog({ open, onClose, data, settings }: Props) {
             onClick={() => handlePrint(false)}
           >
             <Printer className="h-4 w-4" />
-            PDF / browser
+            Imprimir recibo
           </Button>
           <Button
             variant="outline"
@@ -291,9 +295,39 @@ export function ReceiptDialog({ open, onClose, data, settings }: Props) {
           </Button>
         </div>
 
-        <Button variant="ghost" size="sm" className="w-full -mt-1 text-gray-400" onClick={onClose}>
-          Cerrar sin imprimir
-        </Button>
+        {/* Sección de facturación ARCA */}
+        {cuitEmisor && (
+          <div className="border-t border-gray-100 pt-3 space-y-2">
+            <p className="text-xs text-gray-400 flex items-center gap-1.5">
+              <FileText className="h-3.5 w-3.5" />
+              Facturación electrónica (ARCA)
+            </p>
+            <BotonFacturar
+              ventaId={String(data.saleId)}
+              cuitEmisor={cuitEmisor}
+              onFacturaEmitida={(_output: FacturacionOutput) => {
+                // La factura se emitió — el usuario puede cerrar o hacer nueva venta
+              }}
+            />
+          </div>
+        )}
+
+        {/* Acciones de navegación */}
+        <div className="flex gap-2 border-t border-gray-100 pt-2">
+          {onNuevaVenta && (
+            <Button
+              variant="outline"
+              className="flex-1 gap-2 border-green-300 text-green-700 hover:bg-green-50"
+              onClick={() => { onClose(); onNuevaVenta() }}
+            >
+              <Plus className="h-4 w-4" />
+              Nueva venta
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" className="flex-1 text-gray-400" onClick={onClose}>
+            Cerrar
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   )

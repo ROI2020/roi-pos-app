@@ -17,7 +17,8 @@ export async function POST(req: Request) {
 
     // Buscar el usuario por email en app_users
     const { rows } = await pool.query(
-      `SELECT id, name, email, role, avatar_url FROM app_users WHERE email = $1 AND active = true`,
+      `SELECT id, name, email, role, avatar_url, business_id
+       FROM app_users WHERE email = $1 AND active = true`,
       [email.toLowerCase()]
     )
 
@@ -42,6 +43,7 @@ export async function POST(req: Request) {
       email: user.email,
       role: user.role,
       avatar_url: picture,
+      business_id: user.business_id,
     })
   } catch (err: unknown) {
     console.error('[POST /api/auth/google]', err)

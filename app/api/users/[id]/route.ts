@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireFeature } from '@/lib/plan-gate'
 
 const VALID_ROLES = ['vendedor', 'encargado', 'administrador']
 const EDITABLE    = ['name', 'email', 'role', 'active']
@@ -12,6 +13,9 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const blocked = await requireFeature('users.manage')
+  if (blocked) return blocked
+
   try {
     const { id } = await params
     const body   = await req.json() as Record<string, unknown>
@@ -53,6 +57,9 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const blocked = await requireFeature('users.manage')
+  if (blocked) return blocked
+
   const { id } = await params
   await pool.query(`UPDATE app_users SET active = false WHERE id = $1`, [parseInt(id)])
   return NextResponse.json({ ok: true })

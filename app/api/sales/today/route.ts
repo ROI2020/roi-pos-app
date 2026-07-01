@@ -21,6 +21,8 @@ export async function GET(req: Request) {
       notes: string | null
       user_id: number | null
       user_name: string | null
+      arca_cae: string | null
+      factura_id: string | null
     }>(
       `SELECT
          s.id,
@@ -32,9 +34,15 @@ export async function GET(req: Request) {
          s.payment_method,
          s.notes,
          s.user_id,
-         u.name                   AS user_name
+         u.name                   AS user_name,
+         s.arca_cae,
+         f.id                     AS factura_id
        FROM sales s
        LEFT JOIN app_users u ON u.id = s.user_id
+       LEFT JOIN facturas f
+              ON f.venta_id = s.id::text
+             AND f.origen_sistema = 'roipos'
+             AND f.estado = 'emitida'
        WHERE s.branch_id = $1
          AND s.sold_at >= CURRENT_DATE
          AND s.sold_at <  CURRENT_DATE + INTERVAL '1 day'

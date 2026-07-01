@@ -10,10 +10,12 @@ import {
   Receipt, RefreshCw, ReceiptText, Vault,
 } from "lucide-react"
 import { getSession }      from "@/lib/session"
+import { fetchEnabledPaymentMethods, type PayMethod } from "@/lib/payment-methods"
 import { CameraScanner }   from "@/components/camera-scanner"
 import { ExchangeDialog }  from "@/components/exchange-dialog"
 import { ReceiptDialog, type ReceiptData, type ReceiptSettings } from "@/components/receipt-dialog"
 import { TodaySalesDialog } from "@/components/today-sales-dialog"
+import { usePlanCan } from "@/components/PlanGate"
 import { toast } from "sonner"
 import { Button }   from "@/components/ui/button"
 import { Input }    from "@/components/ui/input"
@@ -76,8 +78,6 @@ interface Variant {
   category_name: string | null; branch_name: string | null
 }
 interface CartItem extends Variant { unit_price: number }
-
-type PayMethod = 'efectivo' | 'debito' | 'credito' | 'mp' | 'transferencia'
 
 // ── Formateo ───────────────────────────────────────────────────────────────────
 const fmt = (n: number) =>
@@ -459,6 +459,7 @@ function Row({ label, value, unit = '', small }: { label: string; value: string;
 function ExpenseDialog({
   session,
   branchId,
+  payMethods,
   users,
   currentUserId,
   onClose,
@@ -466,6 +467,7 @@ function ExpenseDialog({
 }: {
   session:       PosSession
   branchId:      number
+  payMethods:    typeof PAY_METHODS
   users:         AppUser[]
   currentUserId: number | null
   onClose:       () => void
@@ -473,14 +475,15 @@ function ExpenseDialog({
 }) {
   const [expenseTypes,   setExpenseTypes  ] = useState<ExpenseType[]>([])
   const [expenseTypeId,  setExpenseTypeId ] = useState('')
-  const [showAddType,    setShowAddType   ] = useState(false)
-  const [newTypeName,    setNewTypeName   ] = useState('')
   const [description,    setDescription  ] = useState('')
   const [amount,         setAmount       ] = useState('')
-  const [payMethod,      setPayMethod    ] = useState<PayMethod>('efectivo')
+  const [payMethod,      setPayMethod    ] = useState<PayMethod>(payMethods[0]?.value ?? 'efectivo')
   const [userId,         setUserId       ] = useState(currentUserId ? String(currentUserId) : '')
   const [saving,         setSaving       ] = useState(false)
-  const [addingType,     setAddingType   ] = useState(false)
+
+  useEffect(() => {
+    if (!payMethods.some(pm => pm.value === payMethod)) setPayMethod(payMethods[0]?.value ?? 'efectivo')
+  }, [payMethods, payMethod])
 
   useEffect(() => {
     fetch('/api/expense-types')
@@ -488,28 +491,6 @@ function ExpenseDialog({
       .then((data: ExpenseType[]) => setExpenseTypes(data))
       .catch(() => toast.error('Error al cargar tipos de gasto'))
   }, [])
-
-  const handleAddType = async () => {
-    if (!newTypeName.trim()) return
-    setAddingType(true)
-    try {
-      const res  = await fetch('/api/expense-types', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newTypeName.trim() }),
-      })
-      const data: ExpenseType = await res.json()
-      if (!res.ok) throw new Error((data as unknown as { error: string }).error)
-      setExpenseTypes(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
-      setExpenseTypeId(String(data.id))
-      setNewTypeName('')
-      setShowAddType(false)
-    } catch (err: unknown) {
-      toast.error((err as Error).message)
-    } finally {
-      setAddingType(false)
-    }
-  }
 
   const handleSave = async () => {
     const amt = parseFloat(amount)
@@ -554,43 +535,16 @@ function ExpenseDialog({
           {/* Tipo de gasto */}
           <div className="space-y-1.5">
             <Label>Tipo de gasto</Label>
-            <div className="flex gap-2">
-              <Select value={expenseTypeId} onValueChange={setExpenseTypeId}>
-                <SelectTrigger className="text-sm flex-1">
-                  <SelectValue placeholder="Seleccioná un tipo…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {expenseTypes.map(et => (
-                    <SelectItem key={et.id} value={String(et.id)}>{et.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                variant="outline" size="icon"
-                title="Agregar tipo"
-                onClick={() => setShowAddType(v => !v)}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-            {showAddType && (
-              <div className="flex gap-2">
-                <Input
-                  autoFocus
-                  value={newTypeName}
-                  onChange={e => setNewTypeName(e.target.value)}
-                  placeholder="Nombre del tipo…"
-                  className="text-sm"
-                  onKeyDown={e => e.key === 'Enter' && handleAddType()}
-                />
-                <Button
-                  size="sm" onClick={handleAddType} disabled={addingType}
-                  className="shrink-0"
-                >
-                  {addingType ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Agregar'}
-                </Button>
-              </div>
-            )}
+            <Select value={expenseTypeId} onValueChange={setExpenseTypeId}>
+              <SelectTrigger className="text-sm">
+                <SelectValue placeholder="Seleccioná un tipo…" />
+              </SelectTrigger>
+              <SelectContent>
+                {expenseTypes.map(et => (
+                  <SelectItem key={et.id} value={String(et.id)}>{et.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Descripción */}
@@ -612,7 +566,7 @@ function ExpenseDialog({
               value={amount} onChange={e => setAmount(e.target.value)}
               placeholder="0"
               className="text-sm"
-              autoFocus={!showAddType}
+              autoFocus
             />
           </div>
 
@@ -620,7 +574,7 @@ function ExpenseDialog({
           <div className="space-y-1.5">
             <Label>Forma de pago</Label>
             <div className="grid grid-cols-3 gap-1.5">
-              {PAY_METHODS.map(pm => (
+              {payMethods.map(pm => (
                 <button
                   key={pm.value}
                   onClick={() => setPayMethod(pm.value)}
@@ -885,6 +839,7 @@ export default function PosTerminal() {
   const [discountType,  setDiscountType ] = useState<'pct' | 'amt'>('pct')
   const [discountValue, setDiscountValue] = useState('')
   const [payMethod,     setPayMethod    ] = useState<PayMethod>('efectivo')
+  const [payMethods,    setPayMethods   ] = useState(PAY_METHODS)
   const [invoiceNum,    setInvoiceNum   ] = useState('')
   const [processing,    setProcessing   ] = useState(false)
 
@@ -909,6 +864,9 @@ export default function PosTerminal() {
     setSplitAmts(prev => ({ ...prev, [method]: value }))
   }
 
+  // ── Facturación ARCA ──────────────────────────────────────────────────
+  const [cuitEmisor, setCuitEmisor] = useState<string>('')
+
   // ── Dialogs ────────────────────────────────────────────────────────────
   const [showOpenSession,  setShowOpenSession  ] = useState(false)
   const [showCloseSession, setShowCloseSession ] = useState(false)
@@ -916,6 +874,7 @@ export default function PosTerminal() {
   const [cameraOpen,       setCameraOpen       ] = useState(false)
   const [showExpense,      setShowExpense      ] = useState(false)
   const [showExchange,     setShowExchange     ] = useState(false)
+  const canExpenses = usePlanCan('expenses.view')
   const [showReceipt,      setShowReceipt      ] = useState(false)
   const [lastReceiptData,  setLastReceiptData  ] = useState<ReceiptData | null>(null)
   const [showTodaySales,   setShowTodaySales   ] = useState(false)
@@ -988,6 +947,22 @@ export default function PosTerminal() {
     else    localStorage.removeItem('roi_pos_user_id')
   }
 
+  // ── Formas de pago habilitadas para la sucursal (fops.use_for_sales) ──
+  useEffect(() => {
+    if (!branchId) return
+    fetchEnabledPaymentMethods(parseInt(branchId))
+      .then(enabled => {
+        const filtered = PAY_METHODS.filter(pm => enabled.has(pm.value))
+        setPayMethods(filtered.length > 0 ? filtered : PAY_METHODS)
+      })
+      .catch(() => setPayMethods(PAY_METHODS))
+  }, [branchId])
+
+  // Si la forma de pago seleccionada deja de estar disponible, cae a la primera habilitada
+  useEffect(() => {
+    if (!payMethods.some(pm => pm.value === payMethod)) setPayMethod(payMethods[0]?.value ?? 'efectivo')
+  }, [payMethods, payMethod])
+
   // ── Carga de sesión activa cuando cambia la sucursal ──────────────────
   const loadSession = useCallback(async (bid: string) => {
     if (!bid) return
@@ -1000,6 +975,15 @@ export default function PosTerminal() {
   }, [])
 
   useEffect(() => { if (branchId) loadSession(branchId) }, [branchId, loadSession])
+
+  // Cargar CUIT emisor para la sucursal seleccionada
+  useEffect(() => {
+    if (!branchId) { setCuitEmisor(''); return }
+    fetch(`/api/facturacion/config?branchId=${branchId}`)
+      .then(r => r.json())
+      .then((d: { cuit: string | null }) => setCuitEmisor(d.cuit ?? ''))
+      .catch(() => setCuitEmisor(''))
+  }, [branchId])
 
   // ── Auto-foco en el input de búsqueda ─────────────────────────────────
   useEffect(() => { searchRef.current?.focus() }, [session])
@@ -1175,7 +1159,7 @@ export default function PosTerminal() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      setSession(data)
+      await loadSession(branchId)
       setShowOpenSession(false)
       setShowWelcome(true)
       toast.success('Caja abierta')
@@ -1267,8 +1251,8 @@ export default function PosTerminal() {
                   <RefreshCw className="h-3.5 w-3.5" />Cambio
                 </Button>
                 <Button variant="outline" size="sm"
-                  className="hidden sm:flex text-amber-600 border-amber-200 hover:bg-amber-50 gap-1.5"
-                  onClick={() => setShowExpense(true)}>
+                  className={`hidden sm:flex gap-1.5 ${canExpenses ? 'text-amber-600 border-amber-200 hover:bg-amber-50' : 'text-gray-300 border-gray-200'}`}
+                  onClick={() => canExpenses ? setShowExpense(true) : toast('Puede subir de Plan para acceder a esta Funcionalidad', { duration: 3000 })}>
                   <Receipt className="h-3.5 w-3.5" />Gasto
                 </Button>
                 <Button variant="outline" size="sm"
@@ -1300,8 +1284,10 @@ export default function PosTerminal() {
                     <DropdownMenuItem onClick={() => setShowExchange(true)} className="gap-2">
                       <RefreshCw className="h-4 w-4 text-violet-600" />Cambio
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setShowExpense(true)} className="gap-2">
-                      <Receipt className="h-4 w-4 text-amber-600" />Gasto
+                    <DropdownMenuItem
+                      onClick={() => canExpenses ? setShowExpense(true) : toast('Puede subir de Plan para acceder a esta Funcionalidad', { duration: 3000 })}
+                      className={`gap-2 ${!canExpenses ? 'text-gray-300' : ''}`}>
+                      <Receipt className={`h-4 w-4 ${canExpenses ? 'text-amber-600' : 'text-gray-300'}`} />Gasto
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setShowTodaySales(true)} className="gap-2">
                       <ReceiptText className="h-4 w-4 text-gray-600" />Ventas del día
@@ -1544,7 +1530,7 @@ export default function PosTerminal() {
               {!mixedMode ? (
                 <>
                   <div className="grid grid-cols-5 gap-1">
-                    {PAY_METHODS.map(pm => (
+                    {payMethods.map(pm => (
                       <button
                         key={pm.value}
                         title={pm.label}
@@ -1581,7 +1567,7 @@ export default function PosTerminal() {
                       Cancelar
                     </button>
                   </div>
-                  {PAY_METHODS.map(pm => (
+                  {payMethods.map(pm => (
                     <div key={pm.value} className="flex items-center gap-2">
                       <button
                         onClick={() => {
@@ -1662,6 +1648,7 @@ export default function PosTerminal() {
         <ExpenseDialog
           session={session}
           branchId={parseInt(branchId)}
+          payMethods={payMethods}
           users={users}
           currentUserId={currentUserId}
           onClose={() => setShowExpense(false)}
@@ -1684,6 +1671,8 @@ export default function PosTerminal() {
           onClose={() => setShowReceipt(false)}
           data={lastReceiptData}
           settings={businessSettings as ReceiptSettings}
+          cuitEmisor={cuitEmisor || undefined}
+          onNuevaVenta={() => { setShowReceipt(false); clearCart() }}
         />
       )}
       {showTodaySales && branchId && (
@@ -1692,6 +1681,7 @@ export default function PosTerminal() {
           onClose={() => setShowTodaySales(false)}
           branchId={parseInt(branchId)}
           settings={businessSettings as ReceiptSettings}
+          cuitEmisor={cuitEmisor || undefined}
         />
       )}
       {showWithdrawal && session && (

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireFeature } from '@/lib/plan-gate'
 
 /**
  * PATCH /api/branches/[id]
@@ -10,6 +11,9 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const blocked = await requireFeature('branch.multi')
+  if (blocked) return blocked
+
   const { id } = await params
   const body   = await req.json() as Record<string, unknown>
   const bid    = parseInt(id)

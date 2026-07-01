@@ -6,51 +6,52 @@ import {
   ResponsiveContainer, Legend, Cell,
 } from "recharts"
 import StockTrendCharts from "@/components/stock-trend-charts"
+import BreakEvenCard from "@/components/break-even-card"
+import StockUsdCard from "@/components/stock-usd-card"
+import { useDateRange, DateRangeFilter } from "@/components/date-range-filter"
+import { PlanGate } from "@/components/PlanGate"
 import {
   LayoutDashboard, Package, Warehouse, AlertTriangle,
   TrendingUp, ShoppingCart, Loader2, RefreshCw, Tag,
   CheckCircle2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge }  from "@/components/ui/badge"
+import { Badge } from "@/components/ui/badge"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface ClassificationRow {
   name: string
   // stock actual (en branch_inventory)
-  count:     number
-  cost:      number
-  sale:      number
+  count: number
+  cost: number
+  sale: number
   // vendido (en sale_details)
   sold_count: number
-  revenue:    number
+  revenue: number
 }
 
 interface SalesSummary { count: number; total: number }
-interface RoiSummary   { vendido: number; costo: number; gastos: number }
+interface RoiSummary { vendido: number; costo: number; gastos: number }
 
 interface DashboardData {
   summary: {
-    total:            number
-    in_stock:         number
-    unassigned:       number
-    sold_count:       number
-    stock_cost:       number
-    stock_potential:  number
-    revenue:          number
+    total: number
+    in_stock: number
+    unassigned: number
+    sold_count: number
+    stock_cost: number
+    stock_potential: number
+    revenue: number
     unclassified_products: number
   }
-  by_category:  ClassificationRow[]
+  by_category: ClassificationRow[]
   by_age_group: ClassificationRow[]
-  by_season:    ClassificationRow[]
-  by_gender:    ClassificationRow[]
-  by_branch:    ClassificationRow[]
-  sales_today:  SalesSummary
-  sales_week:   SalesSummary
-  sales_month:  SalesSummary
-  roi_today:    RoiSummary
-  roi_week:     RoiSummary
-  roi_month:    RoiSummary
+  by_season: ClassificationRow[]
+  by_gender: ClassificationRow[]
+  by_branch: ClassificationRow[]
+  sales_today: SalesSummary
+  sales_week: SalesSummary
+  sales_month: SalesSummary
 }
 
 // ── Formateo ───────────────────────────────────────────────────────────────────
@@ -61,19 +62,19 @@ const fmtCurrency = (n: number) =>
 
 const fmtShort = (n: number): string => {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000)     return `$${Math.round(n / 1_000)}K`
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`
   return `$${n}`
 }
 
 const fmtNum = (n: number) => new Intl.NumberFormat('es-AR').format(n)
 
 // ── Colores ────────────────────────────────────────────────────────────────────
-const COST_COLOR    = '#f97316'
-const SALE_COLOR    = '#10b981'
+const COST_COLOR = '#f97316'
+const SALE_COLOR = '#10b981'
 const REVENUE_COLOR = '#6366f1'
-const COUNT_COLORS  = [
-  '#7c3aed','#8b5cf6','#a78bfa','#c4b5fd',
-  '#6d28d9','#5b21b6','#4c1d95','#ddd6fe',
+const COUNT_COLORS = [
+  '#7c3aed', '#8b5cf6', '#a78bfa', '#c4b5fd',
+  '#6d28d9', '#5b21b6', '#4c1d95', '#ddd6fe',
 ]
 
 // ── Tooltips ───────────────────────────────────────────────────────────────────
@@ -119,8 +120,8 @@ function MixTooltip({
 }: { active?: boolean; payload?: { dataKey: string; value: number }[]; label?: string }) {
   if (!active || !payload?.length) return null
   const stockPct = payload.find(p => p.dataKey === 'stock_pct')?.value ?? 0
-  const soldPct  = payload.find(p => p.dataKey === 'sold_pct')?.value ?? 0
-  const gap      = soldPct - stockPct
+  const soldPct = payload.find(p => p.dataKey === 'sold_pct')?.value ?? 0
+  const gap = soldPct - stockPct
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm space-y-1.5">
       <p className="font-semibold text-gray-800 mb-1">{label}</p>
@@ -132,9 +133,8 @@ function MixTooltip({
         <span className="text-gray-500">% de ventas</span>
         <span className="font-medium text-indigo-600 tabular-nums">{soldPct}%</span>
       </p>
-      <div className={`flex justify-between gap-4 border-t border-gray-100 pt-1 font-semibold ${
-        gap > 0 ? 'text-emerald-600' : gap < 0 ? 'text-red-500' : 'text-gray-400'
-      }`}>
+      <div className={`flex justify-between gap-4 border-t border-gray-100 pt-1 font-semibold ${gap > 0 ? 'text-emerald-600' : gap < 0 ? 'text-red-500' : 'text-gray-400'
+        }`}>
         <span>Diferencia</span>
         <span className="tabular-nums">{gap > 0 ? '+' : ''}{gap.toFixed(1)}%</span>
       </div>
@@ -174,11 +174,11 @@ function ClassificationCard({ title, data }: { title: string; data: Classificati
 
   const totals = useMemo(() => data.reduce(
     (a, d) => ({
-      count:      a.count      + d.count,
-      cost:       a.cost       + d.cost,
-      sale:       a.sale       + d.sale,
+      count: a.count + d.count,
+      cost: a.cost + d.cost,
+      sale: a.sale + d.sale,
       sold_count: a.sold_count + d.sold_count,
-      revenue:    a.revenue    + d.revenue,
+      revenue: a.revenue + d.revenue,
     }),
     { count: 0, cost: 0, sale: 0, sold_count: 0, revenue: 0 }
   ), [data])
@@ -194,20 +194,20 @@ function ClassificationCard({ title, data }: { title: string; data: Classificati
   const mixData = useMemo(() =>
     data
       .map(d => ({
-        label:     d.name,
-        stock_pct: totals.count      > 0 ? +((d.count      / totals.count)      * 100).toFixed(1) : 0,
-        sold_pct:  totals.sold_count > 0 ? +((d.sold_count / totals.sold_count) * 100).toFixed(1) : 0,
+        label: d.name,
+        stock_pct: totals.count > 0 ? +((d.count / totals.count) * 100).toFixed(1) : 0,
+        sold_pct: totals.sold_count > 0 ? +((d.sold_count / totals.sold_count) * 100).toFixed(1) : 0,
       }))
       .sort((a, b) => b.sold_pct - a.sold_pct),
-  [data, totals])
+    [data, totals])
 
   const chartHeight = Math.max(data.length * 52 + 48, 120)
 
   const TABS: { key: ChartView; label: string }[] = [
-    { key: 'stock_values', label: '$ Stock'   },
-    { key: 'stock_count',  label: '# Stock'   },
-    { key: 'sales',        label: '$ Vendido' },
-    { key: 'mix',          label: 'Mix %'     },
+    { key: 'stock_values', label: '$ Stock' },
+    { key: 'stock_count', label: '# Stock' },
+    { key: 'sales', label: '$ Vendido' },
+    { key: 'mix', label: 'Mix %' },
   ]
 
   return (
@@ -219,11 +219,10 @@ function ClassificationCard({ title, data }: { title: string; data: Classificati
           {TABS.map(t => (
             <button
               key={t.key}
-              className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
-                view === t.key
+              className={`text-xs px-2.5 py-1 rounded-md transition-colors ${view === t.key
                   ? 'bg-white text-gray-800 shadow-sm font-medium'
                   : 'text-gray-500 hover:text-gray-700'
-              }`}
+                }`}
               onClick={() => setView(t.key)}
             >
               {t.label}
@@ -249,8 +248,8 @@ function ClassificationCard({ title, data }: { title: string; data: Classificati
                   tick={{ fontSize: 11, fill: '#374151' }} axisLine={false} tickLine={false} />
                 <RechartTooltip content={<MixTooltip />} />
                 <Legend iconType="square" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="stock_pct" name="% en stock"  fill="#c4b5fd" radius={[0,3,3,0]} maxBarSize={14} />
-                <Bar dataKey="sold_pct"  name="% de ventas" fill="#6366f1" radius={[0,3,3,0]} maxBarSize={14} />
+                <Bar dataKey="stock_pct" name="% en stock" fill="#c4b5fd" radius={[0, 3, 3, 0]} maxBarSize={14} />
+                <Bar dataKey="sold_pct" name="% de ventas" fill="#6366f1" radius={[0, 3, 3, 0]} maxBarSize={14} />
               </BarChart>
             ) : view === 'stock_values' ? (
               <BarChart data={chartData} layout="vertical"
@@ -263,8 +262,8 @@ function ClassificationCard({ title, data }: { title: string; data: Classificati
                   tick={{ fontSize: 11, fill: '#374151' }} axisLine={false} tickLine={false} />
                 <RechartTooltip content={<ValueTooltip />} />
                 <Legend iconType="square" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="cost" name="Costo"         fill={COST_COLOR}    radius={[0,3,3,0]} maxBarSize={14} />
-                <Bar dataKey="sale" name="Precio lista"  fill={SALE_COLOR}    radius={[0,3,3,0]} maxBarSize={14} />
+                <Bar dataKey="cost" name="Costo" fill={COST_COLOR} radius={[0, 3, 3, 0]} maxBarSize={14} />
+                <Bar dataKey="sale" name="Precio lista" fill={SALE_COLOR} radius={[0, 3, 3, 0]} maxBarSize={14} />
               </BarChart>
             ) : view === 'sales' ? (
               <BarChart data={chartData} layout="vertical"
@@ -276,7 +275,7 @@ function ClassificationCard({ title, data }: { title: string; data: Classificati
                 <YAxis type="category" dataKey="label" width={145}
                   tick={{ fontSize: 11, fill: '#374151' }} axisLine={false} tickLine={false} />
                 <RechartTooltip content={<ValueTooltip />} />
-                <Bar dataKey="revenue" name="Ingreso real" fill={REVENUE_COLOR} radius={[0,3,3,0]} maxBarSize={18} />
+                <Bar dataKey="revenue" name="Ingreso real" fill={REVENUE_COLOR} radius={[0, 3, 3, 0]} maxBarSize={18} />
               </BarChart>
             ) : (
               /* stock_count */
@@ -289,7 +288,7 @@ function ClassificationCard({ title, data }: { title: string; data: Classificati
                 <YAxis type="category" dataKey="label" width={145}
                   tick={{ fontSize: 11, fill: '#374151' }} axisLine={false} tickLine={false} />
                 <RechartTooltip content={<CountTooltip />} />
-                <Bar dataKey="count" name="En stock" radius={[0,3,3,0]} maxBarSize={18}>
+                <Bar dataKey="count" name="En stock" radius={[0, 3, 3, 0]} maxBarSize={18}>
                   {chartData.map((_, i) => <Cell key={i} fill={COUNT_COLORS[i % COUNT_COLORS.length]} />)}
                 </Bar>
               </BarChart>
@@ -316,8 +315,8 @@ function ClassificationCard({ title, data }: { title: string; data: Classificati
 
                   {/* Rows */}
                   {mixData.map(d => {
-                    const gap    = d.sold_pct - d.stock_pct
-                    const isHot  = gap >  4
+                    const gap = d.sold_pct - d.stock_pct
+                    const isHot = gap > 4
                     const isSlow = gap < -4
                     return (
                       <div key={d.label} className="flex items-center text-xs gap-1">
@@ -328,9 +327,8 @@ function ClassificationCard({ title, data }: { title: string; data: Classificati
                         <span className="w-14 text-right tabular-nums text-indigo-600 font-medium">
                           {d.sold_pct}%
                         </span>
-                        <span className={`w-14 text-right tabular-nums font-semibold ${
-                          isHot ? 'text-emerald-600' : isSlow ? 'text-red-500' : 'text-gray-400'
-                        }`}>
+                        <span className={`w-14 text-right tabular-nums font-semibold ${isHot ? 'text-emerald-600' : isSlow ? 'text-red-500' : 'text-gray-400'
+                          }`}>
                           {gap > 0 ? '+' : ''}{gap.toFixed(1)}%
                         </span>
                       </div>
@@ -443,8 +441,8 @@ function BranchTable({ data }: { data: ClassificationRow[] }) {
                   <td className="py-2.5 pl-4 text-right">
                     {row.cost > 0
                       ? <span className={`font-medium ${margin >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                          {margin >= 0 ? '+' : ''}{margin.toFixed(0)}%
-                        </span>
+                        {margin >= 0 ? '+' : ''}{margin.toFixed(0)}%
+                      </span>
                       : <span className="text-gray-300">—</span>
                     }
                   </td>
@@ -466,8 +464,8 @@ function BranchTable({ data }: { data: ClassificationRow[] }) {
               <td className="pt-2.5 pl-4 text-right">
                 {totalStock.cost > 0
                   ? <span className="text-emerald-600 font-medium">
-                      +{(((totalStock.sale - totalStock.cost) / totalStock.cost) * 100).toFixed(0)}%
-                    </span>
+                    +{(((totalStock.sale - totalStock.cost) / totalStock.cost) * 100).toFixed(0)}%
+                  </span>
                   : '—'
                 }
               </td>
@@ -550,11 +548,42 @@ function RoiCard({ title, data }: { title: string; data: RoiSummary }) {
   )
 }
 
+// ── ROI Range Panel (selector de fecha navegable + RoiCard) ────────────────────
+function RoiRangePanel() {
+  const range = useDateRange('today')
+  const [roi,     setRoi    ] = useState<RoiSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch(`/api/kpi/roi-range?from=${range.fromYMD}&to=${range.toYMD}`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(setRoi)
+      .catch(() => setRoi(null))
+      .finally(() => setLoading(false))
+  }, [range.fromYMD, range.toYMD])
+
+  return (
+    <div className="space-y-3">
+      <DateRangeFilter {...range} />
+      <div className="max-w-sm">
+        {loading || !roi ? (
+          <div className="bg-white rounded-xl border shadow-sm p-4 flex items-center justify-center h-40">
+            <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+          </div>
+        ) : (
+          <RoiCard title={range.rangeLabel} data={roi} />
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Componente principal ───────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [data,    setData   ] = useState<DashboardData | null>(null)
+  const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error,   setError  ] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const load = async () => {
     setLoading(true); setError(null)
@@ -592,9 +621,9 @@ export default function Dashboard() {
   const { summary: s } = data
 
   // Porcentajes para subtítulos
-  const pctStock      = s.total > 0 ? Math.round((s.in_stock    / s.total) * 100) : 0
-  const pctUnassigned = s.total > 0 ? Math.round((s.unassigned  / s.total) * 100) : 0
-  const pctSold       = s.total > 0 ? Math.round((s.sold_count  / s.total) * 100) : 0
+  const pctStock = s.total > 0 ? Math.round((s.in_stock / s.total) * 100) : 0
+  const pctUnassigned = s.total > 0 ? Math.round((s.unassigned / s.total) * 100) : 0
+  const pctSold = s.total > 0 ? Math.round((s.sold_count / s.total) * 100) : 0
 
   // Margen sobre el stock actual
   const stockMargin = s.stock_cost > 0
@@ -606,11 +635,12 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto space-y-6">
 
         {/* ── Ventas del período ── */}
+        <h1 className="text-2xl font-bold text-gray-900">Ventas</h1>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
-            { label: 'Hoy',          data: data.sales_today, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-            { label: 'Esta semana',  data: data.sales_week,  color: 'text-violet-600',  bg: 'bg-violet-50',  border: 'border-violet-200'  },
-            { label: 'Este mes',     data: data.sales_month, color: 'text-blue-600',    bg: 'bg-blue-50',    border: 'border-blue-200'    },
+            { label: 'Hoy', data: data.sales_today, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+            { label: 'Esta semana', data: data.sales_week, color: 'text-violet-600', bg: 'bg-violet-50', border: 'border-violet-200' },
+            { label: 'Este mes', data: data.sales_month, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
           ].map(({ label, data: d, color, bg, border }) => (
             <div key={label} className={`${bg} border ${border} rounded-xl p-4 flex items-center gap-4`}>
               <div className={`p-2.5 rounded-lg bg-white shadow-sm shrink-0`}>
@@ -626,11 +656,17 @@ export default function Dashboard() {
         </div>
 
         {/* ── ROI: Vendido / Costo / Gastos / Beneficio ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <RoiCard title="Hoy"         data={data.roi_today} />
-          <RoiCard title="Esta semana" data={data.roi_week}  />
-          <RoiCard title="Este mes"    data={data.roi_month} />
-        </div>
+        <PlanGate code="finance.reports">
+          <h1 className="text-2xl font-bold text-gray-900">Reportes Financieros P&L</h1>
+          <RoiRangePanel />
+        </PlanGate>
+          
+        {/* ── Punto de Equilibrio ── */}
+        <PlanGate code="balance.point">
+          <div className="max-w-sm">
+            <BreakEvenCard />
+          </div>
+        </PlanGate>
 
         {/* Título */}
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -662,6 +698,7 @@ export default function Dashboard() {
 
         {/* ── KPI Cards — 2 filas de 3 ── */}
         {/* Fila 1: estado del inventario */}
+        <h1 className="text-2xl font-bold text-gray-900">Estado del Inventario</h1>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <KpiCard
             label="En stock"
@@ -671,30 +708,19 @@ export default function Dashboard() {
             accent="bg-violet-500"
           />
           <KpiCard
-            label="Sin asignar"
-            value={fmtNum(s.unassigned)}
-            sub={`${pctUnassigned}% — recibidas, sin sucursal`}
-            icon={Package}
-            accent={s.unassigned > 0 ? 'bg-amber-500' : 'bg-gray-400'}
-          />
-          <KpiCard
-            label="Vendidas"
-            value={fmtNum(s.sold_count)}
-            sub={`${pctSold}% del total recibido`}
-            icon={ShoppingCart}
-            accent="bg-emerald-500"
-          />
-        </div>
-
-        {/* Fila 2: valores financieros */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <KpiCard
             label="Costo del stock"
             value={fmtCurrency(s.stock_cost)}
             sub="Precio de compra · prendas en stock"
             icon={Tag}
             accent="bg-orange-500"
           />
+          <StockUsdCard stockCost={s.stock_cost} />
+
+        </div>
+
+        {/* Fila 2: valores financieros */}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard
             label="Precio lista del stock"
             value={fmtCurrency(s.stock_potential)}
@@ -702,6 +728,16 @@ export default function Dashboard() {
             icon={TrendingUp}
             accent="bg-green-600"
           />
+
+          <KpiCard
+            label="Vendidas"
+            value={fmtNum(s.sold_count)}
+            sub={`${pctSold}% del total recibido`}
+            icon={ShoppingCart}
+            accent="bg-emerald-500"
+          />
+
+
           <KpiCard
             label="Ingresos realizados"
             value={fmtCurrency(s.revenue)}
@@ -709,21 +745,35 @@ export default function Dashboard() {
             icon={TrendingUp}
             accent="bg-indigo-500"
           />
-        </div>
-
-        {/* ── Clasificaciones — 2 columnas ── */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <ClassificationCard title="Por Categoría"  data={data.by_category}  />
-          <ClassificationCard title="Por Temporada"  data={data.by_season}    />
-          <ClassificationCard title="Por Edad"       data={data.by_age_group} />
-          <ClassificationCard title="Por Género"     data={data.by_gender}    />
+          <KpiCard
+            label="Sin asignar"
+            value={fmtNum(s.unassigned)}
+            sub={`${pctUnassigned}% — recibidas, sin sucursal`}
+            icon={Package}
+            accent={s.unassigned > 0 ? 'bg-amber-500' : 'bg-gray-400'}
+          />
         </div>
 
         {/* ── Por Sucursal — ancho completo ── */}
-        <BranchTable data={data.by_branch} />
+        <PlanGate code="branch.reports">
+          <h1 className="text-2xl font-bold text-gray-900">Totales por Sucursal</h1>
+          <BranchTable data={data.by_branch} />
+        </PlanGate>
 
         {/* ── Evolución histórica (snapshots de cierre de caja) ── */}
-        <StockTrendCharts />
+        <PlanGate code="stock.season_chart">
+          <StockTrendCharts />
+        </PlanGate>
+
+        <PlanGate code="clasification.reports">
+          <h1 className="text-2xl font-bold text-gray-900">Análisis por Clasificación</h1>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <ClassificationCard title="Por Categoría" data={data.by_category} />
+            <ClassificationCard title="Por Temporada" data={data.by_season} />
+            <ClassificationCard title="Por Edad" data={data.by_age_group} />
+            <ClassificationCard title="Por Género" data={data.by_gender} />
+          </div>
+        </PlanGate>
 
       </div>
     </div>

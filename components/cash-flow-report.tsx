@@ -2,15 +2,19 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react"
 import {
-  ChevronLeft, ChevronRight, Printer, Download,
+  Printer, Download,
   TrendingUp, TrendingDown, RefreshCw, Loader2,
   ArrowUpDown, ArrowUp, ArrowDown, Filter,
   Unlock, Lock, AlertTriangle, CheckCircle2, Vault,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Input }  from "@/components/ui/input"
 import { Badge }  from "@/components/ui/badge"
+import SalesReportTab from "@/components/sales-report-tab"
+import AccountsReportTab from "@/components/accounts-report-tab"
+import ExpensesReportTab from "@/components/expenses-report-tab"
+import { PlanGate, usePlanCan } from "@/components/PlanGate"
+import { useDateRange, DateRangeFilter } from "@/components/date-range-filter"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Movement {
@@ -44,17 +48,11 @@ interface SessionInfo {
   notes:            string | null
 }
 
-type DateMode   = 'week' | 'month' | 'custom'
+type Tab        = 'caja' | 'ventas' | 'cuentas' | 'gastos'
 type SortField  = 'datetime' | 'type' | 'branch_name' | 'efectivo' | 'debito' | 'credito' | 'mp' | 'transferencia' | 'total'
 type SortDir    = 'asc' | 'desc'
 
 // ── Date helpers ───────────────────────────────────────────────────────────────
-const toYMD = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-
-const fmtShort = (d: Date) =>
-  `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
-
 const fmtHour = (iso: string) => {
   const d = new Date(iso)
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
@@ -63,27 +61,6 @@ const fmtHour = (iso: string) => {
 const fmtDateShort = (iso: string) => {
   const d = new Date(iso)
   return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`
-}
-
-const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
-                     'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-
-function getWeekRange(offset: number): [Date, Date] {
-  const today = new Date(); today.setHours(0,0,0,0)
-  const dow = today.getDay()
-  const daysToMon = dow === 0 ? -6 : 1 - dow
-  const mon = new Date(today)
-  mon.setDate(today.getDate() + daysToMon + offset * 7)
-  const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
-  const to = offset === 0 ? new Date() : sun
-  return [mon, to]
-}
-
-function getMonthRange(offset: number): [Date, Date] {
-  const now = new Date()
-  const first = new Date(now.getFullYear(), now.getMonth() + offset, 1)
-  const last  = offset === 0 ? new Date() : new Date(now.getFullYear(), now.getMonth() + offset + 1, 0)
-  return [first, last]
 }
 
 // ── Formateo de moneda (sin símbolo para las celdas) ──────────────────────────
@@ -157,21 +134,15 @@ function SortTh({
 // Componente principal
 // ══════════════════════════════════════════════════════════════════════════════
 export default function CashFlowReport() {
+  // ── Solapa activa ─────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<Tab>('caja')
+
   // ── Rango de fechas ───────────────────────────────────────────────────────
-  const [mode,        setMode       ] = useState<DateMode>('week')
-  const [weekOffset,  setWeekOffset ] = useState(0)
-  const [monthOffset, setMonthOffset] = useState(0)
-  const [customFrom,  setCustomFrom ] = useState(toYMD(new Date()))
-  const [customTo,    setCustomTo   ] = useState(toYMD(new Date()))
+  const range = useDateRange('today')
+  const { fromYMD, rangeLabel } = range
+  const toYMD2 = range.toYMD
 
-  const [fromDate, toDate] = useMemo<[Date, Date]>(() => {
-    if (mode === 'week')  return getWeekRange(weekOffset)
-    if (mode === 'month') return getMonthRange(monthOffset)
-    return [new Date(customFrom + 'T00:00:00'), new Date(customTo + 'T23:59:59')]
-  }, [mode, weekOffset, monthOffset, customFrom, customTo])
-
-  const fromYMD = toYMD(fromDate)
-  const toYMD2  = toYMD(toDate)
+  const canExpenses = usePlanCan('expenses.view')
 
   // ── Datos ─────────────────────────────────────────────────────────────────
   const [movements, setMovements] = useState<Movement[]>([])
@@ -294,24 +265,6 @@ export default function CashFlowReport() {
       .sort((a, b) => a.id === 0 ? 1 : b.id === 0 ? -1 : a.name.localeCompare(b.name))
   }, [filtered])
 
-  // ── Etiqueta del rango ────────────────────────────────────────────────────
-  const rangeLabel = (() => {
-    if (mode === 'week') {
-      const [mon, sun] = getWeekRange(weekOffset)
-      return weekOffset === 0
-        ? `Esta semana · ${fmtShort(mon)} — ${fmtShort(sun)}`
-        : `Semana del ${fmtShort(mon)} al ${fmtShort(sun)}`
-    }
-    if (mode === 'month') {
-      const [first] = getMonthRange(monthOffset)
-      const [,  last] = getMonthRange(monthOffset)
-      return monthOffset === 0
-        ? `${MONTH_NAMES[first.getMonth()]} ${first.getFullYear()} · ${fmtShort(first)} — hoy`
-        : `${MONTH_NAMES[first.getMonth()]} ${first.getFullYear()} · ${fmtShort(first)} — ${fmtShort(last)}`
-    }
-    return `${fmtShort(new Date(customFrom+'T00:00:00'))} — ${fmtShort(new Date(customTo+'T00:00:00'))}`
-  })()
-
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50">
@@ -322,7 +275,7 @@ export default function CashFlowReport() {
 
           {/* Título + acciones */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <h1 className="text-xl font-bold text-gray-900">Movimientos de Caja</h1>
+            <h1 className="text-xl font-bold text-gray-900">Movimientos</h1>
             <div className="flex gap-2">
               <Button
                 variant="outline" size="sm" className="gap-1.5"
@@ -341,125 +294,76 @@ export default function CashFlowReport() {
           </div>
 
           {/* Selector de rango */}
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Tabs de modo */}
-            <div className="flex border rounded-lg overflow-hidden text-sm">
-              {([['week','Semana'],['month','Mes'],['custom','Rango']] as [DateMode,string][]).map(([m,lbl]) => (
+          <DateRangeFilter {...range} />
+
+          {/* Solapas */}
+          <div className="flex border-b -mb-px text-sm no-print">
+            {([['caja','Caja'],['ventas','Ventas'],['cuentas','Cuentas'],['gastos','Gastos']] as [Tab,string][]).map(([t,lbl]) => {
+              const isGated = t === 'gastos' && !canExpenses
+              return (
                 <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`px-3 py-1.5 transition-colors ${mode === m
-                    ? 'bg-violet-600 text-white font-medium'
-                    : 'text-gray-500 hover:bg-gray-50'}`}
+                  key={t}
+                  onClick={() => isGated
+                    ? toast('Puede subir de Plan para acceder a esta Funcionalidad', { duration: 3000 })
+                    : setActiveTab(t)
+                  }
+                  className={`px-4 py-2 -mb-px border-b-2 font-medium transition-colors ${
+                    isGated
+                      ? 'border-transparent text-gray-300 cursor-default'
+                      : activeTab === t
+                        ? 'border-violet-600 text-violet-700'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
                 >
                   {lbl}
                 </button>
+              )
+            })}
+          </div>
+
+          {/* Filtros (solo solapa Caja) */}
+          {activeTab === 'caja' && (
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <Filter className="h-4 w-4 text-gray-400 shrink-0" />
+              {[
+                ['Ventas',   showVentas,  setShowVentas,  'bg-green-100 text-green-700 border-green-300'  ],
+                ['Gastos',   showGastos,  setShowGastos,  'bg-red-100   text-red-700   border-red-300'    ],
+                ['Cambios',  showCambios, setShowCambios, 'bg-violet-100 text-violet-700 border-violet-300'],
+                ['Retiros',  showRetiros, setShowRetiros, 'bg-orange-100 text-orange-700 border-orange-300'],
+              ].map(([label, val, setter, colors]) => (
+                <button
+                  key={label as string}
+                  onClick={() => (setter as React.Dispatch<React.SetStateAction<boolean>>)(v => !v)}
+                  className={`px-2.5 py-1 rounded-full border text-xs font-medium transition-all
+                    ${val ? colors : 'bg-gray-50 text-gray-400 border-gray-200'}`}
+                >
+                  {label as string}
+                </button>
               ))}
+              {allBranchesForDetail.length > 1 && (
+                <select
+                  value={branchFilter}
+                  onChange={e => setBranchFilter(e.target.value)}
+                  className="h-7 text-xs border border-gray-200 rounded-md px-2 bg-white text-gray-600"
+                >
+                  <option value="__all__">Todas las sucursales</option>
+                  {allBranchesForDetail.map(b => (
+                    <option key={b.id} value={String(b.id)}>{b.name}</option>
+                  ))}
+                </select>
+              )}
+              {loading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+              {!loading && (
+                <span className="text-gray-400 ml-auto">
+                  {sorted.length} movimiento{sorted.length !== 1 ? 's' : ''}
+                </span>
+              )}
             </div>
-
-            {/* Navegación semana */}
-            {mode === 'week' && (
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setWeekOffset(w => w - 1)}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-sm font-medium text-gray-700 px-1 whitespace-nowrap">
-                  {rangeLabel}
-                </span>
-                <Button
-                  variant="ghost" size="icon" className="h-8 w-8"
-                  onClick={() => setWeekOffset(w => w + 1)}
-                  disabled={weekOffset >= 0}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-
-            {/* Navegación mes */}
-            {mode === 'month' && (
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMonthOffset(m => m - 1)}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-sm font-medium text-gray-700 px-1 whitespace-nowrap">
-                  {rangeLabel}
-                </span>
-                <Button
-                  variant="ghost" size="icon" className="h-8 w-8"
-                  onClick={() => setMonthOffset(m => m + 1)}
-                  disabled={monthOffset >= 0}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-
-            {/* Rango personalizado */}
-            {mode === 'custom' && (
-              <div className="flex items-center gap-2 text-sm flex-wrap">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-gray-500">Desde</span>
-                  <Input
-                    type="date" className="h-8 w-36 text-sm"
-                    value={customFrom} onChange={e => setCustomFrom(e.target.value)}
-                    max={customTo}
-                  />
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-gray-500">Hasta</span>
-                  <Input
-                    type="date" className="h-8 w-36 text-sm"
-                    value={customTo} onChange={e => setCustomTo(e.target.value)}
-                    min={customFrom}
-                    max={toYMD(new Date())}
-                  />
-                </div>
-                <span className="text-xs text-gray-400">{rangeLabel}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Filtros */}
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <Filter className="h-4 w-4 text-gray-400 shrink-0" />
-            {[
-              ['Ventas',   showVentas,  setShowVentas,  'bg-green-100 text-green-700 border-green-300'  ],
-              ['Gastos',   showGastos,  setShowGastos,  'bg-red-100   text-red-700   border-red-300'    ],
-              ['Cambios',  showCambios, setShowCambios, 'bg-violet-100 text-violet-700 border-violet-300'],
-              ['Retiros',  showRetiros, setShowRetiros, 'bg-orange-100 text-orange-700 border-orange-300'],
-            ].map(([label, val, setter, colors]) => (
-              <button
-                key={label as string}
-                onClick={() => (setter as React.Dispatch<React.SetStateAction<boolean>>)(v => !v)}
-                className={`px-2.5 py-1 rounded-full border text-xs font-medium transition-all
-                  ${val ? colors : 'bg-gray-50 text-gray-400 border-gray-200'}`}
-              >
-                {label as string}
-              </button>
-            ))}
-            {allBranchesForDetail.length > 1 && (
-              <select
-                value={branchFilter}
-                onChange={e => setBranchFilter(e.target.value)}
-                className="h-7 text-xs border border-gray-200 rounded-md px-2 bg-white text-gray-600"
-              >
-                <option value="__all__">Todas las sucursales</option>
-                {allBranchesForDetail.map(b => (
-                  <option key={b.id} value={String(b.id)}>{b.name}</option>
-                ))}
-              </select>
-            )}
-            {loading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
-            {!loading && (
-              <span className="text-gray-400 ml-auto">
-                {sorted.length} movimiento{sorted.length !== 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
+      {activeTab === 'caja' && (
       <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
 
         {/* ── Encabezado de impresión (solo visible al imprimir) ── */}
@@ -737,6 +641,27 @@ export default function CashFlowReport() {
           </div>
         )}
       </div>
+      )}
+
+      {activeTab === 'ventas' && (
+        <div className="max-w-screen-2xl mx-auto px-4 py-6">
+          <SalesReportTab fromYMD={fromYMD} toYMD={toYMD2} />
+        </div>
+      )}
+
+      {activeTab === 'cuentas' && (
+        <div className="max-w-screen-2xl mx-auto px-4 py-6">
+          <AccountsReportTab fromYMD={fromYMD} toYMD={toYMD2} />
+        </div>
+      )}
+
+      {activeTab === 'gastos' && (
+        <div className="max-w-screen-2xl mx-auto px-4 py-6">
+          <PlanGate code="expenses.view" forceMode="locked">
+            <ExpensesReportTab fromYMD={fromYMD} toYMD={toYMD2} />
+          </PlanGate>
+        </div>
+      )}
 
       {/* ── CSS de impresión ── */}
       <style>{`

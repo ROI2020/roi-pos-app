@@ -1,4 +1,13 @@
-import { Pool } from 'pg'
+import { Pool, types } from 'pg'
+
+// pg interpreta las columnas "timestamp without time zone" (oid 1114) como
+// si fueran UTC, sin importar el SET timezone de la sesión. Como guardamos
+// hora local de Argentina en esas columnas, eso hace que el frontend (que sí
+// resta el offset real) muestre la hora 3 horas antes de la real (ej: caja
+// abierta 10:29 se ve como 7:29). Devolvemos el string tal cual (con "T" en
+// vez de espacio) para que el navegador lo interprete como hora local, sin
+// reconversión.
+types.setTypeParser(1114, (val: string) => val.replace(' ', 'T'))
 
 // Singleton: una sola instancia del pool durante toda la vida del servidor.
 // En desarrollo Next.js recarga módulos en hot-reload, por eso lo guardamos
