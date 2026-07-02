@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react"
 import { Camera, FlipHorizontal } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 
 interface CameraScannerProps {
@@ -17,15 +17,17 @@ type Status = 'idle' | 'loading' | 'active' | 'error'
 
 export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
   const videoRef    = useRef<HTMLVideoElement>(null)
+  const streamRef   = useRef<MediaStream | null>(null)   // track para liberar correctamente
   const controlsRef = useRef<{ stop: () => void } | null>(null)
 
   const [cameras,   setCameras  ] = useState<MediaDeviceInfo[]>([])
-  const [cameraIdx, setCameraIdx] = useState(-1)  // -1 = usar facingMode:environment
+  const [cameraIdx, setCameraIdx] = useState(-1)   // -1 = pedir facingMode:environment
   const [status,    setStatus   ] = useState<Status>('idle')
   const [errorMsg,  setErrorMsg ] = useState('')
 
-  // ── Cargar cámaras cuando se ABRE el diálogo ──────────────────────────────
-  // Se hace en open=true para que los labels ya estén disponibles (post-permiso)
+  // ── Cargar lista de cámaras cuando se abre el diálogo ────────────────────
+  // Lo hacemos en open=true porque los labels solo están disponibles después
+  // de que el usuario otorgó el permiso de cámara.
   useEffect(() => {
     if (!open) return
     import('@zxing/browser').then(({ BrowserCodeReader }) => {
@@ -34,21 +36,28 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
           setCameras(devices)
           const back = devices.findIndex(d => /back|rear|environment/i.test(d.label))
           if (back >= 0) setCameraIdx(back)
-          // Si no encontramos por label, cameraIdx queda -1 → usará facingMode:environment
+          // Si no encontramos trasera por label, -1 usará facingMode:environment
         })
         .catch(() => {})
     })
   }, [open])
 
-  // ── Detener stream activo ─────────────────────────────────────────────────
+  // ── Detener stream y liberar recursos ────────────────────────────────────
   const stop = useCallback(() => {
+    // 1. Detener el decodificador de ZXing
     controlsRef.current?.stop()
     controlsRef.current = null
+    // 2. Detener los tracks de MediaStream (libera la cámara física)
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+    // 3. Desconectar el stream del video
     if (videoRef.current) videoRef.current.srcObject = null
     setStatus('idle')
   }, [])
 
   // ── Iniciar escaneo ───────────────────────────────────────────────────────
+  // Estrategia: manejamos getUserMedia nosotros mismos para tener control
+  // total sobre el video element. ZXing solo hace el reconocimiento óptico.
   const start = useCallback(async () => {
     const video = videoRef.current
     if (!video) return
@@ -63,56 +72,60 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
     setErrorMsg('')
 
     try {
-      const { BrowserMultiFormatReader } = await import('@zxing/browser')
-      const reader   = new BrowserMultiFormatReader()
+      // ── 1. Obtener stream de cámara con constraints explícitas ──────────
       const deviceId = cameraIdx >= 0 ? cameras[cameraIdx]?.deviceId : undefined
+      const videoConstraints: MediaTrackConstraints = deviceId
+        ? { deviceId: { exact: deviceId } }
+        : { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }
 
-      // Callback compartido entre ambas ramas
-      const onResult: Parameters<typeof reader.decodeFromVideoDevice>[2] = (result, _err, ctrl) => {
-        if (result) {
-          ctrl.stop()
-          controlsRef.current = null
-          onScan(result.getText())
-          onClose()
-        }
-      }
+      const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints })
+      streamRef.current = stream
 
-      let controls: { stop: () => void }
+      // ── 2. Conectar stream al video manualmente ─────────────────────────
+      video.srcObject = stream
 
-      if (deviceId) {
-        // Cámara seleccionada por el usuario via "Cambiar cámara"
-        controls = await reader.decodeFromVideoDevice(deviceId, video, onResult)
-      } else {
-        // Sin deviceId conocido → pedir cámara trasera explícitamente.
-        // ZXing con deviceId=undefined usa { video: true } que en muchos Android
-        // abre la cámara DELANTERA por defecto.
-        controls = await reader.decodeFromConstraints(
-          { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } } },
-          video,
-          onResult,
-        )
-      }
+      // ── 3. Play() explícito y esperado ──────────────────────────────────
+      // No confiamos solo en el atributo autoPlay porque en PWA el browser
+      // puede ignorarlo. Llamamos play() directamente y esperamos la resolución.
+      await video.play()
 
+      // ── 4. ZXing solo decodifica — no toca el video ─────────────────────
+      const { BrowserMultiFormatReader } = await import('@zxing/browser')
+      const reader = new BrowserMultiFormatReader()
+
+      const controls = await reader.decodeFromVideoElement(
+        video,
+        (result, _err, ctrl) => {
+          if (result) {
+            ctrl.stop()
+            controlsRef.current = null
+            onScan(result.getText())
+            onClose()
+          }
+        },
+      )
       controlsRef.current = controls
-
-      // Forzar play() — en PWA el autoplay puede quedar pendiente
-      // incluso con el atributo autoPlay en el elemento
-      video.play().catch(() => {})
-
       setStatus('active')
+
     } catch (err: unknown) {
+      // Limpiar recursos si algo falló
+      streamRef.current?.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+      if (videoRef.current) videoRef.current.srcObject = null
+
       setStatus('error')
       const msg = String((err as Error)?.message ?? err ?? '').toLowerCase()
+
       if (/permission|notallowed/.test(msg)) {
         setErrorMsg(
           'Permiso de cámara denegado. ' +
-          'En Chrome: Menú → Ajustes del sitio → Cámara → Permitir. ' +
-          'En Safari: Ajustes → Safari → Cámara → Preguntar.'
+          'Tocá el ícono de cámara en la barra de direcciones → Permitir, ' +
+          'o en Ajustes del navegador → Permisos del sitio → Cámara.'
         )
       } else if (/notfound|no camera|devicenotfound/.test(msg)) {
         setErrorMsg('No se encontró ninguna cámara en este dispositivo.')
       } else if (/overconstrained|constraint/.test(msg)) {
-        // facingMode no compatible → reintentar con la primera cámara disponible
+        // facingMode no compatible en este dispositivo → reintentar sin restricciones
         setCameraIdx(0)
       } else {
         setErrorMsg(`No se pudo acceder a la cámara: ${(err as Error)?.message ?? err}`)
@@ -120,7 +133,7 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
     }
   }, [cameras, cameraIdx, onScan, onClose])
 
-  // ── Abrir / cerrar diálogo ────────────────────────────────────────────────
+  // ── Abrir / cerrar ────────────────────────────────────────────────────────
   useEffect(() => {
     if (open) {
       start()
@@ -131,11 +144,11 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // ── Reiniciar cuando cambia la cámara seleccionada ───────────────────────
+  // ── Reiniciar cuando el usuario cambia de cámara ──────────────────────────
   useEffect(() => {
     if (!open) return
     stop()
-    const t = setTimeout(() => { start() }, 150)
+    const t = setTimeout(() => { start() }, 200)
     return () => clearTimeout(t)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraIdx])
@@ -153,15 +166,12 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
             <Camera className="h-4 w-4 text-violet-600" />
             Escanear código de barras
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Apuntá la cámara al código de barras del producto
+          </DialogDescription>
         </DialogHeader>
 
         <div className="relative bg-black">
-          {/*
-            autoPlay + muted + playsInline son los tres atributos requeridos
-            para que el stream de getUserMedia se renderice en un <video> dentro
-            de una PWA instalada. Sin autoPlay el video queda en negro aunque
-            srcObject esté asignado y play() haya sido llamado.
-          */}
           <video
             ref={videoRef}
             className="w-full aspect-[4/3] object-cover"

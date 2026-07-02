@@ -56,7 +56,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: `CUIT ${cuit} no configurado` }, { status: 404 })
     }
     const { punto_venta, ambiente: cfgAmbiente } = cfgRes.rows[0]
-    const ambiente = (process.env.ARCA_AMBIENTE as 'homo' | 'prod') ?? cfgAmbiente
+    const ambiente = cfgAmbiente   // siempre del DB, no de env var global
 
     // Intentar obtener token WSAA
     let auth: { token: string; sign: string }

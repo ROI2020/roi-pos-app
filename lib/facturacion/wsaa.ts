@@ -38,12 +38,13 @@ export async function obtenerToken(
   }
 
   // 1. Buscar token vigente en DB (expira en más de 10 minutos)
+  // Incluimos `ambiente` para no usar un token de homo en prod ni viceversa
   const cached = await pool.query<{ token: string; sign: string }>(
     `SELECT token, sign
      FROM wsaa_tokens
-     WHERE cuit = $1 AND service = 'wsfe' AND activo = true
+     WHERE cuit = $1 AND service = 'wsfe' AND ambiente = $2 AND activo = true
        AND expiration_time > NOW() + INTERVAL '10 minutes'`,
-    [cuit]
+    [cuit, ambiente]
   )
   if (cached.rows[0]) return cached.rows[0]
 
@@ -79,17 +80,17 @@ export async function obtenerToken(
     throw new Error(`WSAA no retornó token/sign. Respuesta: ${responseXml.slice(0, 300)}`)
   }
 
-  // 6. Persistir en DB con UPSERT por (cuit, service)
+  // 6. Persistir en DB con UPSERT por (cuit, service, ambiente)
   await pool.query(
-    `INSERT INTO wsaa_tokens (cuit, service, token, sign, generation_time, expiration_time, activo)
-     VALUES ($1, 'wsfe', $2, $3, $4, $5, true)
-     ON CONFLICT (cuit, service) DO UPDATE SET
+    `INSERT INTO wsaa_tokens (cuit, service, token, sign, generation_time, expiration_time, activo, ambiente)
+     VALUES ($1, 'wsfe', $2, $3, $4, $5, true, $6)
+     ON CONFLICT (cuit, service, ambiente) DO UPDATE SET
        token           = EXCLUDED.token,
        sign            = EXCLUDED.sign,
        generation_time = EXCLUDED.generation_time,
        expiration_time = EXCLUDED.expiration_time,
        activo          = true`,
-    [cuit, token, sign, now, exp]
+    [cuit, token, sign, now, exp, ambiente]
   )
 
   return { token, sign }

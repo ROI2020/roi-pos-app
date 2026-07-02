@@ -58,7 +58,7 @@ export async function motorFacturacion(rawInput: FacturacionInput): Promise<Fact
     throw err
   }
   const cfg = cfgResult.rows[0]
-  const ambiente = (process.env.ARCA_AMBIENTE as 'homo' | 'prod') ?? cfg.ambiente
+  const ambiente = cfg.ambiente   // siempre del DB, no de env var global
 
   // 3. Obtener token WSAA (cert lo resuelve wsaa.ts desde ARCA_CERT_PEM / ARCA_KEY_PEM)
   const auth = await obtenerToken(input.emisor.cuit, ambiente)

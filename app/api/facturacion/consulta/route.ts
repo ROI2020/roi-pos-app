@@ -63,7 +63,7 @@ export async function GET(req: Request) {
       )
     }
     const cfg = cfgResult.rows[0]
-    const ambiente = (process.env.ARCA_AMBIENTE as 'homo' | 'prod') ?? cfg.ambiente
+    const ambiente = cfg.ambiente   // siempre del DB, no de env var global
 
     const auth = await obtenerToken(cuit, ambiente)
     const ultimoNro = await obtenerUltimoNroComprobante(
