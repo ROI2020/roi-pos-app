@@ -58,19 +58,26 @@ export async function obtenerToken(
   cuit: string,
   ambiente: 'homo' | 'prod'
 ): Promise<{ token: string; sign: string }> {
+  console.log('[ARCA-WSAA] obtenerToken llamado, cuit:', cuit, 'ambiente:', ambiente, 'MOCK:', process.env.ARCA_MOCK)
   if (process.env.ARCA_MOCK === 'true') {
     return { token: 'MOCK_TOKEN_HOMO', sign: 'MOCK_SIGN_HOMO' }
   }
 
   // 1. Buscar token vigente en DB — incluye ambiente para no mezclar homo/prod
-  const cached = await pool.query<{ token: string; sign: string }>(
-    `SELECT token, sign
-     FROM wsaa_tokens
-     WHERE cuit = $1 AND service = 'wsfe' AND ambiente = $2 AND activo = true
-       AND expiration_time > NOW() + INTERVAL '10 minutes'`,
-    [cuit, ambiente]
-  )
-  if (cached.rows[0]) return cached.rows[0]
+  // Non-fatal: si la columna ambiente no existe todavía, continuamos sin cache
+  try {
+    const cached = await pool.query<{ token: string; sign: string }>(
+      `SELECT token, sign
+       FROM wsaa_tokens
+       WHERE cuit = $1 AND service = 'wsfe' AND ambiente = $2 AND activo = true
+         AND expiration_time > NOW() + INTERVAL '10 minutes'`,
+      [cuit, ambiente]
+    )
+    if (cached.rows[0]) return cached.rows[0]
+  } catch (cacheErr) {
+    console.warn('[ARCA-WSAA] Cache lookup falló (puede ser schema issue):', String(cacheErr))
+    // Continuar sin cache — llamamos a WSAA de todas formas
+  }
 
   // 2. Construir TRA XML
   const now = new Date()
@@ -122,18 +129,24 @@ export async function obtenerToken(
     throw new Error(`WSAA no retornó token/sign. Respuesta: ${responseXml.slice(0, 300)}`)
   }
 
-  // 6. Persistir en DB con UPSERT por (cuit, service, ambiente)
-  await pool.query(
-    `INSERT INTO wsaa_tokens (cuit, service, token, sign, generation_time, expiration_time, activo, ambiente)
-     VALUES ($1, 'wsfe', $2, $3, $4, $5, true, $6)
-     ON CONFLICT (cuit, service, ambiente) DO UPDATE SET
-       token           = EXCLUDED.token,
-       sign            = EXCLUDED.sign,
-       generation_time = EXCLUDED.generation_time,
-       expiration_time = EXCLUDED.expiration_time,
-       activo          = true`,
-    [cuit, token, sign, now, exp, ambiente]
-  )
+  // 6. Persistir en DB — non-fatal: si falla el cache, el token sigue siendo válido
+  console.log('[ARCA-WSAA] Intentando guardar token en DB para CUIT:', cuit, 'ambiente:', ambiente)
+  try {
+    await pool.query(
+      `DELETE FROM wsaa_tokens WHERE cuit = $1 AND service = 'wsfe' AND ambiente = $2`,
+      [cuit, ambiente]
+    )
+    console.log('[ARCA-WSAA] DELETE OK, ejecutando INSERT...')
+    const insRes = await pool.query(
+      `INSERT INTO wsaa_tokens (cuit, service, token, sign, generation_time, expiration_time, activo, ambiente)
+       VALUES ($1, 'wsfe', $2, $3, $4, $5, true, $6)
+       RETURNING id`,
+      [cuit, token, sign, now, exp, ambiente]
+    )
+    console.log('[ARCA-WSAA] Token guardado en DB, id:', insRes.rows[0]?.id)
+  } catch (dbErr) {
+    console.error('[ARCA-WSAA] ERROR guardando token:', String(dbErr))
+  }
 
   return { token, sign }
 }
