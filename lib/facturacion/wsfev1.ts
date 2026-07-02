@@ -1,4 +1,5 @@
-import * as soap from 'node-soap'
+import { createClientAsync as soapCreateClient } from 'node-soap'
+import type { Client } from 'node-soap'
 import { parsearRespuestaFE } from './xml'
 import type { FacturacionInput, ErrorFacturacion } from './types'
 
@@ -8,15 +9,15 @@ const WSFEV1_WSDL = {
 }
 
 // Cache de clientes SOAP por ambiente para evitar re-fetch del WSDL por request
-let _clientHomo: soap.Client | null = null
-let _clientProd: soap.Client | null = null
+let _clientHomo: Client | null = null
+let _clientProd: Client | null = null
 
-async function getClient(ambiente: 'homo' | 'prod'): Promise<soap.Client> {
+async function getClient(ambiente: 'homo' | 'prod'): Promise<Client> {
   if (ambiente === 'homo') {
-    _clientHomo ??= await soap.createClientAsync(WSFEV1_WSDL.homo)
+    _clientHomo ??= await soapCreateClient(WSFEV1_WSDL.homo)
     return _clientHomo
   }
-  _clientProd ??= await soap.createClientAsync(WSFEV1_WSDL.prod)
+  _clientProd ??= await soapCreateClient(WSFEV1_WSDL.prod)
   return _clientProd
 }
 

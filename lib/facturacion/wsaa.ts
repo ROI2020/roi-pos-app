@@ -1,5 +1,5 @@
 import { create } from 'xmlbuilder2'
-import * as soap from 'node-soap'
+import { createClientAsync as soapCreateClient } from 'node-soap'
 import pool from '@/lib/db'
 import { firmarTRA } from './xml'
 
@@ -108,8 +108,7 @@ export async function obtenerToken(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let client: any
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    client = await (soap as any).createClientAsync(WSAA_WSDL[ambiente], {
+    client = await soapCreateClient(WSAA_WSDL[ambiente], {
       wsdl_options: { timeout: 20000 },
     })
   } catch (wsdlErr) {
