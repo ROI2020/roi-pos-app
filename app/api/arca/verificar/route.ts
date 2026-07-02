@@ -63,10 +63,12 @@ export async function GET(req: Request) {
     try {
       auth = await obtenerToken(cuit, ambiente)
     } catch (e) {
-      const msg = String(e).toLowerCase()
-      const errorDetalle = msg.includes('no delegó') || msg.includes('wsfe')
+      const rawErr = String(e)
+      console.error('[arca/verificar] WSAA falló:', rawErr)
+      const msg = rawErr.toLowerCase()
+      const errorDetalle = msg.includes('no delegó') || msg.includes('delegac')
         ? 'delegacion_pendiente'
-        : msg.includes('cert') || msg.includes('key')
+        : msg.includes('cert') || msg.includes('certificad') || msg.includes('pkcs') || msg.includes('pem') || msg.includes('firma') || msg.includes('signing')
           ? 'cert_no_configurado'
           : 'wsaa_timeout'
       return NextResponse.json({
@@ -75,6 +77,7 @@ export async function GET(req: Request) {
         ultimoNroComprobante: null,
         ambiente,
         errorDetalle,
+        _error: rawErr,   // visible en DevTools → Network hasta que se resuelva el problema
       })
     }
 

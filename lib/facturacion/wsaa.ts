@@ -8,23 +8,48 @@ const WSAA_WSDL = {
   prod: 'https://wsaa.afip.gov.ar/ws/services/LoginCms?wsdl',
 }
 
+/**
+ * Normaliza un PEM que puede llegar en distintos formatos desde variables de entorno:
+ *  - Formato correcto con saltos reales            → sin cambios
+ *  - Con \n literal (Netlify, GitHub Actions)      → convierte a saltos reales
+ *  - Con \r\n literal (Windows)                    → convierte a saltos reales
+ *  - Una sola línea sin cabecera (base64 puro)     → reconstruye con cabecera
+ *  - Una sola línea con cabecera pero sin saltos   → reformatea con líneas de 64 chars
+ */
+function normalizePem(raw: string, header: string): string {
+  // Paso 1: reemplazar secuencias literales \n y \r\n
+  let pem = raw.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').trim()
+
+  // Paso 2: si todavía no tiene saltos de línea, reconstruir desde base64 puro
+  if (!pem.includes('\n')) {
+    const begin = `-----BEGIN ${header}-----`
+    const end   = `-----END ${header}-----`
+    // Extraer solo los caracteres base64 (sin cabecera ni espacios)
+    const b64   = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '')
+    const lines = b64.match(/.{1,64}/g) ?? []
+    pem = `${begin}\n${lines.join('\n')}\n${end}`
+  }
+
+  return pem
+}
+
 // Modelo B: certificado único de ROISOL cargado en variables de entorno.
-// El `cuit` sigue siendo necesario para el TRA y para el cache en wsaa_tokens
-// (cada cliente tiene su propio token aunque compartan el mismo cert firmante).
 function getCertificadoRoisol(): { certPem: string; keyPem: string } {
-  const certPem = process.env.ARCA_CERT_PEM
-  const keyPem  = process.env.ARCA_KEY_PEM
-  if (!certPem || !keyPem) {
-    throw new Error(
-      'Certificado ARCA no configurado. ' +
-      'Definir ARCA_CERT_PEM y ARCA_KEY_PEM en variables de entorno.'
-    )
+  const rawCert = process.env.ARCA_CERT_PEM ?? ''
+  const rawKey  = process.env.ARCA_KEY_PEM  ?? ''
+  if (!rawCert || !rawKey) {
+    throw new Error('Certificado ARCA no configurado. Definir ARCA_CERT_PEM y ARCA_KEY_PEM.')
   }
-  // Netlify y algunos sistemas guardan los PEM con \n literal en vez de salto real
-  return {
-    certPem: certPem.replace(/\\n/g, '\n'),
-    keyPem:  keyPem.replace(/\\n/g, '\n'),
-  }
+  const keyHeader = rawKey.includes('RSA') ? 'RSA PRIVATE KEY' : 'PRIVATE KEY'
+  const certPem   = normalizePem(rawCert, 'CERTIFICATE')
+  const keyPem    = normalizePem(rawKey, keyHeader)
+
+  // Log de diagnóstico — confirma el formato al arrancar (visible en Netlify → Functions → Log)
+  console.log('[ARCA-PEM] cert primera línea:', certPem.split('\n')[0])
+  console.log('[ARCA-PEM] key primera línea:', keyPem.split('\n')[0])
+  console.log('[ARCA-PEM] cert #líneas:', certPem.split('\n').length)
+
+  return { certPem, keyPem }
 }
 
 // Obtiene un token WSAA vigente para el CUIT dado.
@@ -37,8 +62,7 @@ export async function obtenerToken(
     return { token: 'MOCK_TOKEN_HOMO', sign: 'MOCK_SIGN_HOMO' }
   }
 
-  // 1. Buscar token vigente en DB (expira en más de 10 minutos)
-  // Incluimos `ambiente` para no usar un token de homo en prod ni viceversa
+  // 1. Buscar token vigente en DB — incluye ambiente para no mezclar homo/prod
   const cached = await pool.query<{ token: string; sign: string }>(
     `SELECT token, sign
      FROM wsaa_tokens
@@ -62,20 +86,38 @@ export async function obtenerToken(
       .ele('service').txt('wsfe').up()
     .end({ prettyPrint: false })
 
-  // 3. Firmar TRA con el certificado de ROISOL y obtener CMS en base64
+  // 3. Firmar TRA
   const { certPem, keyPem } = getCertificadoRoisol()
-  const cms = firmarTRA(traXml, certPem, keyPem)
+  let cms: string
+  try {
+    cms = firmarTRA(traXml, certPem, keyPem)
+  } catch (signErr) {
+    console.error('[ARCA-WSAA] Error firmando TRA:', signErr)
+    throw new Error(`Error firmando TRA con el certificado: ${String(signErr)}`)
+  }
 
-  // 4. Llamar LoginCms en WSAA
-  const client = await soap.createClientAsync(WSAA_WSDL[ambiente])
+  // 4. Llamar LoginCms en WSAA (con timeout de 20 s para conexiones internacionales)
+  console.log(`[ARCA-WSAA] Conectando a WSAA ${ambiente} para CUIT ${cuit}…`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let client: any
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    client = await (soap as any).createClientAsync(WSAA_WSDL[ambiente], {
+      wsdl_options: { timeout: 20000 },
+    })
+  } catch (wsdlErr) {
+    console.error(`[ARCA-WSAA] No se pudo cargar WSDL ${ambiente}:`, wsdlErr)
+    throw new Error(`No se pudo cargar WSDL WSAA (${ambiente}): ${String(wsdlErr)}`)
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [result]: any[] = await (client as any).LoginCmsAsync({ in0: cms })
   const responseXml: string = result?.LoginCmsReturn ?? ''
+  console.log('[ARCA-WSAA] LoginCms OK, longitud respuesta:', responseXml.length)
 
-  // 5. Extraer token y sign con regex (el schema de LoginTicketResponse no cambia)
+  // 5. Extraer token y sign
   const token = responseXml.match(/<token>([\s\S]*?)<\/token>/)?.[1]?.trim()
   const sign  = responseXml.match(/<sign>([\s\S]*?)<\/sign>/)?.[1]?.trim()
-
   if (!token || !sign) {
     throw new Error(`WSAA no retornó token/sign. Respuesta: ${responseXml.slice(0, 300)}`)
   }
