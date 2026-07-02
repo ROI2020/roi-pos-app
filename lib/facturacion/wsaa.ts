@@ -20,7 +20,11 @@ function getCertificadoRoisol(): { certPem: string; keyPem: string } {
       'Definir ARCA_CERT_PEM y ARCA_KEY_PEM en variables de entorno.'
     )
   }
-  return { certPem, keyPem }
+  // Netlify y algunos sistemas guardan los PEM con \n literal en vez de salto real
+  return {
+    certPem: certPem.replace(/\\n/g, '\n'),
+    keyPem:  keyPem.replace(/\\n/g, '\n'),
+  }
 }
 
 // Obtiene un token WSAA vigente para el CUIT dado.

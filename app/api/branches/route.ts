@@ -5,7 +5,7 @@ import { requireFeature } from '@/lib/plan-gate'
 /** GET /api/branches — lista todas las sucursales */
 export async function GET() {
   const { rows } = await pool.query(
-    `SELECT id, name, address, arca_pos_number, is_default
+    `SELECT id, name, address, arca_pos_number, cuit_emisor, is_default
      FROM branches
      ORDER BY is_default DESC, name`
   )

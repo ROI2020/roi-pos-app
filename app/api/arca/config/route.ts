@@ -2,16 +2,16 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import pool from '@/lib/db'
 
-async function requireAdmin(): Promise<NextResponse | null> {
+async function requireAdmin(): Promise<{ error: NextResponse } | { businessId: number }> {
   const cookieStore = await cookies()
   const raw = cookieStore.get('roipos_session')?.value
-  if (!raw) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  if (!raw) return { error: NextResponse.json({ error: 'No autorizado' }, { status: 401 }) }
   try {
-    const { role } = JSON.parse(decodeURIComponent(raw)) as { role: string }
-    if (role !== 'administrador') return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
-    return null
+    const { role, business_id } = JSON.parse(decodeURIComponent(raw)) as { role: string; business_id?: number }
+    if (role !== 'administrador') return { error: NextResponse.json({ error: 'Acceso denegado' }, { status: 403 }) }
+    return { businessId: business_id ?? 1 }
   } catch {
-    return NextResponse.json({ error: 'Sesión inválida' }, { status: 401 })
+    return { error: NextResponse.json({ error: 'Sesión inválida' }, { status: 401 }) }
   }
 }
 
@@ -29,8 +29,8 @@ interface ConfigRow {
  *   ?cuit=XX-XXXXXXXX-X → config específica + sucursales vinculadas
  */
 export async function GET(req: Request) {
-  const blocked = await requireAdmin()
-  if (blocked) return blocked
+  const auth = await requireAdmin()
+  if ('error' in auth) return auth.error
 
   const { searchParams } = new URL(req.url)
   const cuit = searchParams.get('cuit')
@@ -93,8 +93,9 @@ export async function GET(req: Request) {
  * Upsert de configuración del emisor.
  */
 export async function POST(req: Request) {
-  const blocked = await requireAdmin()
-  if (blocked) return blocked
+  const auth = await requireAdmin()
+  if ('error' in auth) return auth.error
+  const { businessId } = auth
 
   try {
     const { cuit, puntoVenta, razonSocial, condicionIva, ambiente } = await req.json() as {
@@ -117,15 +118,16 @@ export async function POST(req: Request) {
 
     await pool.query(
       `INSERT INTO facturacion_config
-         (cuit, punto_venta, razon_social, condicion_iva, ambiente, activo)
-       VALUES ($1, $2, $3, $4, $5, true)
+         (cuit, punto_venta, razon_social, condicion_iva, ambiente, activo, business_id)
+       VALUES ($1, $2, $3, $4, $5, true, $6)
        ON CONFLICT (cuit) DO UPDATE SET
          punto_venta   = EXCLUDED.punto_venta,
          razon_social  = EXCLUDED.razon_social,
          condicion_iva = EXCLUDED.condicion_iva,
          ambiente      = EXCLUDED.ambiente,
+         business_id   = EXCLUDED.business_id,
          activo        = true`,
-      [cuit.trim(), puntoVenta, razonSocial.trim(), condicionIva, ambiente]
+      [cuit.trim(), puntoVenta, razonSocial.trim(), condicionIva, ambiente, businessId]
     )
 
     return NextResponse.json({ ok: true })
@@ -143,8 +145,8 @@ export async function POST(req: Request) {
  *   cuit = 'XX-XXXXXXXX-X' → vincular
  */
 export async function PATCH(req: Request) {
-  const blocked = await requireAdmin()
-  if (blocked) return blocked
+  const auth = await requireAdmin()
+  if ('error' in auth) return auth.error
 
   try {
     const { branchId, cuit } = await req.json() as { branchId: number; cuit: string | null }

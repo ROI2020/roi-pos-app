@@ -1,0 +1,219 @@
+roi-pos-app
+
+GitHub
+ROI2020
+
+netlify
+malema.store.ba@gmail.com
+toma de ROI2020 (github)
+
+
+supabase
+malema.store.ba@gmail.com
+M1f4m1l14*/
+
+
+postgres passw M1f4m1l14*/2026
+
+DB connection details 
+postgresql://postgres:M1f4m1l14*/2026@db.seaswqobjwyjwagfaijj.supabase.co:5432/postgres
+
+pooler para conexion de environment
+postgresql://postgres.seaswqobjwyjwagfaijj:M1f4m1l14*/2026@aws-1-us-east-1.pooler.supabase.com:5432/postgres
+
+postgresql://postgres.seaswqobjwyjwagfaijj:M1f4m1l14*/2026@aws-1-us-east-1.pooler.supabase.com:6543/postgres
+
+
+
+Ahora en Netlify → Environment variables, en vez de DATABASE_URL, agregás estas 5 variables separadas (las encontrás en Supabase → Settings → Database → Connection parameters):
+
+Variable	Valor
+DB_HOST	aws-0-us-east-1.pooler.supabase.com
+DB_PORT	6543
+DB_NAME	postgres
+DB_USER	postgres.db.seaswqobjwyjwagfaijj.supabase.co
+DB_PASSWORD	tu password (sin encodear, va como texto plano)
+Con parámetros separados la contraseña se pasa directo sin importar qué caracteres especiales tenga.
+
+GOOGLE AUTH
+Sí, podés reutilizar el mismo. Solo tenés que agregar el dominio de roi-pos como origen autorizado en Google Cloud Console:
+
+Google Cloud Console → APIs & Services → Credentials → click en el Client ID que usa promobook
+En "Authorized JavaScript origins" → Add URI
+Agregás: https://roi-pos.netlify.app
+Save
+Y en Netlify de roi-pos agregás la variable:
+
+Variable	Valor
+NEXT_PUBLIC_GOOGLE_CLIENT_ID	El mismo client ID de promobook
+Eso es todo.
+
+
+Mantenimiento
+Impuestos
+Alquiler
+Servicios
+Limpieza
+Personal
+Insumos
+Equipamiento
+
+
+
+
+Q falta:
+1) Carrito de compra en Tienda con link a MP, con costos de envio.
+2) Carrito del POS 
+	b) Agregar busquedas x cats
+	c) Sistema de Promos
+	d) Link a MP. Ver si no se va en comisiones ....
+3) Facturar ARCA, despues del cobro
+4) Replicar catalogos en IG, en Wapp y en tiktok
+
+
+
+
+Subir el 3/JULIO
+- Fix horario
+- Historia de un Producto
+- Refactor Business
+- Refactor Accounts-fops
+
+
+
+
+
+
+
+En Tienda, agregar banner con metodos de pago, envois, retiros en tienda, como comprar, etc....
+- Agregar Promos 
+- Tomar la primer palabra del color para poner el color en el circulo.
+
+
+
+
+
+
+
+
+BIG CHANGE - 
+
+Refactor  - roi-pos-app v2
+
+La idea es A) Poder tener varios negocios totalmente independientes en la misma base de datos, ningun usuario puede ver nada de otro negocio, ni siquiera un admin. Por otro lado B) tener centralizados todos los importes de la app, ya que ahora estan dispersos por muchas tablas. Hay que hacer una migracion que cree y cargue las tablas nuevas y luego borre los campos de importes que estaban en cada tabla especifica. 
+
+A)
+Nueva tabla: "business" Eliminar los datos de business de la tabla settings y pasarlos a esta tabla especifica con  un id, que estara en todas las demas tablas del sistema para garantizar independencia.
+
+Agregar business_id a las siguientes tablas:
+settings
+app_users
+suppliers
+purchases
+branches
+pos_sessions
+sales
+daily_expenses
+exchanges
+cash_transfers
+products
+categories
+age_groups
+genders
+seasons
+stock_snapshots
+
+Vistas
+v_stock_disponible
+v_Stock_por_Sucursal
+
+B) Dentro de Configuracion vamos a hacer una Opcion Cuentas y Cajas:
+1) un ABM DE Accounts que tiene:
+id,
+business_id,
+branch_id, 
+name, 
+type, 
+currency, 
+current_balance, 
+created_at,
+
+2) un ABM de fops
+que tiene 
+id,
+account_id,
+name,
+use_for_sales (yes/no)
+
+Una tabla transactions
+con 
+id,
+business_id,
+branch_id, 
+fop_id, 
+currency,
+amount,
+created_at,
+ 
+
+transaction_types
+id,
+business_id,
+transation_id,
+type, (purchase, sales, exchange, expense, transfer)
+type_id
+
+
+Tener en cuenta que hay bases en produccion, hay que migrar on cuidado, generando 3 Accounts
+para migrar la info que hay ahora: 
+1) "Efectivo Caja Sucursal" con fops - Efectivo (todo lo que hoy esta como efectivo)
+2) "Mercado Pago MC" con los fops - Debito - Credito - QR y Transferencia
+3) "Efectivo Caja Central" 
+
+4) Ahora se puede tener mas de un registro para los pagos split.
+
+- En Movimientos de Caja Dejamos el Titulo del header que diga solo "Movimientos". 
+- A los rangos de fecha que ya tiene le agregamos "Hoy" (antes de Semana - Mes - Rango).
+
+Luego de los Rangos de Fecha, hacemos Solapas que funcionen con esos Rangos de fechas. 
+Solapa "Caja": Con toda la funcionalidad actual.
+Solapa "Ventas":
+Mostrar una lista de Ventas agrupadas por: (incluir aca los Cambios)
+-Fecha Venta
+-Sucursal
+-Vendedor                
+con: 
+-Cantidad 
+-Sub Total
+-Descuento
+-Total Venta
+Con drill down al detalle de las ventas de ese dia.
+Detalle:
+Horario - Prenda - Talle - Color - SKU - Nro. de Recibo - Sub Total - Descuento - Total Venta - Pagos (tener en cuenta los splits) - icono link al recibo
+Hacer busquedas por cualquiera de las columnas,
+
+Solapa "Cuentas": Aca va el Resumen por cuentas, segun las nuevas tablas.
+
+Solapa "Gastos":
+Todos los gastos agrupados por tipo de gasto, cantidad de gastos, Total y con drill down a description, monto, usuario
+
+pensemos un poco ... Los botones de ventas y de gastos deberian salir de los fops habilitados para esa sucursal con el nombre que le quieran poner. Al grabar, ya no se grabaria en ventas la palabra efectivo o transferencia, sino q se grabaria la/las transactions con el fop_id correspondiente.
+Y los listados de Caja, salen directo de transactions. Para que necesitamos tener Efectivo fijo? Para saber el orden de los fops? Le estamos dando un trato distinto a cada fop? Para el orden podemos agregar un campo a la tabla fop q diga en q orden mostrarlos en cada lugar, y si necesitamos saber cual es "efectivo", le agregamos una marca, es_efectivo. Se me pierde algo?
+
+
+
+Listo. Quedó armado en dos capas:
+
+database/MIGRACION-2026-07.md — el runbook completo, vive con el código: qué incluye la migración (schema + las 5 rutas con escritura en vivo + ABM + wiring del POS + los reportes nuevos que estaban sin commitear), el bug del fop "Cash" y cómo chequear que no se repita en prod, lo que queda deliberadamente afuera (el rediseño grande que charlamos), y un checklist paso a paso para el día de la migración.
+Memoria de Claude (las dos notas que ya tenía sobre este tema) — actualizadas para apuntar a ese doc, así en la próxima conversación lo recuerdo y te indico leerlo en vez de reconstruir todo de cero.
+Una cosa que noté armando el doc: hay rutas y componentes nuevos sin commitear (reports/accounts, reports/expenses, reports/sales, y sus tabs) que no llegamos a auditar en esta conversación — los dejé listados en el doc para revisar antes de migrar, pero no los verifiqué a fondo.
+
+ok genial
+¡Genial! Quedó todo documentado y listo para el 2-3 de julio. Cualquier cosa, avisame.
+
+
+
+
+
+
+ 

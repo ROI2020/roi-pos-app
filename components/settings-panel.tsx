@@ -26,7 +26,7 @@ interface AppUser {
   role: 'vendedor' | 'encargado' | 'administrador'
   active: boolean; created_at: string
 }
-interface Branch { id: number; name: string; address: string | null; arca_pos_number: number; is_default: boolean }
+interface Branch { id: number; name: string; address: string | null; arca_pos_number: number; cuit_emisor: string | null; is_default: boolean }
 interface Fop { id: number; name: string; use_for_sales: boolean }
 interface Account {
   id: number; name: string; type: string; currency: string
@@ -440,34 +440,34 @@ function UsuariosTab() {
           <p>No hay usuarios aún. Creá el primero.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-xl border shadow-sm overflow-x-auto">
+          <table className="w-full text-sm min-w-[480px]">
             <thead>
               <tr className="border-b bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
-                <th className="text-left px-4 py-2.5">Nombre</th>
-                <th className="text-left px-4 py-2.5 hidden sm:table-cell">Email</th>
-                <th className="text-left px-4 py-2.5">Rol</th>
-                <th className="text-left px-4 py-2.5">Estado</th>
-                <th className="px-4 py-2.5" />
+                <th className="text-left px-3 py-2.5">Nombre</th>
+                <th className="text-left px-3 py-2.5 hidden sm:table-cell">Email</th>
+                <th className="text-left px-3 py-2.5">Rol</th>
+                <th className="text-left px-3 py-2.5">Estado</th>
+                <th className="px-3 py-2.5" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {users.map(u => (
                 <tr key={u.id} className={u.active ? '' : 'opacity-50'}>
-                  <td className="px-4 py-3 font-medium text-gray-900">{u.name}</td>
-                  <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{u.email}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-3 font-medium text-gray-900 whitespace-nowrap">{u.name}</td>
+                  <td className="px-3 py-3 text-gray-500 hidden sm:table-cell">{u.email}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">
                     <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${ROLE_COLORS[u.role]}`}>
                       {ROLES.find(r => r.value === u.role)?.label ?? u.role}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-3 whitespace-nowrap">
                     {u.active
                       ? <span className="text-xs text-green-600 flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" />Activo</span>
                       : <span className="text-xs text-gray-400">Inactivo</span>
                     }
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-3">
                     <div className="flex items-center justify-end gap-1">
                       <Button
                         variant="ghost" size="icon"
@@ -529,10 +529,11 @@ function BranchDialog({
   onSaved:  (b: Branch) => void
   onClose:  () => void
 }) {
-  const [name,    setName   ] = useState(branch?.name    ?? '')
-  const [address, setAddress] = useState(branch?.address ?? '')
-  const [arcaNum, setArcaNum] = useState(String(branch?.arca_pos_number ?? ''))
-  const [saving,  setSaving ] = useState(false)
+  const [name,       setName      ] = useState(branch?.name         ?? '')
+  const [address,    setAddress   ] = useState(branch?.address      ?? '')
+  const [arcaNum,    setArcaNum   ] = useState(String(branch?.arca_pos_number ?? ''))
+  const [cuitEmisor, setCuitEmisor] = useState(branch?.cuit_emisor  ?? '')
+  const [saving,     setSaving    ] = useState(false)
 
   const handleSubmit = async () => {
     if (!name.trim()) { toast.error('El nombre es obligatorio'); return }
@@ -542,6 +543,7 @@ function BranchDialog({
         name: name.trim(),
         address: address.trim() || null,
         arca_pos_number: parseInt(arcaNum) || 0,
+        cuit_emisor: cuitEmisor.trim() || null,
       }
       const res = branch
         ? await fetch(`/api/branches/${branch.id}`, {
@@ -565,7 +567,7 @@ function BranchDialog({
 
   return (
     <Dialog open onOpenChange={v => !v && onClose()}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>{branch ? 'Editar sucursal' : 'Nueva sucursal'}</DialogTitle>
         </DialogHeader>
@@ -589,8 +591,20 @@ function BranchDialog({
               Requerido para facturación electrónica. Puede ser 0 si no se factura aún.
             </p>
           </div>
+          <div className="space-y-1.5">
+            <Label>CUIT emisor</Label>
+            <Input
+              value={cuitEmisor}
+              onChange={e => setCuitEmisor(e.target.value)}
+              placeholder="20-12345678-9"
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-gray-400">
+              CUIT del titular de esta sucursal para facturación. Dejar vacío si usa el CUIT general.
+            </p>
+          </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button onClick={handleSubmit} disabled={saving} className="gap-2">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -640,11 +654,11 @@ function SucursalesTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
         <p className="text-xs text-gray-500">
           La sucursal <span className="text-amber-500">★ favorita</span> se pre-selecciona en el POS al abrir.
         </p>
-        <Button onClick={() => setShowNew(true)} className="gap-2">
+        <Button onClick={() => setShowNew(true)} className="gap-2 self-start sm:self-auto">
           <Plus className="h-4 w-4" />
           Nueva sucursal
         </Button>
@@ -656,11 +670,11 @@ function SucursalesTab() {
           <p>No hay sucursales. Creá la primera.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-xl border shadow-sm overflow-x-auto">
+          <table className="w-full text-sm min-w-[380px]">
             <thead>
               <tr className="border-b bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
-                <th className="w-8 px-3 py-2.5" />
+                <th className="w-8 px-2 py-2.5" />
                 <th className="text-left px-3 py-2.5">Nombre</th>
                 <th className="text-left px-3 py-2.5 hidden sm:table-cell">Dirección</th>
                 <th className="text-left px-3 py-2.5">PV ARCA</th>
@@ -1158,7 +1172,7 @@ function FopDialog({
 
   return (
     <Dialog open onOpenChange={v => !v && onClose()}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>{fop ? 'Editar forma de pago' : 'Nueva forma de pago'}</DialogTitle>
         </DialogHeader>
@@ -1280,12 +1294,12 @@ function CuentasTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-gray-500 max-w-md">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
+        <p className="text-xs text-gray-500">
           Cada cuenta agrupa las formas de pago que se concilian ahí. "Usar en ventas" controla
           si esa forma de pago aparece como opción al cobrar en el POS.
         </p>
-        <Button onClick={() => setShowNewAccount(true)} className="gap-2 shrink-0">
+        <Button onClick={() => setShowNewAccount(true)} className="gap-2 shrink-0 self-start sm:self-auto">
           <Plus className="h-4 w-4" />
           Nueva cuenta
         </Button>
@@ -1331,20 +1345,22 @@ function CuentasTab() {
 
                 {/* Formas de pago de la cuenta */}
                 {isOpen && (
-                  <div className="bg-gray-50/60 px-4 pb-3 pl-12">
+                  <div className="bg-gray-50/60 px-3 pb-3 pl-4 sm:pl-10">
                     {a.fops.length === 0 ? (
                       <p className="text-xs text-gray-400 py-2">Sin formas de pago todavía.</p>
                     ) : (
                       <div className="divide-y divide-gray-100">
                         {a.fops.map(f => (
-                          <div key={f.id} className="flex items-center gap-3 py-2">
+                          <div key={f.id} className="flex items-center gap-2 py-2">
                             <CreditCard className="h-3.5 w-3.5 text-gray-300 shrink-0" />
                             <span className="text-sm text-gray-700 flex-1 min-w-0 truncate">{f.name}</span>
-                            {f.use_for_sales ? (
-                              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">en ventas</Badge>
-                            ) : (
-                              <Badge className="bg-gray-100 text-gray-400 border-gray-200 text-[10px]">oculta</Badge>
-                            )}
+                            <span className={`hidden sm:inline-flex text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${
+                              f.use_for_sales
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-gray-100 text-gray-400 border-gray-200'
+                            }`}>
+                              {f.use_for_sales ? 'en ventas' : 'oculta'}
+                            </span>
                             <Switch
                               checked={f.use_for_sales}
                               onCheckedChange={() => toggleUseForSales(a.id, f)}
@@ -1602,14 +1618,12 @@ function GastosTab() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-gray-500">
-            Definí tipos de gasto con su categoría y presupuesto mensual estimado.
-            Estos datos se usan para calcular el <strong>Punto de Equilibrio</strong>.
-          </p>
-        </div>
-        <Button size="sm" onClick={openNew} className="gap-1.5 shrink-0">
+      <div className="flex flex-col sm:flex-row sm:items-start gap-2 sm:justify-between">
+        <p className="text-sm text-gray-500">
+          Definí tipos de gasto con su categoría y presupuesto mensual estimado.
+          Estos datos se usan para calcular el <strong>Punto de Equilibrio</strong>.
+        </p>
+        <Button size="sm" onClick={openNew} className="gap-1.5 shrink-0 self-start sm:self-auto">
           <Plus className="h-4 w-4" />Nuevo tipo
         </Button>
       </div>
@@ -1632,7 +1646,7 @@ function GastosTab() {
                 onKeyDown={e => e.key === 'Enter' && handleSave()}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Tipo</Label>
                 <Select value={form.type} onValueChange={v => setForm(f => ({ ...f, type: v as 'fijo' | 'variable' }))}>
@@ -1680,21 +1694,26 @@ function GastosTab() {
           No hay tipos de gasto. Creá uno para habilitar el Punto de Equilibrio.
         </p>
       ) : (
-        <div className="rounded-xl border overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="rounded-xl border overflow-x-auto">
+          <table className="w-full text-sm min-w-[380px]">
             <thead>
               <tr className="bg-gray-50 border-b text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                <th className="px-4 py-2.5 text-left">Nombre</th>
-                <th className="px-4 py-2.5 text-left">Tipo</th>
-                <th className="px-4 py-2.5 text-right">Presupuesto / mes</th>
-                <th className="px-4 py-2.5" />
+                <th className="px-3 py-2.5 text-left">Nombre</th>
+                <th className="px-3 py-2.5 text-left hidden sm:table-cell">Tipo</th>
+                <th className="px-3 py-2.5 text-right">Presupuesto / mes</th>
+                <th className="px-3 py-2.5" />
               </tr>
             </thead>
             <tbody className="divide-y">
               {items.map(et => (
                 <tr key={et.id} className={`hover:bg-gray-50 ${editId === et.id ? 'bg-violet-50/30' : ''}`}>
-                  <td className="px-4 py-2.5 font-medium text-gray-800">{et.name}</td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-2.5 font-medium text-gray-800">
+                    <span className="block">{et.name}</span>
+                    <span className={`sm:hidden text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                      et.type === 'fijo' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
+                    }`}>{et.type === 'fijo' ? 'Fijo' : 'Variable'}</span>
+                  </td>
+                  <td className="px-3 py-2.5 hidden sm:table-cell">
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                       et.type === 'fijo'
                         ? 'bg-blue-100 text-blue-700'
@@ -1703,10 +1722,10 @@ function GastosTab() {
                       {et.type === 'fijo' ? 'Fijo' : 'Variable'}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-right tabular-nums text-gray-700">
+                  <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 whitespace-nowrap">
                     {et.budget > 0 ? fmt(et.budget) : <span className="text-gray-300">—</span>}
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-3 py-2.5">
                     <div className="flex justify-end gap-1">
                       <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(et)}>
                         <Pencil className="h-3.5 w-3.5 text-gray-400" />
@@ -1728,10 +1747,10 @@ function GastosTab() {
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-gray-200 bg-gray-50 text-sm font-semibold">
-                <td colSpan={2} className="px-4 py-2.5 text-gray-600">
+                <td colSpan={2} className="px-3 py-2.5 text-gray-600">
                   Total costos fijos mensuales
                 </td>
-                <td className="px-4 py-2.5 text-right tabular-nums text-violet-700">
+                <td className="px-3 py-2.5 text-right tabular-nums text-violet-700 whitespace-nowrap">
                   {fmt(totalFijo)}
                 </td>
                 <td />
@@ -1761,8 +1780,8 @@ export default function SettingsPanel() {
   const [tab, setTab] = useState<Tab>('negocio')
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gray-50 p-2 sm:p-4 md:p-8">
+      <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
 
         {/* Título */}
         <div className="flex items-center gap-3">
@@ -1775,26 +1794,28 @@ export default function SettingsPanel() {
 
         {/* Tabs */}
         <div className="bg-white rounded-xl border shadow-sm">
-          {/* Tab headers */}
-          <div className="flex border-b px-4 pt-2 gap-1">
-            {TABS.map(({ value, label, Icon }) => (
-              <button
-                key={value}
-                onClick={() => setTab(value)}
-                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px
-                  ${tab === value
-                    ? 'border-violet-500 text-violet-700 bg-violet-50/50'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                  }`}
-              >
-                <Icon className="h-4 w-4" />
-                {label}
-              </button>
-            ))}
+          {/* Tab headers — horizontal scroll on mobile */}
+          <div className="border-b overflow-x-auto scrollbar-hide">
+            <div className="flex px-2 pt-2 gap-0.5 min-w-max">
+              {TABS.map(({ value, label, Icon }) => (
+                <button
+                  key={value}
+                  onClick={() => setTab(value)}
+                  className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px whitespace-nowrap
+                    ${tab === value
+                      ? 'border-violet-500 text-violet-700 bg-violet-50/50'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Tab content */}
-          <div className="p-6">
+          <div className="p-3 sm:p-6">
             {tab === 'negocio'    && <NegocioTab />}
             {tab === 'usuarios'   && <UsuariosTab />}
             {tab === 'sucursales' && <SucursalesTab />}

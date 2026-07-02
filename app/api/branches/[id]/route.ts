@@ -18,7 +18,7 @@ export async function PATCH(
   const body   = await req.json() as Record<string, unknown>
   const bid    = parseInt(id)
 
-  const allowed = ['name', 'address', 'arca_pos_number', 'is_default']
+  const allowed = ['name', 'address', 'arca_pos_number', 'is_default', 'cuit_emisor']
   const updates = Object.entries(body).filter(([k]) => allowed.includes(k))
   if (updates.length === 0)
     return NextResponse.json({ error: 'Sin campos' }, { status: 400 })
@@ -38,7 +38,7 @@ export async function PATCH(
 
     const { rows } = await client.query(
       `UPDATE branches SET ${setClauses} WHERE id = $${values.length}
-       RETURNING id, name, address, arca_pos_number, is_default`,
+       RETURNING id, name, address, arca_pos_number, cuit_emisor, is_default`,
       values
     )
     if (rows.length === 0) {

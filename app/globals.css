@@ -133,4 +133,12 @@
   .page-container {
     @apply max-w-7xl mx-auto px-3 py-4 md:px-6 md:py-6;
   }
+  /* Ocultar scrollbar sin perder funcionalidad */
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }

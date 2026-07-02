@@ -38,7 +38,6 @@ const MENSAJES_ERROR: Record<string, string> = {
   cuit_sin_servicio:    'La delegación no fue encontrada. Repetí el paso de delegación y asegurate de seleccionar "wsfe".',
 }
 
-// Validación de dígito verificador CUIT (módulo 11)
 function validarCuit(cuit: string): boolean {
   const digits = cuit.replace(/\D/g, '')
   if (digits.length !== 11) return false
@@ -54,26 +53,22 @@ const EMPTY_FORM: ArcaConfig = {
 }
 
 export default function ArcaConfigPanel() {
-  const [configs, setConfigs] = useState<ArcaConfig[]>([])
-  const [branches, setBranches] = useState<Branch[]>([])
-  const [form, setForm] = useState<ArcaConfig>(EMPTY_FORM)
-  const [selectedCuit, setSelectedCuit] = useState<string | null>(null)
-
-  const [saving, setSaving] = useState(false)
-  const [saveOk, setSaveOk] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-
-  const [verificando, setVerificando] = useState(false)
-  const [verificacion, setVerificacion] = useState<VerificacionResult | null>(null)
-
-  const [linkingBranch, setLinkingBranch] = useState<number | null>(null)
+  const [configs,        setConfigs       ] = useState<ArcaConfig[]>([])
+  const [branches,       setBranches      ] = useState<Branch[]>([])
+  const [form,           setForm          ] = useState<ArcaConfig>(EMPTY_FORM)
+  const [selectedCuit,   setSelectedCuit  ] = useState<string | null>(null)
+  const [saving,         setSaving        ] = useState(false)
+  const [saveOk,         setSaveOk        ] = useState(false)
+  const [saveError,      setSaveError     ] = useState<string | null>(null)
+  const [verificando,    setVerificando   ] = useState(false)
+  const [verificacion,   setVerificacion  ] = useState<VerificacionResult | null>(null)
+  const [linkingBranch,  setLinkingBranch ] = useState<number | null>(null)
 
   const loadConfigs = useCallback(async () => {
     const res = await fetch('/api/arca/config')
     if (!res.ok) return
     const data = await res.json() as ArcaConfig[]
     setConfigs(data)
-    // Auto-seleccionar si hay exactamente una config
     if (data.length === 1 && !selectedCuit) {
       setForm(data[0])
       setSelectedCuit(data[0].cuit)
@@ -83,10 +78,7 @@ export default function ArcaConfigPanel() {
   const loadBranches = useCallback(async () => {
     const res = await fetch('/api/branches')
     if (!res.ok) return
-    // GET /api/branches devuelve id, name, address, arca_pos_number, is_default
-    // El cuit_emisor viene de la tabla branches (columna nueva)
-    const data = await res.json()
-    setBranches(data)
+    setBranches(await res.json())
   }, [])
 
   useEffect(() => {
@@ -95,35 +87,20 @@ export default function ArcaConfigPanel() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function selectConfig(cfg: ArcaConfig) {
-    setForm(cfg)
-    setSelectedCuit(cfg.cuit)
-    setVerificacion(null)
-    setSaveOk(false)
-    setSaveError(null)
+    setForm(cfg); setSelectedCuit(cfg.cuit)
+    setVerificacion(null); setSaveOk(false); setSaveError(null)
   }
 
   function newConfig() {
-    setForm(EMPTY_FORM)
-    setSelectedCuit(null)
-    setVerificacion(null)
-    setSaveOk(false)
-    setSaveError(null)
+    setForm(EMPTY_FORM); setSelectedCuit(null)
+    setVerificacion(null); setSaveOk(false); setSaveError(null)
   }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    setSaveError(null)
-    setSaveOk(false)
-
-    if (!validarCuit(form.cuit)) {
-      setSaveError('CUIT inválido. Verificá el número y el dígito verificador.')
-      return
-    }
-    if (form.puntoVenta < 1) {
-      setSaveError('El punto de venta debe ser mayor a 0.')
-      return
-    }
-
+    setSaveError(null); setSaveOk(false)
+    if (!validarCuit(form.cuit)) { setSaveError('CUIT inválido. Verificá el número y el dígito verificador.'); return }
+    if (form.puntoVenta < 1)     { setSaveError('El punto de venta debe ser mayor a 0.'); return }
     setSaving(true)
     try {
       const res = await fetch('/api/arca/config', {
@@ -132,10 +109,7 @@ export default function ArcaConfigPanel() {
         body: JSON.stringify(form),
       })
       const data = await res.json()
-      if (!res.ok) {
-        setSaveError(data.error ?? 'Error al guardar')
-        return
-      }
+      if (!res.ok) { setSaveError(data.error ?? 'Error al guardar'); return }
       setSaveOk(true)
       setSelectedCuit(form.cuit)
       await Promise.all([loadConfigs(), loadBranches()])
@@ -148,20 +122,13 @@ export default function ArcaConfigPanel() {
 
   async function verificar() {
     if (!selectedCuit) return
-    setVerificando(true)
-    setVerificacion(null)
+    setVerificando(true); setVerificacion(null)
     try {
       const res = await fetch(`/api/arca/verificar?cuit=${encodeURIComponent(selectedCuit)}`)
-      const data = await res.json() as VerificacionResult
-      setVerificacion(data)
+      setVerificacion(await res.json() as VerificacionResult)
     } catch {
-      setVerificacion({
-        conexionWsaa: false,
-        puntoVentaHabilitado: false,
-        ultimoNroComprobante: null,
-        ambiente: form.ambiente,
-        errorDetalle: 'wsaa_timeout',
-      })
+      setVerificacion({ conexionWsaa: false, puntoVentaHabilitado: false,
+        ultimoNroComprobante: null, ambiente: form.ambiente, errorDetalle: 'wsaa_timeout' })
     } finally {
       setVerificando(false)
     }
@@ -183,20 +150,19 @@ export default function ArcaConfigPanel() {
     }
   }
 
-  const roisolCuit = process.env.NEXT_PUBLIC_ARCA_CUIT_ROISOL
-    ?? '[CUIT no configurado — contactá a soporte]'
+  const roisolCuit = process.env.NEXT_PUBLIC_ARCA_CUIT_ROISOL ?? '[CUIT no configurado]'
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 py-6 px-4">
+    <div className="w-full max-w-2xl mx-auto space-y-4 py-4 px-3 sm:px-4 sm:py-6 sm:space-y-6">
 
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Configuración ARCA</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Configuración ARCA</h1>
         <p className="text-sm text-gray-500 mt-1">
           Facturación electrónica. Los clientes delegan el servicio wsfe al certificado de ROISOL.
         </p>
       </div>
 
-      {/* Selector de CUITs existentes */}
+      {/* Selector de CUITs */}
       {configs.length > 0 && (
         <div className="flex flex-wrap gap-2 items-center">
           {configs.map(cfg => (
@@ -209,7 +175,8 @@ export default function ArcaConfigPanel() {
                   : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
               }`}
             >
-              {cfg.cuit} — {cfg.razonSocial}
+              <span className="font-mono text-xs">{cfg.cuit}</span>
+              <span className="hidden sm:inline"> — {cfg.razonSocial}</span>
             </button>
           ))}
           <button
@@ -221,11 +188,11 @@ export default function ArcaConfigPanel() {
         </div>
       )}
 
-      {/* ── Sección 1: Datos del emisor ─────────────────────── */}
-      <form onSubmit={handleSave} className="border rounded-lg p-5 bg-white shadow-sm space-y-4">
+      {/* ── Sección 1: Datos del emisor ─── */}
+      <form onSubmit={handleSave} className="border rounded-lg p-4 sm:p-5 bg-white shadow-sm space-y-4">
         <h2 className="font-semibold text-gray-800">Datos del emisor</h2>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">CUIT</label>
             <input
@@ -247,7 +214,7 @@ export default function ArcaConfigPanel() {
               className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
               required
             />
-            <p className="text-xs text-gray-400 mt-1">Debe estar registrado en ARCA como punto de venta electrónico (WSFEv1).</p>
+            <p className="text-xs text-gray-400 mt-1">Debe estar registrado en ARCA como WSFEv1.</p>
           </div>
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">Razón Social</label>
@@ -282,7 +249,7 @@ export default function ArcaConfigPanel() {
             </select>
             {form.ambiente === 'prod' && (
               <p className="text-xs text-amber-600 mt-1 font-medium">
-                ⚠️ Producción emite facturas reales con validez fiscal. Usá Homologación para pruebas.
+                ⚠️ Producción emite facturas reales con validez fiscal.
               </p>
             )}
           </div>
@@ -301,39 +268,38 @@ export default function ArcaConfigPanel() {
         </Button>
       </form>
 
-      {/* ── Sección 2: Delegación + Verificación ─────────────── */}
+      {/* ── Sección 2: Delegación + Verificación ─── */}
       {selectedCuit && (
-        <div className="border rounded-lg p-5 bg-white shadow-sm space-y-4">
+        <div className="border rounded-lg p-4 sm:p-5 bg-white shadow-sm space-y-4">
           <h2 className="font-semibold text-gray-800">Habilitación del cliente en ARCA</h2>
 
-          <div className="bg-slate-50 rounded-md p-4 text-sm text-gray-700 space-y-3">
+          <div className="bg-slate-50 rounded-md p-3 sm:p-4 text-sm text-gray-700 space-y-3">
             <p>
-              Para que este CUIT pueda facturar electrónicamente, el titular debe delegar
-              el servicio <strong>wsfe</strong> a ROISOL en el portal de AFIP:
+              El titular del CUIT debe delegar el servicio <strong>wsfe</strong> a ROISOL en el portal de AFIP:
             </p>
-            <ol className="list-decimal list-inside space-y-2">
+            <ol className="list-decimal list-inside space-y-2.5 text-sm">
               <li>
                 Ingresar a{' '}
-                <span className="font-mono text-xs bg-white border px-1.5 py-0.5 rounded">
-                  https://auth.afip.gob.ar
+                <span className="inline-block font-mono text-xs bg-white border px-1.5 py-0.5 rounded break-all">
+                  auth.afip.gob.ar
                 </span>{' '}
                 con CUIT y Clave Fiscal nivel 3
               </li>
               <li>Buscar: <strong>Administrador de Relaciones de Clave Fiscal</strong></li>
               <li>
-                Seleccionar → Nueva Relación → Buscar servicio:{' '}
-                <strong>wsfe — Web Service de Facturación Electrónica</strong>
+                Nueva Relación → servicio:{' '}
+                <strong className="whitespace-nowrap">wsfe — Facturación Electrónica</strong>
               </li>
               <li>
-                En &quot;Delegar a&quot;, ingresar el CUIT de ROISOL:{' '}
-                <code className="bg-white border px-1.5 py-0.5 rounded font-mono text-xs">
+                <span className="block">En &quot;Delegar a&quot;, ingresar el CUIT de ROISOL:</span>
+                <code className="inline-block mt-1 bg-white border px-2 py-1 rounded font-mono text-xs break-all">
                   {roisolCuit}
                 </code>
               </li>
-              <li>Confirmar la delegación con la Clave Fiscal</li>
+              <li>Confirmar con la Clave Fiscal</li>
             </ol>
             <p className="text-gray-400 text-xs">
-              La delegación es inmediata. Una vez realizada, verificá la conexión con el botón de abajo.
+              La delegación es inmediata. Verificá la conexión con el botón de abajo.
             </p>
           </div>
 
@@ -354,15 +320,15 @@ export default function ArcaConfigPanel() {
               <div className="flex items-center gap-2">
                 {verificacion.conexionWsaa
                   ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                  : <XCircle className="h-4 w-4 text-red-500 shrink-0" />}
+                  : <XCircle      className="h-4 w-4 text-red-500   shrink-0" />}
                 <span>Conexión WSAA {verificacion.conexionWsaa ? 'establecida' : 'falló'}</span>
               </div>
               <div className="flex items-center gap-2">
                 {verificacion.puntoVentaHabilitado
                   ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                  : <XCircle className="h-4 w-4 text-red-500 shrink-0" />}
+                  : <XCircle      className="h-4 w-4 text-red-500   shrink-0" />}
                 <span>
-                  Punto de venta {verificacion.puntoVentaHabilitado ? 'habilitado' : 'no habilitado'}
+                  PV {verificacion.puntoVentaHabilitado ? 'habilitado' : 'no habilitado'}
                   {' '}
                   <span className="text-gray-400 text-xs">
                     ({verificacion.ambiente === 'prod' ? 'Producción' : 'Homologación'})
@@ -375,7 +341,7 @@ export default function ArcaConfigPanel() {
                 </p>
               )}
               {verificacion.errorDetalle && (
-                <p className="text-red-600 text-sm mt-1 pl-6">
+                <p className="text-red-600 text-sm mt-1 pl-6 leading-snug">
                   {MENSAJES_ERROR[verificacion.errorDetalle] ?? verificacion.errorDetalle}
                 </p>
               )}
@@ -389,19 +355,19 @@ export default function ArcaConfigPanel() {
         </div>
       )}
 
-      {/* ── Sección 3: Sucursales vinculadas ─────────────────── */}
+      {/* ── Sección 3: Sucursales vinculadas ─── */}
       {selectedCuit && (
-        <div className="border rounded-lg p-5 bg-white shadow-sm space-y-3">
+        <div className="border rounded-lg p-4 sm:p-5 bg-white shadow-sm space-y-3">
           <div>
             <h2 className="font-semibold text-gray-800">Sucursales vinculadas</h2>
-            <p className="text-sm text-gray-500 mt-0.5">
-              Indicá qué sucursales emiten facturas con el CUIT <strong>{selectedCuit}</strong>.
-              La sucursal debe tener un punto de venta ARCA asignado.
+            <p className="text-xs text-gray-500 mt-0.5">
+              Indicá qué sucursales emiten facturas con el CUIT{' '}
+              <span className="font-mono">{selectedCuit}</span>.
             </p>
           </div>
 
           {branches.length === 0 && (
-            <p className="text-sm text-gray-400">No hay sucursales configuradas en el sistema.</p>
+            <p className="text-sm text-gray-400">No hay sucursales configuradas.</p>
           )}
 
           <div className="divide-y">
@@ -413,24 +379,27 @@ export default function ArcaConfigPanel() {
 
               return (
                 <div key={b.id} className="flex items-center justify-between gap-3 py-3">
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">{b.name}</p>
-                    <p className="text-xs text-gray-400">
-                      PV ARCA: {b.arca_pos_number ?? '—'}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-800 truncate">{b.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      PV ARCA: <span className="font-mono">{b.arca_pos_number ?? '—'}</span>
+                      {linked && (
+                        <span className="ml-2 text-green-600 font-medium">✓ vinculada</span>
+                      )}
                       {otherLinked && (
                         <span className="ml-2 text-amber-500">
-                          vinculada a otro CUIT ({b.cuit_emisor})
+                          otro CUIT (<span className="font-mono">{b.cuit_emisor}</span>)
                         </span>
                       )}
                       {!hasPos && !linked && (
-                        <span className="ml-2 text-gray-300">sin punto de venta ARCA</span>
+                        <span className="ml-2 text-gray-300">sin PV ARCA</span>
                       )}
                     </p>
                   </div>
                   <button
                     onClick={() => toggleBranch(b)}
                     disabled={linkingBranch === b.id || !canLink}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors shrink-0 ${
+                    className={`shrink-0 min-w-[80px] px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                       linked
                         ? 'bg-green-50 border-green-300 text-green-700 hover:bg-red-50 hover:border-red-300 hover:text-red-700'
                         : !canLink
@@ -439,7 +408,7 @@ export default function ArcaConfigPanel() {
                     }`}
                   >
                     {linkingBranch === b.id
-                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      ? <Loader2 className="h-3 w-3 animate-spin mx-auto" />
                       : linked ? '✓ Vinculada' : 'Vincular'
                     }
                   </button>

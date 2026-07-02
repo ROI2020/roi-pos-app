@@ -3,8 +3,11 @@
 # dependencies
 /node_modules
 
-# esquema de db
-/database
+# esquema de db — los SQL de migración SÍ se versionan
+# /database
+
+# storage - Facturas PDF generadas no van al repo
+/storage
 
 # next.js
 /.next/
