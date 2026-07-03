@@ -100,18 +100,25 @@ export async function GET(req: Request) {
         ambiente,
       })
     } catch (e) {
-      const msg = String(e).toLowerCase()
-      const errorDetalle = msg.includes('punto') || msg.includes('habilitad')
-        ? 'punto_venta_inactivo'
-        : msg.includes('servicio') || msg.includes('wsfe')
-          ? 'cuit_sin_servicio'
-          : 'punto_venta_inactivo'
+      // ErrorFacturacion es un objeto {categoria, mensaje, codigoAfip}; String(e) da [object Object]
+      const afipCode = (e as { codigoAfip?: number })?.codigoAfip
+      const afipMsg  = (e as { mensaje?: string })?.mensaje ?? String(e)
+      const msg = afipMsg.toLowerCase()
+      console.error('[arca/verificar] WSFE falló, code:', afipCode, 'msg:', afipMsg)
+      const errorDetalle = afipCode === 600 || msg.includes('relacion') || msg.includes('delegac')
+        ? 'delegacion_pendiente'
+        : msg.includes('punto') || msg.includes('habilitad')
+          ? 'punto_venta_inactivo'
+          : msg.includes('servicio') || msg.includes('wsfe')
+            ? 'cuit_sin_servicio'
+            : 'punto_venta_inactivo'
       return NextResponse.json({
         conexionWsaa: true,
         puntoVentaHabilitado: false,
         ultimoNroComprobante: null,
         ambiente,
         errorDetalle,
+        _error: `AFIP code ${afipCode}: ${afipMsg}`,
       })
     }
   } catch (err) {

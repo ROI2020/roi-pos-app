@@ -56,7 +56,7 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
       const deviceId = cameraIdx >= 0 ? cameras[cameraIdx]?.deviceId : undefined
       const videoConstraints: MediaTrackConstraints = deviceId
         ? { deviceId: { exact: deviceId } }
-        : { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }
+        : { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
 
       const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints })
       streamRef.current = stream
@@ -82,9 +82,20 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
       // 3. Play() explícito
       await video.play()
 
-      // 4. ZXing solo decodifica
+      // 4. ZXing con hints para CODE128 + TRY_HARDER
       const { BrowserMultiFormatReader } = await import('@zxing/browser')
-      const reader = new BrowserMultiFormatReader()
+      const { DecodeHintType, BarcodeFormat } = await import('@zxing/library')
+      const hints = new Map<DecodeHintType, unknown>([
+        [DecodeHintType.POSSIBLE_FORMATS, [
+          BarcodeFormat.CODE_128,
+          BarcodeFormat.CODE_39,
+          BarcodeFormat.EAN_13,
+          BarcodeFormat.EAN_8,
+          BarcodeFormat.UPC_A,
+        ]],
+        [DecodeHintType.TRY_HARDER, true],
+      ])
+      const reader = new BrowserMultiFormatReader(hints)
 
       const controls = await reader.decodeFromVideoElement(
         video,

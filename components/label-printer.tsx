@@ -64,12 +64,10 @@ function BarcodeImg({ value, height = 40 }: { value: string; height?: number }) 
       try {
         JsBarcode(svgRef.current, value, {
           format:       'CODE128',
-          width:        1.4,
+          width:        2,
           height,
-          displayValue: true,
-          fontSize:     9,
+          displayValue: false,
           margin:       2,
-          textMargin:   1,
           background:   'transparent',
           lineColor:    '#000',
         })
@@ -110,11 +108,12 @@ function LabelCard({ variant, settings }: { variant: LabelVariant; settings: Lab
         <p className="label-price">{fmtPrice(variant.base_price)}</p>
       </div>
 
-      {/* Color + Talle */}
+      {/* Color + Talle + SKU */}
       <div className="label-attrs">
         <span>{variant.color}</span>
         <span className="label-sep">·</span>
         <span className="label-size">T.{variant.size}</span>
+        <span className="label-sku">{variant.barcode}</span>
       </div>
 
       {/* Código de barras */}
@@ -626,7 +625,7 @@ function PreviewPanel({
           font-size: 8px; font-weight: 700; color: #4c1d95;
           letter-spacing: .05em; text-transform: uppercase;
         }
-        .label-by { font-size: 6px; color: #999; z-index: 1; flex-shrink: 0; }
+        .label-by { font-size: 8px; color: #666; z-index: 1; flex-shrink: 0; }
 
         /* Nombre + precio en la misma fila */
         .label-product-row {
@@ -635,11 +634,12 @@ function PreviewPanel({
           justify-content: space-between;
           gap: 4px;
         }
-        .label-product { font-size: 10px; font-weight: 600; color: #111; line-height: 1.2; }
+        .label-product { font-size: 10px; font-weight: 600; color: #111; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
         .label-price   { font-size: 12px; font-weight: 700; color: #111; white-space: nowrap; flex-shrink: 0; }
         .label-attrs   { font-size: 9px; color: #333; display: flex; align-items: center; gap: 3px; }
         .label-sep     { color: #999; }
         .label-size    { font-weight: 600; }
+        .label-sku     { margin-left: auto; font-size: 8px; color: #888; letter-spacing: .03em; }
         .label-barcode { margin-top: 2px; }
         .label-barcode svg { width: 100%; height: auto; }
 
@@ -723,7 +723,7 @@ function PreviewPanel({
           }
           .label-logo  { max-height: 5mm !important; width: auto !important; max-width: 14mm !important; }
           .label-brand { font-size: 6.5pt !important; font-weight: 700 !important; text-transform: uppercase !important; }
-          .label-by    { font-size: 4pt !important; }
+          .label-by    { font-size: 5.5pt !important; color: #555 !important; }
 
           /* Nombre + precio en la misma fila */
           .label-product-row {
@@ -732,15 +732,16 @@ function PreviewPanel({
             justify-content: space-between !important;
             gap: 1mm !important;
           }
-          .label-product { font-size: 7pt !important;   font-weight: 600 !important; line-height: 1.25 !important; }
+          .label-product { font-size: 7pt !important; font-weight: 600 !important; line-height: 1.25 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; min-width: 0 !important; }
           .label-price   { font-size: 8.5pt !important; font-weight: 700 !important; white-space: nowrap !important; flex-shrink: 0 !important; }
 
-          /* Color · Talle */
+          /* Color · Talle · SKU */
           .label-attrs   { font-size: 6.5pt !important; display: flex !important; align-items: center !important; }
+          .label-sku     { margin-left: auto !important; font-size: 6pt !important; color: #444 !important; letter-spacing: .02em !important; }
 
-          /* Barcode */
+          /* Barcode — sin texto abajo, barras más altas */
           .label-barcode { margin-top: 0.5mm !important; }
-          .label-barcode svg { width: 100% !important; height: 7.5mm !important; }
+          .label-barcode svg { width: 100% !important; height: 12mm !important; }
 
           /* Ocultar badge */
           .label-printed-badge { display: none !important; }
