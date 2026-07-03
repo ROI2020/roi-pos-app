@@ -17,47 +17,27 @@ type Status = 'idle' | 'loading' | 'active' | 'error'
 
 export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
   const videoRef    = useRef<HTMLVideoElement>(null)
-  const streamRef   = useRef<MediaStream | null>(null)   // track para liberar correctamente
+  const streamRef   = useRef<MediaStream | null>(null)
   const controlsRef = useRef<{ stop: () => void } | null>(null)
 
   const [cameras,   setCameras  ] = useState<MediaDeviceInfo[]>([])
-  const [cameraIdx, setCameraIdx] = useState(-1)   // -1 = pedir facingMode:environment
+  const [cameraIdx, setCameraIdx] = useState(-1)   // -1 = facingMode:environment
   const [status,    setStatus   ] = useState<Status>('idle')
   const [errorMsg,  setErrorMsg ] = useState('')
 
-  // ── Cargar lista de cámaras cuando se abre el diálogo ────────────────────
-  // Lo hacemos en open=true porque los labels solo están disponibles después
-  // de que el usuario otorgó el permiso de cámara.
-  useEffect(() => {
-    if (!open) return
-    import('@zxing/browser').then(({ BrowserCodeReader }) => {
-      BrowserCodeReader.listVideoInputDevices()
-        .then(devices => {
-          setCameras(devices)
-          const back = devices.findIndex(d => /back|rear|environment/i.test(d.label))
-          if (back >= 0) setCameraIdx(back)
-          // Si no encontramos trasera por label, -1 usará facingMode:environment
-        })
-        .catch(() => {})
-    })
-  }, [open])
-
   // ── Detener stream y liberar recursos ────────────────────────────────────
   const stop = useCallback(() => {
-    // 1. Detener el decodificador de ZXing
     controlsRef.current?.stop()
     controlsRef.current = null
-    // 2. Detener los tracks de MediaStream (libera la cámara física)
     streamRef.current?.getTracks().forEach(t => t.stop())
     streamRef.current = null
-    // 3. Desconectar el stream del video
     if (videoRef.current) videoRef.current.srcObject = null
     setStatus('idle')
   }, [])
 
   // ── Iniciar escaneo ───────────────────────────────────────────────────────
-  // Estrategia: manejamos getUserMedia nosotros mismos para tener control
-  // total sobre el video element. ZXing solo hace el reconocimiento óptico.
+  // Debe llamarse SIEMPRE desde un onClick directo para que el browser lo
+  // reconozca como gesto del usuario (requerido por iOS/Android para cámara).
   const start = useCallback(async () => {
     const video = videoRef.current
     if (!video) return
@@ -72,7 +52,7 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
     setErrorMsg('')
 
     try {
-      // ── 1. Obtener stream de cámara con constraints explícitas ──────────
+      // 1. Obtener stream con constraints explícitas
       const deviceId = cameraIdx >= 0 ? cameras[cameraIdx]?.deviceId : undefined
       const videoConstraints: MediaTrackConstraints = deviceId
         ? { deviceId: { exact: deviceId } }
@@ -81,15 +61,28 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
       const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints })
       streamRef.current = stream
 
-      // ── 2. Conectar stream al video manualmente ─────────────────────────
+      // Ahora que tenemos permiso, cargar lista de cámaras disponibles
+      import('@zxing/browser').then(({ BrowserCodeReader }) => {
+        BrowserCodeReader.listVideoInputDevices()
+          .then(devices => {
+            setCameras(devices)
+            if (cameraIdx < 0) {
+              const back = devices.findIndex(d => /back|rear|environment/i.test(d.label))
+              if (back >= 0) setCameraIdx(back)
+            }
+          })
+          .catch(() => {})
+      })
+
+      // 2. Conectar stream al video
+      // playsInline como atributo JS además del prop de React (necesario en iOS PWA)
+      video.setAttribute('playsinline', '')
       video.srcObject = stream
 
-      // ── 3. Play() explícito y esperado ──────────────────────────────────
-      // No confiamos solo en el atributo autoPlay porque en PWA el browser
-      // puede ignorarlo. Llamamos play() directamente y esperamos la resolución.
+      // 3. Play() explícito
       await video.play()
 
-      // ── 4. ZXing solo decodifica — no toca el video ─────────────────────
+      // 4. ZXing solo decodifica
       const { BrowserMultiFormatReader } = await import('@zxing/browser')
       const reader = new BrowserMultiFormatReader()
 
@@ -108,7 +101,6 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
       setStatus('active')
 
     } catch (err: unknown) {
-      // Limpiar recursos si algo falló
       streamRef.current?.getTracks().forEach(t => t.stop())
       streamRef.current = null
       if (videoRef.current) videoRef.current.srcObject = null
@@ -116,16 +108,16 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
       setStatus('error')
       const msg = String((err as Error)?.message ?? err ?? '').toLowerCase()
 
-      if (/permission|notallowed/.test(msg)) {
+      if (/permission|notallowed|not allowed|denied/i.test(msg)) {
         setErrorMsg(
           'Permiso de cámara denegado. ' +
-          'Tocá el ícono de cámara en la barra de direcciones → Permitir, ' +
-          'o en Ajustes del navegador → Permisos del sitio → Cámara.'
+          'En Ajustes del teléfono → Aplicaciones → Navegador → Permisos → Cámara → Permitir. ' +
+          'Luego volvé y tocá "Activar cámara".'
         )
-      } else if (/notfound|no camera|devicenotfound/.test(msg)) {
+      } else if (/notfound|no camera|devicenotfound/i.test(msg)) {
         setErrorMsg('No se encontró ninguna cámara en este dispositivo.')
-      } else if (/overconstrained|constraint/.test(msg)) {
-        // facingMode no compatible en este dispositivo → reintentar sin restricciones
+      } else if (/overconstrained|constraint/i.test(msg)) {
+        // facingMode no compatible → reintentar sin restricción de lado
         setCameraIdx(0)
       } else {
         setErrorMsg(`No se pudo acceder a la cámara: ${(err as Error)?.message ?? err}`)
@@ -134,9 +126,14 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
   }, [cameras, cameraIdx, onScan, onClose])
 
   // ── Abrir / cerrar ────────────────────────────────────────────────────────
+  // Solo reseteamos estado — NO llamamos start() automáticamente.
+  // En móvil, getUserMedia debe venir de un onClick directo del usuario.
   useEffect(() => {
     if (open) {
-      start()
+      setStatus('idle')
+      setErrorMsg('')
+      setCameras([])
+      setCameraIdx(-1)
     } else {
       stop()
     }
@@ -146,7 +143,7 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
 
   // ── Reiniciar cuando el usuario cambia de cámara ──────────────────────────
   useEffect(() => {
-    if (!open) return
+    if (!open || status === 'idle') return
     stop()
     const t = setTimeout(() => { start() }, 200)
     return () => clearTimeout(t)
@@ -180,16 +177,31 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
             muted
           />
 
-          {/* Visor de encuadre */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="relative w-[58%] h-[28%]">
-              <div className="absolute top-0 left-0   w-5 h-5 border-t-2 border-l-2 border-violet-400 rounded-tl" />
-              <div className="absolute top-0 right-0  w-5 h-5 border-t-2 border-r-2 border-violet-400 rounded-tr" />
-              <div className="absolute bottom-0 left-0  w-5 h-5 border-b-2 border-l-2 border-violet-400 rounded-bl" />
-              <div className="absolute bottom-0 right-0 w-5 h-5 border-b-2 border-r-2 border-violet-400 rounded-br" />
-              <div className="absolute inset-x-3 top-1/2 h-0.5 bg-violet-400/75 animate-pulse" />
+          {/* Visor de encuadre (visible solo cuando la cámara está activa) */}
+          {status === 'active' && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="relative w-[58%] h-[28%]">
+                <div className="absolute top-0 left-0   w-5 h-5 border-t-2 border-l-2 border-violet-400 rounded-tl" />
+                <div className="absolute top-0 right-0  w-5 h-5 border-t-2 border-r-2 border-violet-400 rounded-tr" />
+                <div className="absolute bottom-0 left-0  w-5 h-5 border-b-2 border-l-2 border-violet-400 rounded-bl" />
+                <div className="absolute bottom-0 right-0 w-5 h-5 border-b-2 border-r-2 border-violet-400 rounded-br" />
+                <div className="absolute inset-x-3 top-1/2 h-0.5 bg-violet-400/75 animate-pulse" />
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Botón inicial — llama a start() directamente (gesto del usuario) */}
+          {status === 'idle' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80">
+              <Camera className="h-10 w-10 text-violet-400" />
+              <button
+                onClick={start}
+                className="px-5 py-2.5 bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                Activar cámara
+              </button>
+            </div>
+          )}
 
           {status === 'loading' && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/60">
@@ -199,15 +211,23 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
         </div>
 
         {status === 'error' && (
-          <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border-t leading-snug">
-            {errorMsg}
+          <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border-t leading-snug space-y-2">
+            <p>{errorMsg}</p>
+            <button
+              onClick={start}
+              className="text-violet-700 font-medium underline underline-offset-2"
+            >
+              Reintentar
+            </button>
           </div>
         )}
 
         <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t">
-          <p className="text-xs text-gray-400">Apuntá al código de barras</p>
+          <p className="text-xs text-gray-400">
+            {status === 'active' ? 'Apuntá al código de barras' : 'Lector de códigos'}
+          </p>
           <div className="flex gap-2">
-            {cameras.length > 1 && (
+            {cameras.length > 1 && status === 'active' && (
               <Button
                 variant="outline" size="sm"
                 onClick={switchCamera}

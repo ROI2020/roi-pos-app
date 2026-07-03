@@ -68,9 +68,13 @@ export async function GET(req: Request) {
       const msg = rawErr.toLowerCase()
       const errorDetalle = msg.includes('no delegó') || msg.includes('delegac')
         ? 'delegacion_pendiente'
-        : msg.includes('cert') || msg.includes('certificad') || msg.includes('pkcs') || msg.includes('pem') || msg.includes('firma') || msg.includes('signing')
-          ? 'cert_no_configurado'
-          : 'wsaa_timeout'
+        : msg.includes('notauthorized') || msg.includes('no autorizado') || msg.includes('coe.not')
+          ? 'delegacion_pendiente'
+          : msg.includes('untrusted') || msg.includes('confianza')
+            ? 'cert_ambiente_incorrecto'
+            : msg.includes('cert') || msg.includes('certificad') || msg.includes('pkcs') || msg.includes('pem') || msg.includes('firma') || msg.includes('signing')
+              ? 'cert_no_configurado'
+              : 'wsaa_timeout'
       return NextResponse.json({
         conexionWsaa: false,
         puntoVentaHabilitado: false,

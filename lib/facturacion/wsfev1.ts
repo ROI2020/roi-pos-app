@@ -1,33 +1,93 @@
-import { createClientAsync as soapCreateClient } from 'node-soap'
-import type { Client } from 'node-soap'
-import { parsearRespuestaFE } from './xml'
+import { Agent as HttpsAgent, request as httpsRequest } from 'https'
 import type { FacturacionInput, ErrorFacturacion } from './types'
 
-const WSFEV1_WSDL = {
-  homo: 'https://wswhomo.afip.gov.ar/wsfev1/service.asmx?WSDL',
-  prod: 'https://wsfev1.afip.gov.ar/service.asmx?WSDL',
-}
-
-// Cache de clientes SOAP por ambiente para evitar re-fetch del WSDL por request
-let _clientHomo: Client | null = null
-let _clientProd: Client | null = null
-
-async function getClient(ambiente: 'homo' | 'prod'): Promise<Client> {
-  if (ambiente === 'homo') {
-    _clientHomo ??= await soapCreateClient(WSFEV1_WSDL.homo)
-    return _clientHomo
-  }
-  _clientProd ??= await soapCreateClient(WSFEV1_WSDL.prod)
-  return _clientProd
+const WSFE_ENDPOINT = {
+  homo: 'https://wswhomo.afip.gov.ar/wsfev1/service.asmx',
+  prod: 'https://servicios1.afip.gov.ar/wsfev1/service.asmx',
 }
 
 interface Auth {
   token: string
   sign: string
-  cuit: string  // sin guiones
+  cuit: string
 }
 
-// Consulta el último nro de comprobante autorizado para un punto de venta + tipo.
+// Extrae el contenido de una etiqueta XML (primera ocurrencia, ignora namespace)
+function xmlTag(xml: string, tag: string): string {
+  const m = xml.match(new RegExp(`<(?:[\\w]+:)?${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:[\\w]+:)?${tag}>`, 'i'))
+  return m?.[1]?.trim() ?? ''
+}
+
+// Extrae todas las ocurrencias de una etiqueta
+function xmlTags(xml: string, tag: string): string[] {
+  const re = new RegExp(`<(?:[\\w]+:)?${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:[\\w]+:)?${tag}>`, 'gi')
+  const results: string[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(xml)) !== null) results.push(m[1].trim())
+  return results
+}
+
+function wsfeFetch(soapBody: string, ambiente: 'homo' | 'prod', action: string): Promise<string> {
+  const url = WSFE_ENDPOINT[ambiente]
+  console.log('[ARCA-WSFE] →', action, url)
+
+  return new Promise((resolve, reject) => {
+    const u = new URL(url)
+    const bodyBuf = Buffer.from(soapBody, 'utf-8')
+    // servicios1.afip.gov.ar usa DH keys débiles rechazadas por OpenSSL moderno — SECLEVEL=0 las permite
+    const agent = new HttpsAgent({ ciphers: 'DEFAULT@SECLEVEL=0' })
+
+    const req = httpsRequest(
+      {
+        hostname: u.hostname,
+        port: 443,
+        path: u.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/xml; charset=utf-8',
+          'SOAPAction': `http://ar.gov.afip.dif.FEV1/${action}`,
+          'Content-Length': bodyBuf.length,
+        },
+        agent,
+      },
+      res => {
+        const chunks: Buffer[] = []
+        res.on('data', (c: Buffer) => chunks.push(c))
+        res.on('end', () => {
+          const xml = Buffer.concat(chunks).toString('utf-8')
+          if ((res.statusCode ?? 0) >= 400) {
+            console.error('[ARCA-WSFE] HTTP', res.statusCode, xml.slice(0, 600))
+            reject(new Error(`WSFE HTTP ${res.statusCode}: ${xml.slice(0, 300)}`))
+          } else {
+            console.log('[ARCA-WSFE] ✓', action, 'len:', xml.length)
+            resolve(xml)
+          }
+        })
+      }
+    )
+
+    req.on('error', (err: Error) => {
+      console.error('[ARCA-WSFE] Request error:', String(err))
+      reject(err)
+    })
+
+    req.setTimeout(30000, () => {
+      req.destroy()
+      reject(new Error('WSFE timeout 30s'))
+    })
+
+    req.write(bodyBuf)
+    req.end()
+  })
+}
+
+function authXml(auth: Auth): string {
+  const cuit = auth.cuit.replace(/-/g, '')
+  return `<ar:Auth><ar:Token>${auth.token}</ar:Token><ar:Sign>${auth.sign}</ar:Sign><ar:Cuit>${cuit}</ar:Cuit></ar:Auth>`
+}
+
+const AR_NS = 'xmlns:ar="http://ar.gov.afip.dif.FEV1/"'
+
 export async function obtenerUltimoNroComprobante(
   auth: Auth,
   puntoVenta: number,
@@ -36,37 +96,35 @@ export async function obtenerUltimoNroComprobante(
 ): Promise<number> {
   if (process.env.ARCA_MOCK === 'true') return 0
 
-  const client = await getClient(ambiente)
-  const cuitSinGuiones = auth.cuit.replace(/-/g, '')
+  const soapBody = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" ${AR_NS}>
+  <soapenv:Header/>
+  <soapenv:Body>
+    <ar:FECompUltimoAutorizado>
+      ${authXml(auth)}
+      <ar:PtoVta>${puntoVenta}</ar:PtoVta>
+      <ar:CbteTipo>${tipoCbte}</ar:CbteTipo>
+    </ar:FECompUltimoAutorizado>
+  </soapenv:Body>
+</soapenv:Envelope>`
 
-  const params = {
-    Auth: { Token: auth.token, Sign: auth.sign, Cuit: cuitSinGuiones },
-    PtoVta: puntoVenta,
-    CbteTipo: tipoCbte,
-  }
+  console.log('[ARCA-WSFE] FECompUltimoAutorizado PtoVta:', puntoVenta, 'CbteTipo:', tipoCbte, 'CUIT:', auth.cuit.replace(/-/g,''))
+  const xml = await wsfeFetch(soapBody, ambiente, 'FECompUltimoAutorizado')
+  console.log('[ARCA-WSFE] FECompUltimoAutorizado respuesta:', xml.slice(0, 800))
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [result]: any[] = await (client as any).FECompUltimoAutorizadoAsync(params)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res: any = result?.FECompUltimoAutorizadoResult ?? result
-
-  const errRaw = res?.Errors?.Err
-  if (errRaw) {
-    const arr = Array.isArray(errRaw) ? errRaw : [errRaw]
-    const err: ErrorFacturacion = {
-      categoria: 'arca',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      mensaje: arr.map((e: any) => e.Msg).join('; '),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      codigoAfip: arr[0] ? Number((arr[0] as any).Code) : undefined,
-    }
+  // Verificar errores
+  const errContent = xmlTag(xmlTag(xml, 'Errors'), 'Err')
+  if (errContent) {
+    const code = Number(xmlTag(errContent, 'Code'))
+    const msg  = xmlTag(errContent, 'Msg')
+    console.error('[ARCA-WSFE] Error:', code, msg)
+    const err: ErrorFacturacion = { categoria: 'arca', mensaje: msg, codigoAfip: code || undefined }
     throw err
   }
 
-  return Number(res?.CbteNro ?? 0)
+  return Number(xmlTag(xml, 'CbteNro') || '0')
 }
 
-// Solicita CAE a ARCA para un comprobante. Retorna CAE, fecha vto y nro asignado.
 export async function solicitarCAE(
   auth: Auth,
   input: FacturacionInput,
@@ -80,73 +138,80 @@ export async function solicitarCAE(
     return { cae: mockCae, caeVto: mockVto, nroCbte: nroComprobante, rawResponse: { mock: true } }
   }
 
-  const client = await getClient(ambiente)
-  const cuitSinGuiones = input.emisor.cuit.replace(/-/g, '')
-
-  // DocTipo y DocNro según condición del receptor (código AFIP)
   const docTipo = input.receptor.cuit ? 80 : 99
   const docNro  = input.receptor.cuit ? input.receptor.cuit.replace(/-/g, '') : '0'
 
-  // Para monotributista: todo el importe es neto, IVA = 0
-  const params = {
-    Auth: { Token: auth.token, Sign: auth.sign, Cuit: cuitSinGuiones },
-    FeCAEReq: {
-      FeCabReq: {
-        CantReg:  1,
-        PtoVta:   input.emisor.puntoVenta,
-        CbteTipo: 11, // Factura B
-      },
-      FeDetReq: {
-        FECAEDetRequest: {
-          Concepto:    input.comprobante.concepto,
-          DocTipo:     docTipo,
-          DocNro:      docNro,
-          CbteDesde:   nroComprobante,
-          CbteHasta:   nroComprobante,
-          CbteFch:     input.comprobante.fecha,
-          ImpTotal:    input.comprobante.importeTotal,
-          ImpTotConc:  0,
-          ImpNeto:     input.comprobante.importeTotal, // monotributista: todo es neto
-          ImpOpEx:     0,
-          ImpIVA:      0,
-          ImpTrib:     0,
-          MonId:       'PES',
-          MonCotiz:    1,
-        },
-      },
-    },
-  }
+  const soapBody = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" ${AR_NS}>
+  <soapenv:Header/>
+  <soapenv:Body>
+    <ar:FECAESolicitar>
+      ${authXml(auth)}
+      <ar:FeCAEReq>
+        <ar:FeCabReq>
+          <ar:CantReg>1</ar:CantReg>
+          <ar:PtoVta>${input.emisor.puntoVenta}</ar:PtoVta>
+          <ar:CbteTipo>11</ar:CbteTipo>
+        </ar:FeCabReq>
+        <ar:FeDetReq>
+          <ar:FECAEDetRequest>
+            <ar:Concepto>${input.comprobante.concepto}</ar:Concepto>
+            <ar:DocTipo>${docTipo}</ar:DocTipo>
+            <ar:DocNro>${docNro}</ar:DocNro>
+            <ar:CbteDesde>${nroComprobante}</ar:CbteDesde>
+            <ar:CbteHasta>${nroComprobante}</ar:CbteHasta>
+            <ar:CbteFch>${input.comprobante.fecha}</ar:CbteFch>
+            <ar:ImpTotal>${input.comprobante.importeTotal}</ar:ImpTotal>
+            <ar:ImpTotConc>0</ar:ImpTotConc>
+            <ar:ImpNeto>${input.comprobante.importeTotal}</ar:ImpNeto>
+            <ar:ImpOpEx>0</ar:ImpOpEx>
+            <ar:ImpIVA>0</ar:ImpIVA>
+            <ar:ImpTrib>0</ar:ImpTrib>
+            <ar:MonId>PES</ar:MonId>
+            <ar:MonCotiz>1</ar:MonCotiz>
+          </ar:FECAEDetRequest>
+        </ar:FeDetReq>
+      </ar:FeCAEReq>
+    </ar:FECAESolicitar>
+  </soapenv:Body>
+</soapenv:Envelope>`
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [result]: any[] = await (client as any).FECAESolicitarAsync(params)
-  const parsed = parsearRespuestaFE(result)
+  const xml = await wsfeFetch(soapBody, ambiente, 'FECAESolicitar')
 
-  if (parsed.resultado !== 'A') {
-    const obs = parsed.obs ?? []
-    const primerCod = obs[0]?.code
+  const detXml  = xmlTag(xml, 'FECAEDetResponse')
+  const resultado = xmlTag(detXml, 'Resultado') || xmlTag(xml, 'Resultado') || 'R'
+  const cae     = xmlTag(detXml, 'CAE')
+  const caeVto  = xmlTag(detXml, 'CAEFchVto')
+  const nroCbte = Number(xmlTag(detXml, 'CbteDesde') || String(nroComprobante))
+
+  // Observaciones del comprobante
+  const obsItems = xmlTags(xmlTag(detXml, 'Observaciones'), 'Obs')
+  const obs = obsItems.map(o => ({ code: Number(xmlTag(o, 'Code')), msg: xmlTag(o, 'Msg') }))
+
+  // Errores generales
+  const errItems = xmlTags(xmlTag(xml, 'Errors'), 'Err')
+  const errs = errItems.map(e => ({ code: Number(xmlTag(e, 'Code')), msg: xmlTag(e, 'Msg') }))
+
+  if (resultado !== 'A') {
+    const all = [...obs, ...errs]
     const err: ErrorFacturacion = {
       categoria: 'arca',
-      mensaje: obs.length
-        ? obs.map(o => o.msg).join('; ')
-        : `ARCA rechazó el comprobante (Resultado: ${parsed.resultado})`,
-      codigoAfip: primerCod,
+      mensaje: all.length
+        ? all.map(o => o.msg).join('; ')
+        : `ARCA rechazó el comprobante (Resultado: ${resultado})`,
+      codigoAfip: all[0]?.code,
     }
     throw err
   }
 
-  if (!parsed.cae || !parsed.caeVto || parsed.nroCbte === undefined) {
+  if (!cae || !caeVto) {
     const err: ErrorFacturacion = {
       categoria: 'arca',
       mensaje: 'ARCA aprobó pero no retornó CAE completo',
-      detalle: JSON.stringify(result),
+      detalle: xml.slice(0, 500),
     }
     throw err
   }
 
-  return {
-    cae: parsed.cae,
-    caeVto: parsed.caeVto,
-    nroCbte: parsed.nroCbte,
-    rawResponse: result,
-  }
+  return { cae, caeVto, nroCbte, rawResponse: { xml: xml.slice(0, 2000) } }
 }

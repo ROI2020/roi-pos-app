@@ -31,11 +31,12 @@ interface VerificacionResult {
 }
 
 const MENSAJES_ERROR: Record<string, string> = {
-  cert_no_configurado:  'El certificado ROISOL no está configurado en el servidor. Contactá a soporte.',
-  wsaa_timeout:         'No se pudo conectar con ARCA. Verificá la conexión a internet.',
-  punto_venta_inactivo: 'El punto de venta no está habilitado en ARCA como "Electrónico — WSFEv1". Verificalo en el portal de AFIP.',
-  delegacion_pendiente: 'El CUIT aún no delegó el servicio wsfe a ROISOL. Seguí las instrucciones de arriba.',
-  cuit_sin_servicio:    'La delegación no fue encontrada. Repetí el paso de delegación y asegurate de seleccionar "wsfe".',
+  cert_no_configurado:      'El certificado ROISOL no está configurado en el servidor. Contactá a soporte.',
+  cert_ambiente_incorrecto: 'El certificado es de producción pero el ambiente está en Homologación (o viceversa). Cambiá el ambiente a Producción en la configuración.',
+  wsaa_timeout:             'No se pudo conectar con ARCA. Verificá la conexión a internet.',
+  punto_venta_inactivo:     'El punto de venta no está habilitado para Web Services.\nEn el portal AFIP/ARCA → "ABM Puntos de Venta" → Nuevo PV → tipo "Electrónico — Web Services (wsfe)".\nLuego actualizá el número de PV en esta configuración.',
+  delegacion_pendiente:     'El CUIT aún no delegó el servicio wsfe a ROISOL. Seguí las instrucciones de arriba.',
+  cuit_sin_servicio:        'La delegación no fue encontrada. Repetí el paso de delegación y asegurate de seleccionar "wsfe".',
 }
 
 function validarCuit(cuit: string): boolean {
@@ -341,7 +342,7 @@ export default function ArcaConfigPanel() {
                 </p>
               )}
               {verificacion.errorDetalle && (
-                <p className="text-red-600 text-sm mt-1 pl-6 leading-snug">
+                <p className="text-red-600 text-sm mt-1 pl-6 leading-snug whitespace-pre-line">
                   {MENSAJES_ERROR[verificacion.errorDetalle] ?? verificacion.errorDetalle}
                 </p>
               )}
