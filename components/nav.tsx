@@ -246,6 +246,9 @@ export default function Nav() {
             <span className="text-xs text-gray-500 hidden lg:block max-w-[120px] truncate">
               {session?.name}
             </span>
+            <span className="text-[10px] text-gray-300 hidden lg:block select-none" title={`Build ${process.env.NEXT_PUBLIC_BUILD_DATE}`}>
+              v{process.env.NEXT_PUBLIC_APP_VERSION}
+            </span>
             <button onClick={logout}
               className="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
               title="Cerrar sesión">
@@ -303,7 +306,7 @@ export default function Nav() {
                     {businessName ?? 'ROIPOS'}
                   </SheetTitle>
                 </SheetHeader>
-                <div className="overflow-y-auto h-full pb-8">
+                <div className="overflow-y-auto h-full pb-16">
                   {ALL_SECONDARY.map(({ section, links }) => (
                     <div key={section}>
                       <p className="px-4 pt-4 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">
@@ -327,6 +330,11 @@ export default function Nav() {
                       })}
                     </div>
                   ))}
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 px-4 py-3 border-t bg-white">
+                  <p className="text-[11px] text-gray-300 select-none" title={`Build ${process.env.NEXT_PUBLIC_BUILD_DATE}`}>
+                    v{process.env.NEXT_PUBLIC_APP_VERSION} · {process.env.NEXT_PUBLIC_BUILD_DATE}
+                  </p>
                 </div>
               </SheetContent>
             </Sheet>

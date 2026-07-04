@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import {
   Loader2, Printer, ReceiptText, RefreshCw, ChevronDown, ChevronRight,
   Banknote, CreditCard, Smartphone, ArrowDownUp, User,
-  FileCheck, FileText,
+  FileCheck, FileText, Trash2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge }  from "@/components/ui/badge"
@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { ReceiptDialog, type ReceiptData, type ReceiptSettings } from "@/components/receipt-dialog"
 import { useFacturacion } from "@/hooks/useFacturacion"
+import { getSession } from "@/lib/session"
 import type { FacturacionOutput } from "@/lib/facturacion/types"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -151,8 +152,27 @@ export function TodaySalesDialog({ open, onClose, branchId, settings, cuitEmisor
   const [loading,     setLoading    ] = useState(false)
   const [expandedId,  setExpandedId ] = useState<number | null>(null)
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null)
-  // Output de facturación obtenido inline, por sale.id
   const [facturaLocal, setFacturaLocal] = useState<Record<number, FacturacionOutput>>({})
+  const [deletingId,  setDeletingId ] = useState<number | null>(null)
+  const [confirmId,   setConfirmId  ] = useState<number | null>(null)
+
+  const isAdmin = getSession()?.role === 'administrador'
+
+  const deleteSale = useCallback(async (saleId: number) => {
+    setDeletingId(saleId)
+    try {
+      const res = await fetch(`/api/sales/${saleId}`, { method: 'DELETE' })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error ?? 'Error al anular')
+      setConfirmId(null)
+      setExpandedId(null)
+      await load()
+    } catch (err) {
+      alert(String((err as Error).message ?? err))
+    } finally {
+      setDeletingId(null)
+    }
+  }, []) // eslint-disable-line
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -439,6 +459,40 @@ export function TodaySalesDialog({ open, onClose, branchId, settings, cuitEmisor
                                     <div className="flex justify-between text-xs font-bold text-gray-700">
                                       <span>Total</span><span>{fmt(sale.total_amount)}</span>
                                     </div>
+                                  </div>
+                                )}
+
+                                {/* Anular venta — solo admin */}
+                                {isAdmin && (
+                                  <div className="border-t border-gray-200 pt-2">
+                                    {confirmId === sale.id ? (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-red-600 flex-1">¿Confirmar anulación? Se restaura el stock.</span>
+                                        <Button
+                                          size="sm" variant="destructive"
+                                          className="h-7 text-xs px-2"
+                                          disabled={deletingId === sale.id}
+                                          onClick={() => deleteSale(sale.id)}
+                                        >
+                                          {deletingId === sale.id ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Sí, anular'}
+                                        </Button>
+                                        <Button
+                                          size="sm" variant="outline"
+                                          className="h-7 text-xs px-2"
+                                          onClick={() => setConfirmId(null)}
+                                        >
+                                          Cancelar
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-600 transition-colors"
+                                        onClick={() => setConfirmId(sale.id)}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                        Anular venta
+                                      </button>
+                                    )}
                                   </div>
                                 )}
                               </div>
