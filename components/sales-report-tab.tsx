@@ -4,11 +4,14 @@ import { useState, useEffect, useCallback, useMemo, Fragment } from "react"
 import {
   Loader2, Printer, ChevronDown, ChevronRight, Search,
   Banknote, CreditCard, Smartphone, ArrowDownUp, RefreshCw,
+  FileText, FileCheck,
 } from "lucide-react"
 import { Input }  from "@/components/ui/input"
 import { Badge }  from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ReceiptDialog, type ReceiptData, type ReceiptSettings } from "@/components/receipt-dialog"
+import { useFacturacion } from "@/hooks/useFacturacion"
+import type { FacturacionOutput } from "@/lib/facturacion/types"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface SaleItem {
@@ -21,6 +24,10 @@ interface SaleRow {
   id:                number
   sale_id:           number
   invoice_number:    string | null
+  arca_cae:          string | null
+  factura_id:        string | null
+  puede_facturar:    boolean
+  cuit_emisor:       string | null
   sold_at:           string
   subtotal:          number
   discount_amount:   number
@@ -74,14 +81,69 @@ const PAY_COLORS: Record<string, string> = {
   cambio:        'border-gray-300    text-gray-600    bg-gray-50',
 }
 
+// ── FacturaIcono ───────────────────────────────────────────────────────────────
+function FacturaIcono({
+  saleId, arcaCae, facturaId, puedeFacturar, invoiceNumber, cuitEmisor, onEmitida, localOutput,
+}: {
+  saleId: number
+  arcaCae: string | null
+  facturaId: string | null
+  puedeFacturar: boolean
+  invoiceNumber: string | null
+  cuitEmisor: string | null
+  onEmitida: (output: FacturacionOutput) => void
+  localOutput?: FacturacionOutput
+}) {
+  const { cargando, facturar } = useFacturacion({
+    ventaId: String(saleId),
+    cuitEmisor: cuitEmisor ?? '',
+    onSuccess: onEmitida,
+  })
+
+  if (arcaCae || localOutput) {
+    const pdfHref = localOutput?.pdfUrl ?? (facturaId ? `/api/facturacion/pdf/${facturaId}` : null)
+    return (
+      <a
+        href={pdfHref ?? '#'}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`Factura ${invoiceNumber ?? ''}`}
+        onClick={e => { e.stopPropagation(); if (!pdfHref) e.preventDefault() }}
+        className="flex items-center justify-center h-7 w-7 shrink-0 rounded text-green-600 hover:bg-green-50"
+      >
+        <FileCheck className="h-3.5 w-3.5" />
+      </a>
+    )
+  }
+
+  if (puedeFacturar && cuitEmisor) {
+    return (
+      <Button
+        size="icon" variant="ghost"
+        className="h-7 w-7 shrink-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+        title="Emitir factura"
+        disabled={cargando}
+        onClick={e => { e.stopPropagation(); facturar() }}
+      >
+        {cargando
+          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          : <FileText className="h-3.5 w-3.5" />}
+      </Button>
+    )
+  }
+
+  return null
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 export default function SalesReportTab({ fromYMD, toYMD }: Props) {
-  const [rows,         setRows        ] = useState<SaleRow[]>([])
-  const [loading,      setLoading     ] = useState(false)
-  const [search,       setSearch      ] = useState('')
-  const [expandedGroup,setExpandedGroup] = useState<string | null>(null)
-  const [expandedSale, setExpandedSale ] = useState<number | null>(null)
-  const [receiptData,  setReceiptData ] = useState<ReceiptData | null>(null)
+  const [rows,           setRows          ] = useState<SaleRow[]>([])
+  const [loading,        setLoading       ] = useState(false)
+  const [search,         setSearch        ] = useState('')
+  const [expandedGroup,  setExpandedGroup ] = useState<string | null>(null)
+  const [expandedSale,   setExpandedSale  ] = useState<number | null>(null)
+  const [receiptData,    setReceiptData   ] = useState<ReceiptData | null>(null)
+  const [localFacturado, setLocalFacturado] = useState<Record<number, FacturacionOutput>>({})
   const [settings,     setSettings    ] = useState<ReceiptSettings>({
     business_name: null, business_logo: null, receipt_address: null,
     receipt_phone: null, receipt_footer: null, receipt_no_invoice_text: null,
@@ -300,6 +362,16 @@ export default function SalesReportTab({ fromYMD, toYMD }: Props) {
                                     >
                                       <Printer className="h-3.5 w-3.5" />
                                     </Button>
+                                    <FacturaIcono
+                                      saleId={r.sale_id}
+                                      arcaCae={r.arca_cae}
+                                      facturaId={r.factura_id}
+                                      puedeFacturar={r.puede_facturar}
+                                      invoiceNumber={r.invoice_number}
+                                      cuitEmisor={r.cuit_emisor}
+                                      onEmitida={output => setLocalFacturado(prev => ({ ...prev, [r.sale_id]: output }))}
+                                      localOutput={localFacturado[r.sale_id]}
+                                    />
                                   </div>
 
                                   {isSaleOpen && (

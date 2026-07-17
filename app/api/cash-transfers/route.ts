@@ -32,18 +32,22 @@ export async function POST(req: Request) {
     // Dos patas: sale de la sucursal (negativo) y entra a Caja Central (positivo)
     const branchFopId  = await getFopId(client, branchIdNum, 'efectivo')
     const centralFopId = await getFopId(client, null, 'efectivo')
-    if (branchFopId) {
-      await insertTransaction(client, {
-        businessId: row.business_id, branchId: branchIdNum, fopId: branchFopId,
-        type: 'transfer', typeId: row.id, amount: -amountNum,
-      })
+    if (!branchFopId || !centralFopId) {
+      await client.query('ROLLBACK')
+      console.error(`[POST /api/cash-transfers] fopId not found — branch=${branchIdNum} branchFop=${branchFopId} centralFop=${centralFopId}`)
+      return NextResponse.json(
+        { error: `No se encontró la cuenta de efectivo para ${!branchFopId ? `la sucursal (branch=${branchIdNum})` : 'Caja Central'}. Verificá la configuración de cuentas.` },
+        { status: 422 }
+      )
     }
-    if (centralFopId) {
-      await insertTransaction(client, {
-        businessId: row.business_id, branchId: null, fopId: centralFopId,
-        type: 'transfer', typeId: row.id, amount: amountNum,
-      })
-    }
+    await insertTransaction(client, {
+      businessId: row.business_id, branchId: branchIdNum, fopId: branchFopId,
+      type: 'transfer', typeId: row.id, amount: -amountNum,
+    })
+    await insertTransaction(client, {
+      businessId: row.business_id, branchId: null, fopId: centralFopId,
+      type: 'transfer', typeId: row.id, amount: amountNum,
+    })
 
     await client.query('COMMIT')
     return NextResponse.json({ ok: true, id: row.id }, { status: 201 })

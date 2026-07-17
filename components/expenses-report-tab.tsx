@@ -2,10 +2,13 @@
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react"
 import {
-  Loader2, ChevronDown, ChevronRight, Search, Wallet, Landmark,
+  Loader2, ChevronDown, ChevronRight, Search, Wallet, Landmark, Pencil, Plus,
 } from "lucide-react"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
+import { Input }  from "@/components/ui/input"
+import { Badge }  from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import ExpenseFormDialog  from "@/components/expense-form-dialog"
+import NuevoGastoDialog   from "@/components/nuevo-gasto-dialog"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface ExpenseRow {
@@ -54,6 +57,8 @@ export default function ExpensesReportTab({ fromYMD, toYMD }: Props) {
   const [loading,      setLoading     ] = useState(false)
   const [search,       setSearch      ] = useState('')
   const [expandedType, setExpandedType] = useState<string | null>(null)
+  const [editRow,      setEditRow     ] = useState<ExpenseRow | null>(null)
+  const [showNuevo,    setShowNuevo   ] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -66,7 +71,7 @@ export default function ExpensesReportTab({ fromYMD, toYMD }: Props) {
 
   useEffect(() => { load() }, [load])
 
-  // ── Búsqueda (cualquier columna) ─────────────────────────────────────────
+  // ── Búsqueda ──────────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return rows
@@ -79,30 +84,27 @@ export default function ExpensesReportTab({ fromYMD, toYMD }: Props) {
     })
   }, [rows, search])
 
-  // ── Desglose por fop / cuenta ─────────────────────────────────────────────
+  // ── Desglose por cuenta ───────────────────────────────────────────────────
   type AccountBreakdown = { name: string; count: number; total: number }
   const accountBreakdown = useMemo<AccountBreakdown[]>(() => {
     const map = new Map<string, AccountBreakdown>()
     for (const r of filtered) {
       const name = r.account_name ?? 'Sin asignar'
       const b = map.get(name) ?? { name, count: 0, total: 0 }
-      b.count++
-      b.total += r.amount
+      b.count++; b.total += r.amount
       map.set(name, b)
     }
     return [...map.values()].sort((a, b) => b.total - a.total)
   }, [filtered])
 
-  // ── Agrupado por Tipo de Gasto ────────────────────────────────────────────
+  // ── Agrupado por Tipo ─────────────────────────────────────────────────────
   type Group = { key: string; typeName: string; count: number; total: number; rows: ExpenseRow[] }
   const groups = useMemo<Group[]>(() => {
     const map = new Map<string, Group>()
     for (const r of filtered) {
       const key = r.expense_type_name
       const g = map.get(key) ?? { key, typeName: key, count: 0, total: 0, rows: [] }
-      g.count++
-      g.total += r.amount
-      g.rows.push(r)
+      g.count++; g.total += r.amount; g.rows.push(r)
       map.set(key, g)
     }
     return [...map.values()].sort((a, b) => b.total - a.total)
@@ -113,9 +115,15 @@ export default function ExpensesReportTab({ fromYMD, toYMD }: Props) {
     total: groups.reduce((s, g) => s + g.total, 0),
   }), [groups])
 
+  // ── Helpers de edición ────────────────────────────────────────────────────
+  const handleEditSaved = () => {
+    setEditRow(null)
+    load()
+  }
+
   return (
     <div className="space-y-4">
-      {/* Buscador */}
+      {/* Barra superior: búsqueda + Nuevo Gasto */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1 max-w-sm">
           <Search className="h-4 w-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -125,12 +133,22 @@ export default function ExpensesReportTab({ fromYMD, toYMD }: Props) {
             className="pl-8 h-9 text-sm"
           />
         </div>
+
         {loading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
         {!loading && (
-          <span className="text-xs text-gray-400 ml-auto">
+          <span className="text-xs text-gray-400">
             {filtered.length} gasto{filtered.length !== 1 ? 's' : ''}
           </span>
         )}
+
+        <Button
+          size="sm"
+          className="ml-auto gap-1.5"
+          onClick={() => setShowNuevo(true)}
+        >
+          <Plus className="h-4 w-4" />
+          Nuevo Gasto
+        </Button>
       </div>
 
       {loading && rows.length === 0 ? (
@@ -140,10 +158,14 @@ export default function ExpensesReportTab({ fromYMD, toYMD }: Props) {
       ) : groups.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-gray-400 gap-2">
           <p className="font-medium text-gray-500">Sin gastos en este período</p>
+          <Button variant="outline" size="sm" className="gap-1.5 mt-1" onClick={() => setShowNuevo(true)}>
+            <Plus className="h-4 w-4" />
+            Registrar el primero
+          </Button>
         </div>
       ) : (
         <>
-          {/* Desglose por forma de pago / cuenta */}
+          {/* Desglose por cuenta */}
           <div className="bg-white rounded-xl border shadow-sm p-3">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
               Desglose por cuenta
@@ -166,7 +188,7 @@ export default function ExpensesReportTab({ fromYMD, toYMD }: Props) {
             </div>
           </div>
 
-          {/* Agrupado por tipo de gasto */}
+          {/* Agrupado por tipo */}
           <div className="bg-white rounded-xl border shadow-sm overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -187,7 +209,9 @@ export default function ExpensesReportTab({ fromYMD, toYMD }: Props) {
                         onClick={() => setExpandedType(isOpen ? null : g.key)}
                       >
                         <td className="px-2 py-2.5 text-gray-400">
-                          {isOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                          {isOpen
+                            ? <ChevronDown  className="h-3.5 w-3.5" />
+                            : <ChevronRight className="h-3.5 w-3.5" />}
                         </td>
                         <td className="px-3 py-2.5 font-medium text-gray-700">{g.typeName}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-gray-600">{g.count}</td>
@@ -208,13 +232,14 @@ export default function ExpensesReportTab({ fromYMD, toYMD }: Props) {
                                   <th className="text-left  pb-2 pr-3">Cuenta</th>
                                   <th className="text-left  pb-2 pr-3">Usuario</th>
                                   <th className="text-right pb-2">Importe</th>
+                                  <th className="pb-2 w-6" />
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-100">
                                 {[...g.rows]
-                                  .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                                   .map(r => (
-                                  <tr key={r.id}>
+                                  <tr key={r.id} className="group">
                                     <td className="py-1.5 pr-3 text-gray-500 whitespace-nowrap">
                                       {fmtDate(r.created_at)} {fmtTime(r.created_at)}
                                     </td>
@@ -224,6 +249,16 @@ export default function ExpensesReportTab({ fromYMD, toYMD }: Props) {
                                     <td className="py-1.5 pr-3 text-gray-500">{r.user_name ?? '—'}</td>
                                     <td className="py-1.5 text-right font-medium tabular-nums text-red-600">
                                       {fmt(r.amount)}
+                                    </td>
+                                    <td className="py-1.5 pl-2">
+                                      <button
+                                        title="Editar gasto"
+                                        onClick={e => { e.stopPropagation(); setEditRow(r) }}
+                                        className="opacity-0 group-hover:opacity-100 transition-opacity
+                                                   text-gray-400 hover:text-violet-600 p-0.5 rounded"
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </button>
                                     </td>
                                   </tr>
                                 ))}
@@ -248,6 +283,31 @@ export default function ExpensesReportTab({ fromYMD, toYMD }: Props) {
             </table>
           </div>
         </>
+      )}
+
+      {/* Diálogo: Editar gasto */}
+      {editRow && (
+        <ExpenseFormDialog
+          mode="edit"
+          expenseId={editRow.id}
+          initial={{
+            expense_type_id: editRow.expense_type_id,
+            description:     editRow.description,
+            amount:          editRow.amount,
+            payment_method:  editRow.payment_method,
+            user_id:         editRow.user_id,
+          }}
+          onClose={() => setEditRow(null)}
+          onSaved={handleEditSaved}
+        />
+      )}
+
+      {/* Diálogo: Nuevo Gasto */}
+      {showNuevo && (
+        <NuevoGastoDialog
+          onClose={() => setShowNuevo(false)}
+          onSaved={load}
+        />
       )}
     </div>
   )

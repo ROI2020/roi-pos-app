@@ -79,11 +79,13 @@ export async function POST(req: Request) {
   try {
     const output = await motorFacturacion(input)
 
-    // Si el origen es ROIPOS, actualizar también la tabla sales con el CAE
+    // Si el origen es ROIPOS, actualizar también la tabla sales con el CAE y número de comprobante
     if (input.meta.origenSistema === 'roipos' && input.meta.origenId) {
+      const invoiceNumber =
+        `${String(input.emisor.puntoVenta).padStart(5, '0')}-${String(output.nroComprobante).padStart(8, '0')}`
       await pool.query(
-        `UPDATE sales SET arca_cae = $1, arca_vto_cae = $2 WHERE id = $3`,
-        [output.cae, output.caeVencimiento, Number(input.meta.origenId)]
+        `UPDATE sales SET arca_cae = $1, arca_vto_cae = $2, invoice_number = $3 WHERE id = $4`,
+        [output.cae, output.caeVencimiento, invoiceNumber, Number(input.meta.origenId)]
       )
     }
 

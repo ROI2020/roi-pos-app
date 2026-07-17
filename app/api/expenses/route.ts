@@ -82,16 +82,23 @@ export async function POST(req: Request) {
     const expense = rows[0]
 
     const fopId = await getFopId(client, branchIdNum, method)
-    if (fopId) {
-      await insertTransaction(client, {
-        businessId: expense.business_id,
-        branchId:   branchIdNum,
-        fopId,
-        type:       'expense',
-        typeId:     expense.id,
-        amount:     -expense.amount,
-      })
+    if (!fopId) {
+      await client.query('ROLLBACK')
+      console.error(`[POST /api/expenses] fopId not found for branch=${branchIdNum} method=${method}`)
+      return NextResponse.json(
+        { error: `No se encontró la cuenta/FOP para la sucursal (branch=${branchIdNum}, método=${method}). Verificá que la sucursal tenga sus cuentas configuradas.` },
+        { status: 422 }
+      )
     }
+
+    await insertTransaction(client, {
+      businessId: expense.business_id,
+      branchId:   branchIdNum,
+      fopId,
+      type:       'expense',
+      typeId:     expense.id,
+      amount:     -expense.amount,
+    })
 
     await client.query('COMMIT')
     return NextResponse.json(expense, { status: 201 })

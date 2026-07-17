@@ -26,6 +26,7 @@ export async function GET(req: Request) {
        s.id,
        s.id                      AS sale_id,
        s.invoice_number,
+       s.arca_cae,
        s.sold_at,
        s.subtotal::float         AS subtotal,
        s.discount_amount::float  AS discount_amount,
@@ -35,12 +36,25 @@ export async function GET(req: Request) {
        s.notes,
        s.branch_id,
        br.name                   AS branch_name,
+       br.cuit_emisor,
        s.user_id,
        u.name                    AS user_name,
-       NULL                      AS swap_description
+       NULL                      AS swap_description,
+       f.id::text                AS factura_id,
+       CASE WHEN
+         (s.arca_cae IS NULL OR s.arca_cae = '')
+         AND s.sold_at >= NOW() - INTERVAL '5 days'
+         AND NOT EXISTS (
+           SELECT 1 FROM sales s2
+           WHERE s2.branch_id = s.branch_id
+             AND s2.sold_at > s.sold_at
+             AND s2.arca_cae IS NOT NULL AND s2.arca_cae != ''
+         )
+       THEN true ELSE false END  AS puede_facturar
      FROM sales s
      JOIN branches  br ON br.id = s.branch_id
-     LEFT JOIN app_users u ON u.id = s.user_id
+     LEFT JOIN app_users u  ON u.id  = s.user_id
+     LEFT JOIN facturas  f  ON f.venta_id = s.id::text AND f.estado = 'emitida'
      WHERE s.sold_at::date BETWEEN $1::date AND $2::date
        AND NOT EXISTS (SELECT 1 FROM exchanges ex WHERE ex.exchange_sale_id = s.id)
      ORDER BY s.sold_at DESC`,
@@ -53,6 +67,7 @@ export async function GET(req: Request) {
        ex.id,
        s.id                      AS sale_id,
        s.invoice_number,
+       NULL                      AS arca_cae,
        s.sold_at,
        s.subtotal::float         AS subtotal,
        s.discount_amount::float  AS discount_amount,
@@ -62,8 +77,11 @@ export async function GET(req: Request) {
        ex.notes,
        ex.branch_id,
        br.name                   AS branch_name,
+       br.cuit_emisor,
        ex.user_id,
        u.name                    AS user_name,
+       NULL                      AS factura_id,
+       false                     AS puede_facturar,
        CONCAT(
          COALESCE(rp.name,'?'), ' T.', COALESCE(rv.size,'?'),
          ' → ',

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import {
   Building2, Users, Warehouse, Plus, Pencil, Trash2,
   Loader2, Save, Upload, X, CheckCircle2, Star,
-  Globe, Copy, RefreshCw, Eye, EyeOff, Rss,
+  Globe, Copy, RefreshCw, Eye, EyeOff, Rss, BarChart2,
   Wallet, ChevronDown, ChevronRight, CreditCard, Sparkles, Receipt,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -754,6 +754,8 @@ function CatalogoTab() {
   const [showToken,   setShowToken  ] = useState(false)
   const [banner,      setBanner     ] = useState<string | null>(null)
   const [bannerText,  setBannerText ] = useState('')
+  const [ga4MeasurementId, setGa4MeasurementId] = useState('')
+  const [ga4PropertyId,    setGa4PropertyId   ] = useState('')
   const [saving,      setSaving     ] = useState(false)
   const [loading,     setLoading    ] = useState(true)
   const [copied,      setCopied     ] = useState<string | null>(null)
@@ -767,6 +769,8 @@ function CatalogoTab() {
         setToken(d.catalog_token ?? '')
         setBanner(d.catalog_banner ?? null)
         setBannerText(d.catalog_banner_text ?? '')
+        setGa4MeasurementId(d.catalog_ga4_measurement_id ?? '')
+        setGa4PropertyId(d.catalog_ga4_property_id ?? '')
       })
       .catch(() => toast.error('Error al cargar configuración'))
       .finally(() => setLoading(false))
@@ -798,8 +802,10 @@ function CatalogoTab() {
         body: JSON.stringify({
           catalog_base_url:   baseUrl.trim().replace(/\/$/, '') || null,
           catalog_token:      token.trim() || null,
-          catalog_banner:     banner,
-          catalog_banner_text: bannerText.trim() || null,
+          catalog_banner:              banner,
+          catalog_banner_text:         bannerText.trim() || null,
+          catalog_ga4_measurement_id:  ga4MeasurementId.trim() || null,
+          catalog_ga4_property_id:     ga4PropertyId.trim() || null,
         }),
       })
       if (!res.ok) throw new Error((await res.json()).error)
@@ -967,6 +973,46 @@ function CatalogoTab() {
           />
           <p className="text-xs text-gray-400">
             Cada línea se muestra como una entrada en la tienda. Podés usar emojis.
+          </p>
+        </div>
+      </div>
+
+      {/* Google Analytics */}
+      <div className="space-y-3 pt-2 border-t border-gray-100">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Google Analytics</p>
+
+        <div className="space-y-1.5">
+          <Label className="flex items-center gap-1.5">
+            <BarChart2 className="h-4 w-4 text-gray-400" />
+            ID de medición
+          </Label>
+          <Input
+            value={ga4MeasurementId}
+            onChange={e => setGa4MeasurementId(e.target.value)}
+            placeholder="G-XXXXXXXXXX"
+            className="text-sm font-mono"
+          />
+          <p className="text-xs text-gray-400">
+            Formato <code className="bg-gray-100 px-1 rounded">G-XXXXXXXXXX</code>.
+            Si tiene valor, se inserta el tag de Google en todas las páginas de la tienda.
+            Si está vacío, no se agrega nada.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="flex items-center gap-1.5">
+            <BarChart2 className="h-4 w-4 text-gray-400" />
+            ID de propiedad
+          </Label>
+          <Input
+            value={ga4PropertyId}
+            onChange={e => setGa4PropertyId(e.target.value)}
+            placeholder="123456789"
+            className="text-sm font-mono"
+          />
+          <p className="text-xs text-gray-400">
+            Número de propiedad GA4 (Admin → Detalles de la propiedad en Google Analytics).
+            No afecta la tienda — se usa para consultar métricas desde otros sistemas.
           </p>
         </div>
       </div>

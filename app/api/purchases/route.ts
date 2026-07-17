@@ -164,12 +164,18 @@ export async function POST(request: Request) {
     // Compras se asumen pagadas desde Efectivo Caja Central
     if (totalAmount > 0) {
       const fopId = await getFopId(client, null, 'efectivo')
-      if (fopId) {
-        await insertTransaction(client, {
-          businessId: purchase.business_id, branchId: null, fopId,
-          type: 'purchase', typeId: purchase.id, amount: -totalAmount,
-        })
+      if (!fopId) {
+        await client.query('ROLLBACK')
+        console.error(`[POST /api/purchases] fopId not found for Caja Central / efectivo`)
+        return NextResponse.json(
+          { error: 'No se encontró la cuenta Efectivo Caja Central. Verificá la configuración de cuentas.' },
+          { status: 422 }
+        )
       }
+      await insertTransaction(client, {
+        businessId: purchase.business_id, branchId: null, fopId,
+        type: 'purchase', typeId: purchase.id, amount: -totalAmount,
+      })
     }
 
     await client.query('COMMIT')
