@@ -93,6 +93,11 @@ export async function GET(req: Request) {
         11,   // Factura B
         ambiente
       )
+      // Registrar timestamp de verificación exitosa
+      await pool.query(
+        `UPDATE facturacion_config SET last_verified_at = NOW() WHERE cuit = $1`,
+        [cuit]
+      )
       return NextResponse.json({
         conexionWsaa: true,
         puntoVentaHabilitado: true,

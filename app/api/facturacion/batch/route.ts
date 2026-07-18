@@ -69,6 +69,13 @@ export async function POST(req: Request) {
     )
   }
 
+  if (items.length > 20) {
+    return NextResponse.json(
+      { error: { categoria: 'validacion', mensaje: 'Máximo 20 ítems por batch.' } satisfies ErrorFacturacion },
+      { status: 400 }
+    )
+  }
+
   const resultados: BatchResultado[] = []
 
   for (const item of items) {

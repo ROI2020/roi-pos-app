@@ -28,7 +28,7 @@ export interface FacturacionInput {
   }
   meta: {
     origenId: string
-    origenSistema: 'roipos' | 'whatsapp' | 'externo' | 'batch'
+    origenSistema: 'roipos' | 'whatsapp' | 'externo' | 'batch' | 'factura_rapida'
     operadorId?: string
   }
 }

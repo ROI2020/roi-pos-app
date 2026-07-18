@@ -137,8 +137,10 @@ async function persistirFactura(p: PersistirParams): Promise<string> {
        (venta_id, origen_sistema, cuit_emisor, punto_venta, tipo_cbte,
         nro_comprobante, fecha_cbte, cae, cae_vto,
         importe_total, receptor_cuit, receptor_nombre,
-        estado, error_detalle, raw_request, raw_response)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        estado, error_detalle, raw_request, raw_response,
+        business_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+       (SELECT business_id FROM facturacion_config WHERE cuit = $3 AND activo = true LIMIT 1))
      RETURNING id`,
     [
       p.input.meta.origenId,

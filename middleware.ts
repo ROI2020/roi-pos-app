@@ -9,7 +9,7 @@ const SKIP_PATHS = [
   '/roisol',        // panel interno ROISOL — no necesita tenant de cliente
 ]
 
-const PUBLIC_PAGES = ['/tienda', '/login']
+const PUBLIC_PAGES = ['/tienda', '/login', '/sin-acceso']
 
 interface SessionCookie {
   id: number
@@ -39,6 +39,7 @@ export async function middleware(req: NextRequest) {
   }
 
   const host = req.headers.get('host')?.replace(/^www\./, '') ?? ''
+  const isFacturaRapida = host.startsWith('factura.') || process.env.DEV_IS_FACTURA_RAPIDA === 'true'
 
   // ── Detección de tenant ──────────────────────────────────────
   let businessId: number | null = null
@@ -46,7 +47,10 @@ export async function middleware(req: NextRequest) {
 
   if (host.includes('localhost') || host.includes('127.0.0.1')) {
     // Desarrollo local: inyectar DEV_BUSINESS_ID desde env
-    const devId = process.env.DEV_BUSINESS_ID
+    // factura.localhost usa DEV_FR_BUSINESS_ID si está definido
+    const devId = isFacturaRapida && process.env.DEV_FR_BUSINESS_ID
+      ? process.env.DEV_FR_BUSINESS_ID
+      : process.env.DEV_BUSINESS_ID
     businessId   = devId ? parseInt(devId, 10) : null
     businessName = 'DEV'
   } else {
@@ -83,7 +87,7 @@ export async function middleware(req: NextRequest) {
   const session = parseSession(req.cookies.get('roipos_session')?.value)
 
   if (!session) {
-    return NextResponse.redirect(new URL('/login', req.url))
+    return NextResponse.redirect(new URL(isFacturaRapida ? '/sin-acceso' : '/login', req.url))
   }
 
   // roisol_admin: acceso total sin restricción de tenant
@@ -92,7 +96,7 @@ export async function middleware(req: NextRequest) {
     // Validar que el usuario pertenece al tenant del dominio
     if (businessId && session.business_id && session.business_id !== businessId) {
       const url = req.nextUrl.clone()
-      url.pathname = '/login'
+      url.pathname = isFacturaRapida ? '/sin-acceso' : '/login'
       url.searchParams.set('error', 'negocio_incorrecto')
       return NextResponse.redirect(url)
     }
@@ -112,6 +116,7 @@ export async function middleware(req: NextRequest) {
     response.headers.set('x-business-id', String(businessId))
     response.headers.set('x-business-name', businessName)
   }
+  response.headers.set('x-is-factura-rapida', String(isFacturaRapida))
   return response
 }
 

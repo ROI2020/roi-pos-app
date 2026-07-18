@@ -46,9 +46,10 @@ export async function POST(req: Request) {
       razonSocial: string
       condicionIva: 'monotributo' | 'responsable_inscripto'
       ambiente: 'homo' | 'prod'
+      emailAdmin?: string
     }
 
-    const { nombre, activePlanId, slug, dominioPropio, cuit, puntoVenta, razonSocial, condicionIva, ambiente } = body
+    const { nombre, activePlanId, slug, dominioPropio, cuit, puntoVenta, razonSocial, condicionIva, ambiente, emailAdmin } = body
 
     // Validaciones básicas
     if (!nombre?.trim())      return NextResponse.json({ error: 'Nombre obligatorio' }, { status: 400 })
@@ -92,7 +93,21 @@ export async function POST(req: Request) {
         )
       }
 
-      // 4. Insertar config ARCA
+      // 4. Insertar usuario administrador si se proveyó email
+      if (emailAdmin?.trim()) {
+        const email = emailAdmin.trim().toLowerCase()
+        await client.query(
+          `INSERT INTO app_users (email, name, role, business_id, active)
+           VALUES ($1, $2, 'administrador', $3, true)
+           ON CONFLICT (email) DO UPDATE SET
+             business_id = EXCLUDED.business_id,
+             role        = 'administrador',
+             active      = true`,
+          [email, email, businessId]
+        )
+      }
+
+      // 5. Insertar config ARCA
       await client.query(
         `INSERT INTO facturacion_config
            (business_id, cuit, punto_venta, razon_social, condicion_iva, ambiente, activo)

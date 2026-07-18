@@ -80,10 +80,11 @@ export default function Nav() {
       .catch(() => {})
   }, [path])
 
+  const { can, plan, isLoaded } = usePlan()
+
   if (path === '/tienda' || path === '/login') return null
 
   const isAdmin = session?.role === 'administrador'
-  const { can, plan, isLoaded } = usePlan()
   const planBadge = isLoaded && plan.planId > 0 ? PLAN_BADGE[plan.planLevel] : null
 
   function logout() {

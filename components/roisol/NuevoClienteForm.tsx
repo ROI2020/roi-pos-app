@@ -57,6 +57,7 @@ export default function NuevoClienteForm() {
     razonSocial: '',
     condicionIva: 'monotributo' as 'monotributo' | 'responsable_inscripto',
     ambiente: 'homo' as 'homo' | 'prod',
+    emailAdmin: '',
   })
   const [slugManual, setSlugManual] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -286,6 +287,24 @@ export default function NuevoClienteForm() {
               <p className="text-xs text-amber-600 mt-1 font-medium">⚠️ Producción emite facturas reales.</p>
             )}
           </div>
+        </div>
+      </section>
+
+      {/* Acceso del administrador */}
+      <section className="space-y-4">
+        <h2 className="font-semibold text-gray-800 border-b pb-2">Acceso del administrador</h2>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Email Google <span className="text-gray-400 font-normal">(opcional)</span>
+          </label>
+          <input
+            type="email"
+            value={form.emailAdmin}
+            onChange={e => setForm(f => ({ ...f, emailAdmin: e.target.value }))}
+            placeholder="cliente@gmail.com"
+            className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
+          />
+          <p className="text-xs text-gray-400 mt-1">El cliente usará este Gmail para ingresar.</p>
         </div>
       </section>
 
