@@ -6,7 +6,7 @@ import { useEffect, useState } from "react"
 import {
   ShoppingBag, Tags, Warehouse, LayoutDashboard, Printer,
   ShoppingCart, Settings, Package, ArrowLeftRight, TrendingUp, ChevronDown,
-  FileSpreadsheet, Store, Menu, LogOut, FileText,
+  FileSpreadsheet, Store, Menu, LogOut, FileText, Building2,
 } from "lucide-react"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -84,7 +84,8 @@ export default function Nav() {
 
   if (path === '/tienda' || path === '/login') return null
 
-  const isAdmin = session?.role === 'administrador'
+  const isAdmin       = session?.role === 'administrador' || session?.role === 'roisol_admin'
+  const isRoisolAdmin = session?.role === 'roisol_admin'
   const planBadge = isLoaded && plan.planId > 0 ? PLAN_BADGE[plan.planLevel] : null
 
   function logout() {
@@ -236,6 +237,14 @@ export default function Nav() {
                 ${path === '/configuracion' ? "bg-violet-100 text-violet-700" : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"}`}>
               <Settings className="h-4 w-4" />Configuración
             </Link>
+
+            {isRoisolAdmin && (
+              <Link href="/roisol"
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors border border-violet-200
+                  ${path.startsWith('/roisol') ? "bg-violet-600 text-white" : "text-violet-600 hover:bg-violet-50"}`}>
+                <Building2 className="h-4 w-4" />ROISOL
+              </Link>
+            )}
           </>}
 
           {/* Avatar + logout */}
@@ -379,6 +388,14 @@ export default function Nav() {
             <Package className={`h-5 w-5 ${inventoryActive ? "text-violet-600" : ""}`} />
             Stock
           </Link>
+          {isRoisolAdmin && (
+            <Link href="/roisol"
+              className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-medium transition-colors
+                ${path.startsWith('/roisol') ? "text-violet-700" : "text-violet-400"}`}>
+              <Building2 className={`h-5 w-5 ${path.startsWith('/roisol') ? "text-violet-600" : ""}`} />
+              ROISOL
+            </Link>
+          )}
           <button onClick={() => setDrawerOpen(true)}
             className="flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-medium text-gray-400">
             <Menu className="h-5 w-5" />

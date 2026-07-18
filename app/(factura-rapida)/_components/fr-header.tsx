@@ -18,7 +18,7 @@ export function FRHeader({ businessName }: { businessName: string }) {
 
   function signOut() {
     clearSession()
-    router.push('/sin-acceso')
+    router.push('/login')
   }
 
   return (

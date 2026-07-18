@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react"
 import { ShoppingBag, MapPin, Phone, MessageCircle, Search, SlidersHorizontal, X } from "lucide-react"
+import { toast } from "sonner"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Variant {
@@ -252,6 +253,28 @@ export default function TiendaPage() {
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('msg') === 'no_account') {
+      toast.info('Tu cuenta de Google no está registrada en el sistema', {
+        description: (
+          <span>
+            Para solicitar acceso contactá a ROISOL:{' '}
+            <a
+              href="https://wa.me/541131005865"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline font-medium"
+            >
+              WhatsApp →
+            </a>
+          </span>
+        ),
+        duration: 10000,
+      })
+    }
   }, [])
 
   const filtered = useMemo(() => {

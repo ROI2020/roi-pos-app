@@ -4,7 +4,8 @@ export interface UserSession {
   email: string
   role: 'vendedor' | 'encargado' | 'administrador' | 'roisol_admin'
   avatar_url: string | null
-  business_id: number   // id (integer) del negocio al que pertenece el usuario
+  business_id: number
+  plan_id: number
 }
 
 const KEY = 'roipos_user'
@@ -19,8 +20,13 @@ export function getSession(): UserSession | null {
 
 export function setSession(user: UserSession) {
   localStorage.setItem(KEY, JSON.stringify(user))
-  // Cookie para el middleware (no HttpOnly para poder leerla en el cliente también)
-  const value = encodeURIComponent(JSON.stringify({ id: user.id, role: user.role, business_id: user.business_id }))
+  // Cookie para el middleware — contiene lo mínimo necesario para routing
+  const value = encodeURIComponent(JSON.stringify({
+    id: user.id,
+    role: user.role,
+    business_id: user.business_id,
+    plan_id: user.plan_id,
+  }))
   document.cookie = `roipos_session=${value}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`
 }
 
@@ -37,6 +43,8 @@ export function isRoisolAdmin(session: UserSession | null) {
   return session?.role === 'roisol_admin'
 }
 
-export function landingRoute(role: UserSession['role']) {
-  return role === 'administrador' ? '/dashboard' : '/venta'
+export function landingRoute(role: UserSession['role'], planId?: number): string {
+  if (planId === 10) return '/setup'
+  if (role === 'administrador' || role === 'roisol_admin') return '/dashboard'
+  return '/venta'
 }

@@ -3,8 +3,12 @@
 # dependencies
 /node_modules
 
-# esquema de db — los SQL de migración SÍ se versionan
-# /database
+# esquema de db — los SQL de migración NO se versionan / Se pasan a mano en local y en producción
+/database
+/db
+
+# documentación — la documentación generada no va al repo
+/docs
 
 # storage - Facturas PDF generadas no van al repo
 /storage

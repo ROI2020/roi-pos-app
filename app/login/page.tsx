@@ -59,7 +59,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     const s = getSession()
-    if (s) router.replace(landingRoute(s.role))
+    if (s) router.replace(landingRoute(s.role, s.plan_id))
   }, [router])
 
   useEffect(() => {
@@ -94,9 +94,16 @@ export default function LoginPage() {
         body: JSON.stringify({ credential: response.credential }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error); return }
+      if (!res.ok) {
+        if (data.error === 'user_not_found') {
+          router.push('/tienda?msg=no_account')
+          return
+        }
+        setError(data.error)
+        return
+      }
       setSession(data)
-      router.push(landingRoute(data.role))
+      router.push(landingRoute(data.role, data.plan_id))
     } catch {
       setError('Error de conexión. Intentá de nuevo.')
     } finally {

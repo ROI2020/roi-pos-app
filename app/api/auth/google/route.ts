@@ -15,18 +15,18 @@ export async function POST(req: Request) {
 
     const { email, name, picture } = decodeGoogleJwt(credential)
 
-    // Buscar el usuario por email en app_users
+    // Buscar el usuario por email en app_users, incluyendo el plan del negocio
     const { rows } = await pool.query(
-      `SELECT id, name, email, role, avatar_url, business_id
-       FROM app_users WHERE email = $1 AND active = true`,
+      `SELECT u.id, u.name, u.email, u.role, u.avatar_url, u.business_id,
+              b.active_plan_id AS plan_id
+       FROM app_users u
+       LEFT JOIN business b ON b.id = u.business_id
+       WHERE u.email = $1 AND u.active = true`,
       [email.toLowerCase()]
     )
 
     if (rows.length === 0) {
-      return NextResponse.json(
-        { error: 'No tenés acceso al sistema. Pedile al administrador que te agregue.' },
-        { status: 403 }
-      )
+      return NextResponse.json({ error: 'user_not_found' }, { status: 403 })
     }
 
     const user = rows[0]
@@ -44,6 +44,7 @@ export async function POST(req: Request) {
       role: user.role,
       avatar_url: picture,
       business_id: user.business_id,
+      plan_id: user.plan_id ?? 1,
     })
   } catch (err: unknown) {
     console.error('[POST /api/auth/google]', err)
