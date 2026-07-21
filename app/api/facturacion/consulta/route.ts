@@ -15,7 +15,7 @@ async function requireAdmin(): Promise<NextResponse | null> {
   }
   try {
     const { role } = JSON.parse(decodeURIComponent(raw)) as { id: number; role: string }
-    if (role !== 'administrador') {
+    if (role !== 'administrador' && role !== 'roisol_admin') {
       return NextResponse.json(
         { error: { categoria: 'interno', mensaje: 'Acceso denegado' } satisfies ErrorFacturacion },
         { status: 403 }

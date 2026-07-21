@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { getFopId, insertTransaction } from '@/lib/transactions'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * PATCH /api/expenses/[id]
@@ -9,9 +10,14 @@ import { getFopId, insertTransaction } from '@/lib/transactions'
  */
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const id = parseInt(params.id)
+  const bizResult = await requireBusinessId()
+  if (bizResult instanceof NextResponse) return bizResult
+  const { businessId } = bizResult
+
+  const { id: idStr } = await params
+  const id = parseInt(idStr)
   if (isNaN(id)) return NextResponse.json({ error: 'ID inválido' }, { status: 400 })
 
   const body = await req.json() as Record<string, unknown>
@@ -44,10 +50,11 @@ export async function PATCH(
     }
 
     vals.push(id)
+    vals.push(businessId)
     const { rows } = await client.query(
       `UPDATE daily_expenses
           SET ${sets.join(', ')}
-        WHERE id = $${p}
+        WHERE id = $${p} AND business_id = $${p + 1}
         RETURNING id, business_id, branch_id, amount::float, payment_method`,
       vals
     )

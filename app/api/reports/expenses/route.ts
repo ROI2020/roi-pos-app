@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/reports/expenses?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -12,6 +13,10 @@ import { requireFeature } from '@/lib/plan-gate'
 export async function GET(req: Request) {
   const blocked = await requireFeature('expenses.view')
   if (blocked) return blocked
+
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
 
   const { searchParams } = new URL(req.url)
   const from = searchParams.get('from')
@@ -42,8 +47,9 @@ export async function GET(req: Request) {
      LEFT JOIN fops f            ON f.id  = t.fop_id
      LEFT JOIN accounts a        ON a.id  = f.account_id
      WHERE de.created_at::date BETWEEN $1::date AND $2::date
+       AND de.business_id = $3
      ORDER BY de.created_at DESC`,
-    [from, to]
+    [from, to, businessId]
   )
 
   return NextResponse.json(rows)

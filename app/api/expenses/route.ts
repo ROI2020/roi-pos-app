@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { getFopId, insertTransaction } from '@/lib/transactions'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/expenses
@@ -8,6 +9,10 @@ import { getFopId, insertTransaction } from '@/lib/transactions'
  * Devuelve los gastos de la sesión o sucursal indicada.
  */
 export async function GET(req: Request) {
+  const bizResult = await requireBusinessId()
+  if (bizResult instanceof NextResponse) return bizResult
+  const { businessId } = bizResult
+
   const { searchParams } = new URL(req.url)
   const sessionId = searchParams.get('session_id')
   const branchId  = searchParams.get('branch_id')
@@ -16,10 +21,13 @@ export async function GET(req: Request) {
   const params: (string | number)[] = []
   let p = 1
 
+  conditions.push(`e.business_id = $${p++}`)
+  params.push(businessId)
+
   if (sessionId) { conditions.push(`e.pos_session_id = $${p++}`); params.push(parseInt(sessionId)) }
   if (branchId)  { conditions.push(`e.branch_id = $${p++}`);      params.push(parseInt(branchId))  }
 
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  const where = `WHERE ${conditions.join(' AND ')}`
 
   const { rows } = await pool.query(`
     SELECT
@@ -50,6 +58,10 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const client = await pool.connect()
   try {
+    const bizResult = await requireBusinessId()
+    if (bizResult instanceof NextResponse) return bizResult
+    const { businessId } = bizResult
+
     const {
       pos_session_id, branch_id, user_id, expense_type_id,
       description, amount, payment_method,
@@ -66,11 +78,12 @@ export async function POST(req: Request) {
 
     const { rows } = await client.query(`
       INSERT INTO daily_expenses
-        (pos_session_id, branch_id, user_id, expense_type_id,
+        (business_id, pos_session_id, branch_id, user_id, expense_type_id,
          description, amount, payment_method)
-      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
       RETURNING id, business_id, amount::float, payment_method, created_at
     `, [
+      businessId,
       pos_session_id   ?? null,
       branchIdNum,
       user_id          ?? null,

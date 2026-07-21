@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/reports/sales?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -12,6 +13,10 @@ import { requireFeature } from '@/lib/plan-gate'
 export async function GET(req: Request) {
   const blocked = await requireFeature('finance.transactions')
   if (blocked) return blocked
+
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
 
   const { searchParams } = new URL(req.url)
   const from = searchParams.get('from')
@@ -56,9 +61,10 @@ export async function GET(req: Request) {
      LEFT JOIN app_users u  ON u.id  = s.user_id
      LEFT JOIN facturas  f  ON f.venta_id = s.id::text AND f.estado = 'emitida'
      WHERE s.sold_at::date BETWEEN $1::date AND $2::date
+       AND s.business_id = $3
        AND NOT EXISTS (SELECT 1 FROM exchanges ex WHERE ex.exchange_sale_id = s.id)
      ORDER BY s.sold_at DESC`,
-    [from, to]
+    [from, to, businessId]
   )
 
   const { rows: cambios } = await pool.query(
@@ -96,8 +102,9 @@ export async function GET(req: Request) {
      LEFT JOIN product_variants nv ON nv.id = ex.new_variant_id
      LEFT JOIN products          np ON np.id = nv.product_id
      WHERE s.sold_at::date BETWEEN $1::date AND $2::date
+       AND s.business_id = $3
      ORDER BY s.sold_at DESC`,
-    [from, to]
+    [from, to, businessId]
   )
 
   const all = [...ventas, ...cambios]
@@ -136,7 +143,7 @@ export async function GET(req: Request) {
     return acc
   }, {})
 
-  const result = all
+  const enriched = all
     .map(r => ({
       ...r,
       items: (itemsBySale[r.sale_id as number] ?? []).map(i => ({
@@ -148,5 +155,5 @@ export async function GET(req: Request) {
     }))
     .sort((a, b) => new Date(b.sold_at as string).getTime() - new Date(a.sold_at as string).getTime())
 
-  return NextResponse.json(result)
+  return NextResponse.json(enriched)
 }

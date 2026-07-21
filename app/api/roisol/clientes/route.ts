@@ -47,9 +47,10 @@ export async function POST(req: Request) {
       condicionIva: 'monotributo' | 'responsable_inscripto'
       ambiente: 'homo' | 'prod'
       emailAdmin?: string
+      validUntil?: string   // ISO date; por defecto 1 año desde hoy
     }
 
-    const { nombre, activePlanId, slug, dominioPropio, cuit, puntoVenta, razonSocial, condicionIva, ambiente, emailAdmin } = body
+    const { nombre, activePlanId, slug, dominioPropio, cuit, puntoVenta, razonSocial, condicionIva, ambiente, emailAdmin, validUntil } = body
 
     // Validaciones básicas
     if (!nombre?.trim())      return NextResponse.json({ error: 'Nombre obligatorio' }, { status: 400 })
@@ -71,10 +72,23 @@ export async function POST(req: Request) {
 
       // 1. Crear el negocio
       const { rows: [business] } = await client.query<{ id: number }>(
-        `INSERT INTO business (name, active_plan_id) VALUES ($1, $2) RETURNING id`,
-        [nombre.trim(), activePlanId]
+        `INSERT INTO business (name) VALUES ($1) RETURNING id`,
+        [nombre.trim()]
       )
       const businessId = business.id
+
+      // 1b. Crear la suscripción en business_plan y enlazarla al negocio
+      const planValidUntil = validUntil
+        ? new Date(validUntil).toISOString().slice(0, 10)
+        : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      const { rows: [bplan] } = await client.query<{ id: number }>(
+        `INSERT INTO business_plan (business_id, plan_id, status, valid_until) VALUES ($1, $2, 'active', $3) RETURNING id`,
+        [businessId, parseInt(activePlanId, 10), planValidUntil]
+      )
+      await client.query(
+        `UPDATE business SET active_subscription_id = $1 WHERE id = $2`,
+        [bplan.id, businessId]
+      )
 
       // 2. Insertar subdominio *.roisol.com.ar
       //    Es primario solo si no hay dominio propio

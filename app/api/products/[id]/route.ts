@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 const ALLOWED = [
   'name', 'description', 'base_price',
@@ -19,6 +20,10 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authResult = await requireBusinessId()
+    if (authResult instanceof NextResponse) return authResult
+    const { businessId } = authResult
+
     const { id } = await params
     const body   = await req.json() as Record<string, unknown>
 
@@ -29,11 +34,14 @@ export async function PATCH(
     const setClauses = updates.map(([k], i) => `${k} = $${i + 1}`).join(', ')
     const values     = updates.map(([, v]) => v ?? null)
     values.push(id)
+    const idParamIdx = values.length
+    values.push(businessId)
+    const bizParamIdx = values.length
 
     const { rows } = await pool.query(
       `UPDATE products
        SET ${setClauses}, updated_at = NOW()
-       WHERE id = $${values.length}
+       WHERE id = $${idParamIdx} AND business_id = $${bizParamIdx}
        RETURNING
          id, name, description, base_price::float, photo_url,
          exportable_whatsapp, exportable_instagram,

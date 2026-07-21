@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * PATCH /api/pos/sessions/[id]
@@ -11,6 +12,10 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const bizResult = await requireBusinessId()
+    if (bizResult instanceof NextResponse) return bizResult
+    const { businessId } = bizResult
+
     const { id }                                            = await params
     const { closing_balance, notes, closed_by_user_id }    = await req.json()
 
@@ -20,13 +25,14 @@ export async function PATCH(
              closing_balance     = $1,
              notes               = $2,
              closed_by_user_id   = $3
-       WHERE id = $4 AND closed_at IS NULL
+       WHERE id = $4 AND closed_at IS NULL AND business_id = $5
        RETURNING *`,
       [
         parseFloat(closing_balance) || null,
         notes ?? null,
         closed_by_user_id ?? null,
         parseInt(id),
+        businessId,
       ]
     )
 

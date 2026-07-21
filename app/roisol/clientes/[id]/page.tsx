@@ -7,7 +7,6 @@ import ClienteDetalle from '@/components/roisol/ClienteDetalle'
 interface ClienteCompleto {
   id: number
   name: string
-  active_plan_id: number | null
   plan_name: string | null
   created_at: string
   dominios: Array<{ id: string; domain: string; is_primary: boolean }>
@@ -23,10 +22,11 @@ interface ClienteCompleto {
 
 async function getCliente(id: string): Promise<ClienteCompleto | null> {
   const [bizRes, domRes, fcRes] = await Promise.all([
-    pool.query<{ id: number; name: string; active_plan_id: number | null; plan_name: string | null; created_at: string }>(
-      `SELECT b.id, b.name, b.active_plan_id, p.name AS plan_name, b.created_at
+    pool.query<{ id: number; name: string; plan_name: string | null; created_at: string }>(
+      `SELECT b.id, b.name, p.name AS plan_name, b.created_at
        FROM business b
-       LEFT JOIN plans p ON p.id = b.active_plan_id
+       LEFT JOIN business_plan bp ON bp.id = b.active_subscription_id
+       LEFT JOIN plans p          ON p.id  = bp.plan_id
        WHERE b.id = $1`,
       [id]
     ),

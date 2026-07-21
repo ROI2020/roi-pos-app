@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/accounts
@@ -8,6 +9,10 @@ import pool from '@/lib/db'
  * ABM de Configuración → Cuentas y Formas de Pago.
  */
 export async function GET() {
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
+
   const { rows } = await pool.query(`
     SELECT
       a.id, a.name, a.type, a.currency, a.branch_id,
@@ -22,15 +27,20 @@ export async function GET() {
     FROM accounts a
     LEFT JOIN branches br ON br.id = a.branch_id
     LEFT JOIN fops f      ON f.account_id = a.id
+    WHERE a.business_id = $1
     GROUP BY a.id, a.name, a.type, a.currency, a.branch_id, br.name
     ORDER BY a.branch_id NULLS LAST, a.name
-  `)
+  `, [businessId])
   return NextResponse.json(rows)
 }
 
 /** POST /api/accounts — crea una nueva cuenta */
 export async function POST(req: Request) {
   try {
+    const bizResult = await requireBusinessId()
+    if (bizResult instanceof NextResponse) return bizResult
+    const { businessId } = bizResult
+
     const { name, type, currency, branch_id } = await req.json()
 
     if (!name?.trim())
@@ -44,9 +54,9 @@ export async function POST(req: Request) {
 
     const { rows } = await pool.query(
       `INSERT INTO accounts (business_id, branch_id, name, type, currency)
-       VALUES (1, $1, $2, $3, $4)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING id, name, type, currency, branch_id`,
-      [branchId, name.trim(), type.trim(), currency?.trim() || 'ARS']
+      [businessId, branchId, name.trim(), type.trim(), currency?.trim() || 'ARS']
     )
     return NextResponse.json({ ...rows[0], fops: [] }, { status: 201 })
   } catch (err) {

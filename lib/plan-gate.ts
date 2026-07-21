@@ -45,14 +45,14 @@ export async function getBusinessPlanInfo(businessId = 1): Promise<BusinessPlanI
        bp.valid_until,
        bp.status
      FROM business b
-     JOIN business_plan bp ON bp.id = b.active_plan_id
+     JOIN business_plan bp ON bp.id = b.active_subscription_id
      JOIN plans p           ON p.id = bp.plan_id
      WHERE b.id = $1`,
     [businessId]
   )
 
   if (!rows.length) {
-    // Sin plan configurado (migración no ejecutada o active_plan_id NULL).
+    // Sin plan configurado (migración no ejecutada o active_subscription_id NULL).
     // Fail open con nivel máximo para no bloquear al operador.
     return {
       planId: 0,

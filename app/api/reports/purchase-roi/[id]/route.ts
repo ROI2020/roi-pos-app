@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/reports/purchase-roi/[id]
@@ -14,6 +15,10 @@ export async function GET(
 ) {
   const blocked = await requireFeature('finance.reports')
   if (blocked) return blocked
+
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
 
   const { id } = await params
 
@@ -62,9 +67,10 @@ export async function GET(
     LEFT JOIN sales        sal ON sal.id                = sd.sale_id
     LEFT JOIN branch_inventory bi ON bi.product_variant_id = pv.id
     WHERE pu.id = $1
+      AND pu.business_id = $2
     GROUP BY p.id, p.name, p.base_price, pu.purchase_date
     ORDER BY p.name
-  `, [parseInt(id)])
+  `, [parseInt(id), businessId])
 
   return NextResponse.json(rows)
 }

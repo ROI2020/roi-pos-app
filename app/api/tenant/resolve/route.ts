@@ -33,7 +33,7 @@ export async function GET(req: Request) {
        FROM business b
        JOIN business_domains bd ON bd.business_id = b.id
        WHERE bd.domain = $1
-         AND b.active_plan_id IS NOT NULL
+         AND b.active_subscription_id IS NOT NULL
        LIMIT 1`,
       [domain]
     )

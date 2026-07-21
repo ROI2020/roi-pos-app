@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * PATCH /api/accounts/[id]
@@ -9,6 +10,10 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const bizResult = await requireBusinessId()
+  if (bizResult instanceof NextResponse) return bizResult
+  const { businessId } = bizResult
+
   const { id } = await params
   const body   = await req.json() as Record<string, unknown>
   const aid    = parseInt(id)
@@ -21,10 +26,11 @@ export async function PATCH(
   const setClauses = updates.map(([k], i) => `${k} = $${i + 1}`).join(', ')
   const values      = updates.map(([, v]) => v)
   values.push(aid)
+  values.push(businessId)
 
   try {
     const { rows } = await pool.query(
-      `UPDATE accounts SET ${setClauses} WHERE id = $${values.length}
+      `UPDATE accounts SET ${setClauses} WHERE id = $${values.length - 1} AND business_id = $${values.length}
        RETURNING id, name, type, currency, branch_id`,
       values
     )
@@ -42,9 +48,16 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const bizResult = await requireBusinessId()
+  if (bizResult instanceof NextResponse) return bizResult
+  const { businessId } = bizResult
+
   const { id } = await params
   try {
-    const { rowCount } = await pool.query(`DELETE FROM accounts WHERE id = $1`, [parseInt(id)])
+    const { rowCount } = await pool.query(
+      `DELETE FROM accounts WHERE id = $1 AND business_id = $2`,
+      [parseInt(id), businessId]
+    )
     if (rowCount === 0)
       return NextResponse.json({ error: 'Cuenta no encontrada' }, { status: 404 })
     return NextResponse.json({ ok: true })

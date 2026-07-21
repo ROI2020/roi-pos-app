@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 export interface BalancePointData {
   costos_fijos:       number
@@ -23,6 +24,10 @@ export async function GET() {
   const blocked = await requireFeature('balance.point')
   if (blocked) return blocked
 
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
+
   try {
     const now        = new Date()
     const dayOfMonth = now.getDate()
@@ -34,14 +39,18 @@ export async function GET() {
         `SELECT name, budget::text
          FROM expense_types
          WHERE type = 'fijo' AND active = true
-         ORDER BY name`
+           AND business_id = $1
+         ORDER BY name`,
+        [businessId]
       ),
 
       // 2. Ventas del mes actual
       pool.query<{ total: string }>(
         `SELECT COALESCE(SUM(total_amount), 0)::text AS total
          FROM sales
-         WHERE date_trunc('month', sold_at) = date_trunc('month', NOW())`
+         WHERE date_trunc('month', sold_at) = date_trunc('month', NOW())
+           AND business_id = $1`,
+        [businessId]
       ),
 
       // 3. COGS: costo de mercadería vendida este mes
@@ -52,7 +61,9 @@ export async function GET() {
          JOIN sales s             ON s.id  = sd.sale_id
          JOIN product_variants pv ON pv.id = sd.product_variant_id
          LEFT JOIN purchase_details pd ON pd.id = pv.purchase_detail_id
-         WHERE date_trunc('month', s.sold_at) = date_trunc('month', NOW())`
+         WHERE date_trunc('month', s.sold_at) = date_trunc('month', NOW())
+           AND s.business_id = $1`,
+        [businessId]
       ),
 
       // 4. Gastos variables reales este mes, agrupados por tipo
@@ -63,9 +74,12 @@ export async function GET() {
          LEFT JOIN daily_expenses de
            ON de.expense_type_id = et.id
           AND date_trunc('month', de.created_at) = date_trunc('month', NOW())
+          AND de.business_id = $1
          WHERE et.type = 'variable' AND et.active = true
+           AND et.business_id = $1
          GROUP BY et.name
-         ORDER BY et.name`
+         ORDER BY et.name`,
+        [businessId]
       ),
     ])
 

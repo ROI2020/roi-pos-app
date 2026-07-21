@@ -15,12 +15,14 @@ export async function POST(req: Request) {
 
     const { email, name, picture } = decodeGoogleJwt(credential)
 
-    // Buscar el usuario por email en app_users, incluyendo el plan del negocio
+    // Buscar el usuario por email, resolviendo su plans.id real via business_plan
     const { rows } = await pool.query(
       `SELECT u.id, u.name, u.email, u.role, u.avatar_url, u.business_id,
-              b.active_plan_id AS plan_id
+              COALESCE(p.id, 1) AS plan_id
        FROM app_users u
-       LEFT JOIN business b ON b.id = u.business_id
+       LEFT JOIN business b        ON b.id  = u.business_id
+       LEFT JOIN business_plan bp  ON bp.id = b.active_subscription_id
+       LEFT JOIN plans p           ON p.id  = bp.plan_id
        WHERE u.email = $1 AND u.active = true`,
       [email.toLowerCase()]
     )

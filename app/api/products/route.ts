@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/products
@@ -17,6 +18,10 @@ import pool from '@/lib/db'
  * Devuelve: campos del producto + variant_count + stock_count
  */
 export async function GET(req: Request) {
+  const authResult = await requireBusinessId()
+  if (authResult instanceof NextResponse) return authResult
+  const { businessId } = authResult
+
   const { searchParams } = new URL(req.url)
   const q               = searchParams.get('q')?.trim() ?? ''
   const categoryId      = searchParams.get('category_id')
@@ -33,6 +38,10 @@ export async function GET(req: Request) {
   const conditions: string[] = []
   const params: (string | number)[] = []
   let p = 1
+
+  // Always filter by business
+  conditions.push(`p.business_id = $${p++}`)
+  params.push(businessId)
 
   if (q) {
     conditions.push(`p.name ILIKE $${p++}`)
@@ -102,16 +111,20 @@ export async function GET(req: Request) {
 /** POST /api/products – crea un nuevo producto */
 export async function POST(req: Request) {
   try {
+    const authResult = await requireBusinessId()
+    if (authResult instanceof NextResponse) return authResult
+    const { businessId } = authResult
+
     const { name, description, base_price } = await req.json()
     if (!name?.trim())
       return NextResponse.json({ error: 'El nombre es obligatorio' }, { status: 400 })
 
     const { rows } = await pool.query(
-      `INSERT INTO products (name, description, base_price)
-       VALUES ($1, $2, $3)
+      `INSERT INTO products (name, description, base_price, business_id)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, name, description, base_price::float,
                  category_id, age_group_id, season_id, gender_id`,
-      [name.trim(), description?.trim() || null, parseFloat(base_price) || 0]
+      [name.trim(), description?.trim() || null, parseFloat(base_price) || 0, businessId]
     )
     return NextResponse.json(rows[0], { status: 201 })
   } catch (err) {

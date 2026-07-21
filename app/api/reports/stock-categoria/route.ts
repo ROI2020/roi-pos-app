@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/reports/stock-categoria?category_id=X
@@ -21,6 +22,10 @@ import { requireFeature } from '@/lib/plan-gate'
 export async function GET(req: Request) {
   const blocked = await requireFeature('stock.view')
   if (blocked) return blocked
+
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
 
   const { searchParams } = new URL(req.url)
   const categoryId = searchParams.get('category_id')
@@ -46,6 +51,7 @@ export async function GET(req: Request) {
      LEFT JOIN age_groups ag  ON ag.id = p.age_group_id
      LEFT JOIN genders g      ON g.id  = p.gender_id
      WHERE p.category_id = $1
+       AND p.business_id = $2
        AND NOT EXISTS (
          SELECT 1 FROM sale_details sd WHERE sd.product_variant_id = pv.id
        )
@@ -59,7 +65,7 @@ export async function GET(req: Request) {
             THEN pv.size::numeric ELSE NULL END NULLS LAST,
        pv.size,
        g.name`,
-    [categoryId]
+    [categoryId, businessId]
   )
 
   // Pivot en JS: construir { edad, talle, [genero]: cantidad }

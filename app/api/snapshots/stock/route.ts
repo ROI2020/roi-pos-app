@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * POST /api/snapshots/stock
@@ -85,6 +86,10 @@ export async function POST(req: Request) {
  *   }
  */
 export async function GET(req: Request) {
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
+
   const { searchParams } = new URL(req.url)
   const mode = searchParams.get('mode') ?? 'week'
 
@@ -139,10 +144,11 @@ export async function GET(req: Request) {
     FROM stock_snapshots ss
     JOIN branches br ON br.id = ss.branch_id
     WHERE ${dateFilter}
+      AND ss.business_id = $1
     GROUP BY ${groupExpr}, ss.branch_id, br.name
       ${mode !== 'year' ? ', ss.stock_units, ss.stock_cost, ss.stock_list_price, ss.sold_units, ss.daily_sales' : ''}
     ORDER BY ${groupExpr}, br.name
-  `)
+  `, [businessId])
 
   // Pivotear: de filas a { labels, branches[] }
   const labelSet = [...new Set(rows.map(r => r.label))]

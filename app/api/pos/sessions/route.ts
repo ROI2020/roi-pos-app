@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/pos/sessions?branch_id=1
@@ -11,6 +12,10 @@ import pool from '@/lib/db'
  * evitando el producto cartesiano de un doble LEFT JOIN.
  */
 export async function GET(req: Request) {
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
+
   const { searchParams } = new URL(req.url)
   const branchId = searchParams.get('branch_id')
   if (!branchId) return NextResponse.json({ error: 'branch_id requerido' }, { status: 400 })
@@ -22,10 +27,11 @@ export async function GET(req: Request) {
          FROM pos_sessions ps
          LEFT JOIN branches br ON br.id = ps.branch_id
         WHERE ps.branch_id = $1
+          AND ps.business_id = $2
           AND ps.closed_at IS NOT NULL
         ORDER BY ps.opened_at DESC
         LIMIT 5`,
-      [parseInt(branchId)]
+      [parseInt(branchId), businessId]
     )
     return NextResponse.json({ sessions: rows })
   }
@@ -90,10 +96,11 @@ export async function GET(req: Request) {
      LEFT JOIN app_users opened_u ON opened_u.id = ps.opened_by_user_id
      LEFT JOIN app_users closed_u ON closed_u.id = ps.closed_by_user_id
      WHERE ps.branch_id = $1
+       AND ps.business_id = $2
        AND ps.closed_at IS NULL
      ORDER BY ps.opened_at DESC
      LIMIT 1`,
-    [parseInt(branchId)]
+    [parseInt(branchId), businessId]
   )
 
   return NextResponse.json({ session: rows[0] ?? null })
@@ -106,23 +113,27 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   try {
+    const bizResult = await requireBusinessId()
+    if (bizResult instanceof NextResponse) return bizResult
+    const { businessId } = bizResult
+
     const { branch_id, opening_balance, opened_by_user_id } = await req.json()
     if (!branch_id)
       return NextResponse.json({ error: 'branch_id requerido' }, { status: 400 })
 
     // Verificar que no haya sesión abierta para esa sucursal
     const existing = await pool.query(
-      `SELECT id FROM pos_sessions WHERE branch_id = $1 AND closed_at IS NULL LIMIT 1`,
-      [parseInt(branch_id)]
+      `SELECT id FROM pos_sessions WHERE branch_id = $1 AND business_id = $2 AND closed_at IS NULL LIMIT 1`,
+      [parseInt(branch_id), businessId]
     )
     if (existing.rows.length > 0)
       return NextResponse.json({ error: 'Ya hay una caja abierta para esta sucursal' }, { status: 409 })
 
     const { rows } = await pool.query(
-      `INSERT INTO pos_sessions (branch_id, opening_balance, opened_by_user_id)
-       VALUES ($1, $2, $3)
+      `INSERT INTO pos_sessions (business_id, branch_id, opening_balance, opened_by_user_id)
+       VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [parseInt(branch_id), parseFloat(opening_balance) || 0, opened_by_user_id ?? null]
+      [businessId, parseInt(branch_id), parseFloat(opening_balance) || 0, opened_by_user_id ?? null]
     )
     return NextResponse.json(rows[0], { status: 201 })
   } catch (err) {

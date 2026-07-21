@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/reports/purchase-roi
@@ -14,6 +15,10 @@ import { requireFeature } from '@/lib/plan-gate'
 export async function GET(req: Request) {
   const blocked = await requireFeature('finance.reports')
   if (blocked) return blocked
+
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
 
   const { searchParams } = new URL(req.url)
   const from     = searchParams.get('from')
@@ -47,6 +52,10 @@ export async function GET(req: Request) {
     params.push(`%${product}%`)
   }
 
+  // Add businessId as the last parameter
+  params.push(businessId)
+  const bizParamNum = params.length
+
   const extraWhere = extraConditions.length
     ? 'AND ' + extraConditions.join(' AND ')
     : ''
@@ -73,6 +82,7 @@ export async function GET(req: Request) {
     LEFT JOIN sales             sal ON sal.id = sd.sale_id
     WHERE pu.purchase_date::date BETWEEN $1 AND $2
     ${extraWhere}
+    AND pu.business_id = $${bizParamNum}
     GROUP BY pu.id, pu.purchase_date, pu.title, pu.invoice_number, s.company_name
     ORDER BY pu.purchase_date DESC
   `, params)

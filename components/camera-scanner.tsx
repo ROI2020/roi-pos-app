@@ -54,7 +54,6 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
         Quagga.init(
           {
             inputStream: {
-              name: 'Live',
               type: 'LiveStream',
               target: containerRef.current!,
               constraints: {

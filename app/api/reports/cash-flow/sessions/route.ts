@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/reports/cash-flow/sessions?from=YYYY-MM-DD&to=YYYY-MM-DD[&branch_id=N]
@@ -12,6 +13,10 @@ import { requireFeature } from '@/lib/plan-gate'
 export async function GET(req: Request) {
   const blocked = await requireFeature('finance.transactions')
   if (blocked) return blocked
+
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
 
   const { searchParams } = new URL(req.url)
   const from     = searchParams.get('from')
@@ -27,6 +32,8 @@ export async function GET(req: Request) {
     params.push(parseInt(branchId))
     branchWhere = `AND ps.branch_id = $${params.length}`
   }
+  params.push(businessId)
+  const bizWhere = `AND ps.business_id = $${params.length}`
 
   const { rows } = await pool.query(
     `SELECT
@@ -46,6 +53,7 @@ export async function GET(req: Request) {
      LEFT JOIN app_users uc ON uc.id = ps.closed_by_user_id
      WHERE ps.opened_at::date BETWEEN $1::date AND $2::date
      ${branchWhere}
+     ${bizWhere}
      ORDER BY ps.opened_at ASC`,
     params
   )

@@ -6,32 +6,37 @@ import { FRHeader } from "./_components/fr-header"
 
 const PLAN_FACTURA_RAPIDA_ID = 10
 
+const FR_ROLES = ["administrador", "roisol_admin"]
+
 export default async function FacturaRapidaLayout({ children }: { children: ReactNode }) {
-  // Verificar sesión
   const cookieStore = await cookies()
   const raw = cookieStore.get("roipos_session")?.value
-  if (!raw) redirect("/sin-acceso")
+  if (!raw) redirect("/login")
 
   let session: { id: number; role: string; business_id?: number }
   try {
     session = JSON.parse(decodeURIComponent(raw))
   } catch {
-    redirect("/sin-acceso")
+    redirect("/login")
   }
 
-  if (session.role !== "administrador") redirect("/sin-acceso")
+  if (!FR_ROLES.includes(session.role)) redirect("/login")
 
   const businessId = session.business_id
-  if (!businessId) redirect("/sin-acceso")
+  if (!businessId) redirect("/login")
 
-  // Verificar que el plan del business es factura_rapida
-  const { rows } = await pool.query<{ active_plan_id: number; name: string }>(
-    `SELECT active_plan_id, name FROM business WHERE id = $1`,
+  // Verificar que el plan activo del business es Factura Rápida (plans.id = 10)
+  const { rows } = await pool.query<{ plan_id: number; name: string }>(
+    `SELECT COALESCE(p.id, 0) AS plan_id, b.name
+     FROM business b
+     LEFT JOIN business_plan bp ON bp.id = b.active_subscription_id
+     LEFT JOIN plans p          ON p.id  = bp.plan_id
+     WHERE b.id = $1`,
     [businessId]
   )
 
-  if (!rows.length || Number(rows[0].active_plan_id) !== PLAN_FACTURA_RAPIDA_ID) {
-    redirect("/sin-acceso")
+  if (!rows.length || rows[0].plan_id !== PLAN_FACTURA_RAPIDA_ID) {
+    redirect("/login")
   }
 
   const businessName = rows[0].name

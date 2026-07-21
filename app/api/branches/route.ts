@@ -1,19 +1,30 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /** GET /api/branches — lista todas las sucursales */
 export async function GET() {
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
+
   const { rows } = await pool.query(
     `SELECT id, name, address, arca_pos_number, cuit_emisor, is_default
      FROM branches
-     ORDER BY is_default DESC, name`
+     WHERE business_id = $1
+     ORDER BY is_default DESC, name`,
+    [businessId]
   )
   return NextResponse.json(rows)
 }
 
 /** POST /api/branches — crea una nueva sucursal */
 export async function POST(req: Request) {
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
+
   const blocked = await requireFeature('branch.multi')
   if (blocked) return blocked
 
@@ -28,10 +39,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'El número ARCA debe ser un entero' }, { status: 400 })
 
     const { rows } = await pool.query(
-      `INSERT INTO branches (name, address, arca_pos_number)
-       VALUES ($1, $2, $3)
+      `INSERT INTO branches (name, address, arca_pos_number, business_id)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, name, address, arca_pos_number`,
-      [name.trim(), address?.trim() || null, arcaNum]
+      [name.trim(), address?.trim() || null, arcaNum, businessId]
     )
     return NextResponse.json(rows[0], { status: 201 })
   } catch (err) {

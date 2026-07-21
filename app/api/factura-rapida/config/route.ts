@@ -8,7 +8,7 @@ async function getBusinessId(): Promise<{ businessId: number } | { error: NextRe
   if (!raw) return { error: NextResponse.json({ error: "No autorizado" }, { status: 401 }) }
   try {
     const { role, business_id } = JSON.parse(decodeURIComponent(raw)) as { role: string; business_id?: number }
-    if (role !== "administrador") return { error: NextResponse.json({ error: "Acceso denegado" }, { status: 403 }) }
+    if (role !== "administrador" && role !== "roisol_admin") return { error: NextResponse.json({ error: "Acceso denegado" }, { status: 403 }) }
     if (!business_id) return { error: NextResponse.json({ error: "Sin negocio asociado" }, { status: 400 }) }
     return { businessId: business_id }
   } catch {

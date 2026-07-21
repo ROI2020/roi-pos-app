@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/reports/accounts/ledger?account_id=&from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -12,6 +13,10 @@ import { requireFeature } from '@/lib/plan-gate'
 export async function GET(req: Request) {
   const blocked = await requireFeature('finance.transactions')
   if (blocked) return blocked
+
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
 
   const { searchParams } = new URL(req.url)
   const accountId = parseInt(searchParams.get('account_id') ?? '')
@@ -73,8 +78,9 @@ export async function GET(req: Request) {
      LEFT JOIN suppliers sup      ON sup.id = p.supplier_id
      WHERE f.account_id = $1
        AND t.created_at::date BETWEEN $2::date AND $3::date
+       AND t.business_id = $4
      ORDER BY t.created_at DESC`,
-    [accountId, from, to]
+    [accountId, from, to, businessId]
   )
 
   return NextResponse.json(rows)

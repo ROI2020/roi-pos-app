@@ -29,7 +29,7 @@ interface FacturaRow {
   punto_venta: number
   tipo_cbte: number
   nro_comprobante: number
-  fecha_cbte: string
+  fecha_cbte: string | Date
   cae: string | null
   cae_vto: string | null
   importe_total: string
@@ -149,8 +149,8 @@ export async function GET(
   return pdfResponse(pdfBuffer, `factura-${nroDisplay}.pdf`)
 }
 
-function pdfResponse(buf: Buffer, filename: string): Response {
-  return new Response(buf, {
+function pdfResponse(buf: Uint8Array, filename: string): Response {
+  return new Response(buf.buffer as ArrayBuffer, {
     headers: {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${filename}"`,

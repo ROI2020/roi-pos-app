@@ -5,7 +5,6 @@ import { Plus } from 'lucide-react'
 interface ClienteRow {
   id: number
   name: string
-  active_plan_id: number | null
   plan_name: string | null
   created_at: string
   dominio_primario: string | null
@@ -20,7 +19,6 @@ async function getClientes(): Promise<ClienteRow[]> {
     `SELECT
        b.id,
        b.name,
-       b.active_plan_id,
        p.name          AS plan_name,
        b.created_at,
        bd_p.domain     AS dominio_primario,
@@ -29,7 +27,8 @@ async function getClientes(): Promise<ClienteRow[]> {
        fc.punto_venta,
        fc.ambiente
      FROM business b
-     LEFT JOIN plans p             ON p.id = b.active_plan_id
+     LEFT JOIN business_plan bp    ON bp.id = b.active_subscription_id
+     LEFT JOIN plans p             ON p.id  = bp.plan_id
      LEFT JOIN business_domains bd ON bd.business_id = b.id
      LEFT JOIN business_domains bd_p
             ON bd_p.business_id = b.id AND bd_p.is_primary = true

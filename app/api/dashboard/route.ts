@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/dashboard
@@ -14,6 +15,9 @@ import pool from '@/lib/db'
  * Ingreso → sale_details.unit_price     (precio real de venta)
  */
 export async function GET() {
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
 
   // ── CTE base: une cada variante con su estado y datos financieros ──────────
   const baseCTE = `
@@ -37,6 +41,7 @@ export async function GET() {
       LEFT JOIN purchase_details pd ON pd.id = pv.purchase_detail_id
       LEFT JOIN branch_inventory bi ON bi.product_variant_id = pv.id
       LEFT JOIN sale_details     sd ON sd.product_variant_id = pv.id
+      WHERE p.business_id = $1
     )
   `
 
@@ -55,7 +60,8 @@ export async function GET() {
       COALESCE(SUM(total_amount), 0)::float  AS total
     FROM sales
     WHERE sold_at >= ${fromExpr}
-  `)
+      AND business_id = $1
+  `, [businessId])
 
   const [summary, byCategory, byAgeGroup, bySeason, byGender, byBranch, unclassified,
          salesToday, salesWeek, salesMonth] =
@@ -73,7 +79,7 @@ export async function GET() {
           COALESCE(SUM(base_price) FILTER (WHERE in_stock),  0)::float AS stock_potential,
           COALESCE(SUM(sold_price) FILTER (WHERE is_sold),   0)::float AS revenue
         FROM base
-      `),
+      `, [businessId]),
 
       // ── Por categoría ────────────────────────────────────────────────────
       pool.query(`
@@ -89,7 +95,7 @@ export async function GET() {
         LEFT JOIN categories c ON c.id = b.category_id
         GROUP BY c.name
         ORDER BY count DESC
-      `),
+      `, [businessId]),
 
       // ── Por edad ─────────────────────────────────────────────────────────
       pool.query(`
@@ -105,7 +111,7 @@ export async function GET() {
         LEFT JOIN age_groups ag ON ag.id = b.age_group_id
         GROUP BY ag.name
         ORDER BY count DESC
-      `),
+      `, [businessId]),
 
       // ── Por temporada ────────────────────────────────────────────────────
       pool.query(`
@@ -121,7 +127,7 @@ export async function GET() {
         LEFT JOIN seasons s ON s.id = b.season_id
         GROUP BY s.name
         ORDER BY count DESC
-      `),
+      `, [businessId]),
 
       // ── Por género ───────────────────────────────────────────────────────
       pool.query(`
@@ -137,7 +143,7 @@ export async function GET() {
         LEFT JOIN genders g ON g.id = b.gender_id
         GROUP BY g.name
         ORDER BY count DESC
-      `),
+      `, [businessId]),
 
       // ── Por sucursal ─────────────────────────────────────────────────────
       pool.query(`
@@ -154,17 +160,18 @@ export async function GET() {
         WHERE b.in_stock OR (NOT b.in_stock AND NOT b.is_sold)
         GROUP BY br.name
         ORDER BY count DESC
-      `),
+      `, [businessId]),
 
       // ── Productos sin clasificar ─────────────────────────────────────────
       pool.query(`
         SELECT COUNT(*)::int AS count
         FROM products
-        WHERE category_id  IS NULL
+        WHERE (category_id  IS NULL
            OR age_group_id IS NULL
            OR season_id    IS NULL
-           OR gender_id    IS NULL
-      `),
+           OR gender_id    IS NULL)
+          AND business_id = $1
+      `, [businessId]),
 
       // ── Ventas por período (count + total) ───────────────────────────────
       salesQueryFrom(todayStart),

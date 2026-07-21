@@ -47,9 +47,11 @@ function validarCuit(cuit: string): boolean {
 export default function NuevoClienteForm() {
   const router = useRouter()
   const [planes, setPlanes] = useState<Plan[]>([])
+  const defaultValidUntil = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const [form, setForm] = useState({
     nombre: '',
     activePlanId: '',
+    validUntil: defaultValidUntil,
     slug: '',
     dominioPropio: '',
     cuit: '',
@@ -172,19 +174,31 @@ export default function NuevoClienteForm() {
             required
           />
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Plan</label>
-          <select
-            value={form.activePlanId}
-            onChange={e => setForm(f => ({ ...f, activePlanId: e.target.value }))}
-            className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-            required
-          >
-            <option value="">Seleccionar plan...</option>
-            {planes.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Plan</label>
+            <select
+              value={form.activePlanId}
+              onChange={e => setForm(f => ({ ...f, activePlanId: e.target.value }))}
+              className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
+              required
+            >
+              <option value="">Seleccionar plan...</option>
+              {planes.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Vencimiento suscripción</label>
+            <input
+              type="date"
+              value={form.validUntil}
+              onChange={e => setForm(f => ({ ...f, validUntil: e.target.value }))}
+              className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
+              required
+            />
+          </div>
         </div>
       </section>
 
@@ -199,7 +213,7 @@ export default function NuevoClienteForm() {
               value={form.slug}
               onChange={e => { setSlugManual(true); setForm(f => ({ ...f, slug: e.target.value })) }}
               placeholder="mi-negocio"
-              pattern="^[a-z0-9-]{1,63}$"
+
               className="flex-1 border rounded-l-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
               required
             />

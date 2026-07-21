@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/reports/accounts
@@ -12,6 +13,10 @@ import { requireFeature } from '@/lib/plan-gate'
 export async function GET() {
   const blocked = await requireFeature('finance.transactions')
   if (blocked) return blocked
+
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
 
   const { rows } = await pool.query(`
     SELECT
@@ -26,9 +31,10 @@ export async function GET() {
     LEFT JOIN branches br     ON br.id = a.branch_id
     LEFT JOIN fops f          ON f.account_id = a.id
     LEFT JOIN transactions t  ON t.fop_id = f.id
+    WHERE a.business_id = $1
     GROUP BY a.id, a.name, a.type, a.currency, a.branch_id, br.name
     ORDER BY a.branch_id NULLS LAST, a.name
-  `)
+  `, [businessId])
 
   return NextResponse.json(rows)
 }

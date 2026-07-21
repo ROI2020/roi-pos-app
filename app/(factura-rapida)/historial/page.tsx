@@ -44,10 +44,11 @@ export default function HistorialPage() {
     if (search) params.set("q", search)
     try {
       const res  = await fetch(`/api/factura-rapida/historial?${params}`)
-      const data = await res.json() as { items: FacturaRow[]; hasMore: boolean }
-      setItems(prev => reset ? data.items : [...prev, ...data.items])
-      setHasMore(data.hasMore)
-      setOffset(off + data.items.length)
+      const data = await res.json() as { items?: FacturaRow[]; hasMore?: boolean }
+      const rows = data.items ?? []
+      setItems(prev => reset ? rows : [...prev, ...rows])
+      setHasMore(data.hasMore ?? false)
+      setOffset(off + rows.length)
     } catch { /* silent */ }
     finally { setLoading(false) }
   }, [offset, from, to, search])

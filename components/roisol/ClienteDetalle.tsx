@@ -23,7 +23,6 @@ interface Props {
   cliente: {
     id: number | string   // serial4 (integer) de business
     name: string
-    active_plan_id: number | null
     dominios: Dominio[]
     facturacion: Facturacion | null
   }

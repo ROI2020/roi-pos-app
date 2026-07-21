@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * PATCH /api/expense-types/[id]
  * Body: { name?, type?, budget? }
  */
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
+
   try {
     const { id } = await params
     const body = await req.json()
@@ -27,9 +32,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: 'Nada que actualizar' }, { status: 400 })
 
     vals.push(parseInt(id))
+    const idIndex = vals.length
+    vals.push(businessId)
     const { rows } = await pool.query(
       `UPDATE expense_types SET ${sets.join(', ')}
-       WHERE id = $${vals.length} AND active = true
+       WHERE id = $${idIndex} AND active = true AND business_id = $${vals.length}
        RETURNING id, name, type, budget::float AS budget`,
       vals
     )
@@ -44,11 +51,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 /** DELETE /api/expense-types/[id] — soft delete */
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
+
   try {
     const { id } = await params
     const { rowCount } = await pool.query(
-      `UPDATE expense_types SET active = false WHERE id = $1 AND active = true`,
-      [parseInt(id)]
+      `UPDATE expense_types SET active = false WHERE id = $1 AND active = true AND business_id = $2`,
+      [parseInt(id), businessId]
     )
     if (!rowCount)
       return NextResponse.json({ error: 'No encontrado' }, { status: 404 })

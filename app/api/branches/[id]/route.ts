@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * PATCH /api/branches/[id]
@@ -13,6 +14,10 @@ export async function PATCH(
 ) {
   const blocked = await requireFeature('branch.multi')
   if (blocked) return blocked
+
+  const bizResult = await requireBusinessId()
+  if (bizResult instanceof NextResponse) return bizResult
+  const { businessId } = bizResult
 
   const { id } = await params
   const body   = await req.json() as Record<string, unknown>
@@ -27,17 +32,21 @@ export async function PATCH(
   try {
     await client.query('BEGIN')
 
-    // Si se marca como favorita, primero quitarla a todas las demás
+    // Si se marca como favorita, primero quitarla a todas las demás (solo este negocio)
     if (body.is_default === true) {
-      await client.query(`UPDATE branches SET is_default = false WHERE id != $1`, [bid])
+      await client.query(
+        `UPDATE branches SET is_default = false WHERE id != $1 AND business_id = $2`,
+        [bid, businessId]
+      )
     }
 
     const setClauses = updates.map(([k], i) => `${k} = $${i + 1}`).join(', ')
     const values     = updates.map(([, v]) => v)
     values.push(bid)
+    values.push(businessId)
 
     const { rows } = await client.query(
-      `UPDATE branches SET ${setClauses} WHERE id = $${values.length}
+      `UPDATE branches SET ${setClauses} WHERE id = $${values.length - 1} AND business_id = $${values.length}
        RETURNING id, name, address, arca_pos_number, cuit_emisor, is_default`,
       values
     )

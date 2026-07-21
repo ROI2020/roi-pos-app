@@ -6,6 +6,11 @@ import {
   Banknote, CreditCard, Smartphone, ArrowDownUp,
 } from "lucide-react"
 import { toast } from "sonner"
+import { getSession } from "@/lib/session"
+import {
+  OpenSessionContent, CloseSessionContent,
+  type PosSessionFull, type BusinessSettings,
+} from "@/components/pos-session-dialogs"
 import { Button } from "@/components/ui/button"
 import { Input }  from "@/components/ui/input"
 import { Label }  from "@/components/ui/label"
@@ -18,8 +23,8 @@ import {
 } from "@/components/ui/select"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-type PayMethod   = 'efectivo' | 'debito' | 'credito' | 'mp' | 'transferencia'
-type Step        = 'loading' | 'branch' | 'session' | 'expense' | 'saved'
+type PayMethod = 'efectivo' | 'debito' | 'credito' | 'mp' | 'transferencia'
+type Step      = 'loading' | 'branch' | 'session' | 'open-balance' | 'expense' | 'saved' | 'close-session'
 
 interface Branch      { id: number; name: string; is_default: boolean }
 interface PosSession  { id: number; branch_id: number; opened_at: string; closed_at: string | null; branch_name: string | null }
@@ -44,11 +49,13 @@ const PAY_METHODS = [
 ]
 
 const STEP_TITLES: Record<Step, string> = {
-  loading: 'Nuevo Gasto',
-  branch:  'Seleccioná la sucursal',
-  session: 'Seleccioná la sesión',
-  expense: 'Registrar Gasto',
-  saved:   '¡Gasto guardado!',
+  loading:         'Nuevo Gasto',
+  branch:          'Seleccioná la sucursal',
+  session:         'Seleccioná la sesión',
+  'open-balance':  '',
+  expense:         'Registrar Gasto',
+  saved:           '¡Gasto guardado!',
+  'close-session': '',
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -57,25 +64,28 @@ export default function NuevoGastoDialog({
   onSaved,
 }: {
   onClose:  () => void
-  onSaved?: () => void   // callback opcional para refrescar el reporte
+  onSaved?: () => void
 }) {
-  const [step,           setStep          ] = useState<Step>('loading')
-  const [branches,       setBranches      ] = useState<Branch[]>([])
-  const [branchId,       setBranchId      ] = useState<number | null>(null)
-  const [session,        setSession       ] = useState<PosSession | null>(null)
-  const [recentSessions, setRecentSessions] = useState<PosSession[]>([])
-  const [sessionCreated, setSessionCreated] = useState(false)
+  const [step,               setStep              ] = useState<Step>('loading')
+  const [branches,           setBranches          ] = useState<Branch[]>([])
+  const [branchId,           setBranchId          ] = useState<number | null>(null)
+  const [session,            setSession           ] = useState<PosSession | null>(null)
+  const [recentSessions,     setRecentSessions    ] = useState<PosSession[]>([])
+  const [sessionCreated,     setSessionCreated    ] = useState(false)
+  const [closingSessionFull, setClosingSessionFull] = useState<PosSessionFull | null>(null)
+  const [closingBizSettings, setClosingBizSettings] = useState<BusinessSettings | null>(null)
+  const [closingUserName,    setClosingUserName   ] = useState<string | null>(null)
 
   // Campos del formulario
-  const [expenseTypes,   setExpenseTypes  ] = useState<ExpenseType[]>([])
-  const [users,          setUsers         ] = useState<AppUser[]>([])
-  const [expenseTypeId,  setExpenseTypeId ] = useState('')
-  const [description,    setDescription  ] = useState('')
-  const [amount,         setAmount       ] = useState('')
-  const [payMethod,      setPayMethod    ] = useState<PayMethod>('efectivo')
-  const [userId,         setUserId       ] = useState('')
-  const [saving,         setSaving       ] = useState(false)
-  const [savedAmount,    setSavedAmount  ] = useState(0)
+  const [expenseTypes,  setExpenseTypes ] = useState<ExpenseType[]>([])
+  const [users,         setUsers        ] = useState<AppUser[]>([])
+  const [expenseTypeId, setExpenseTypeId] = useState('')
+  const [description,   setDescription ] = useState('')
+  const [amount,        setAmount      ] = useState('')
+  const [payMethod,     setPayMethod   ] = useState<PayMethod>('efectivo')
+  const [userId,        setUserId      ] = useState('')
+  const [saving,        setSaving      ] = useState(false)
+  const [savedAmount,   setSavedAmount ] = useState(0)
 
   // ── Carga inicial ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -94,7 +104,6 @@ export default function NuevoGastoDialog({
         setBranchId(bs[0].id)
         checkSession(bs[0].id)
       } else {
-        // Si hay una favorita, pre-seleccionarla; sino pedir al usuario
         const def = bs.find(b => b.is_default)
         if (def) { setBranchId(def.id); checkSession(def.id) }
         else setStep('branch')
@@ -120,13 +129,13 @@ export default function NuevoGastoDialog({
   }
 
   // ── Crear nueva sesión ────────────────────────────────────────────────────
-  const handleCreateSession = async () => {
+  const handleCreateSession = async (balance: number) => {
     if (!branchId) return
     try {
       const res = await fetch('/api/pos/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ branch_id: branchId, opening_balance: 0 }),
+        body: JSON.stringify({ branch_id: branchId, opening_balance: balance }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -176,22 +185,46 @@ export default function NuevoGastoDialog({
     setStep('expense')
   }
 
-  // ── Cerrar sesión ─────────────────────────────────────────────────────────
-  const handleCloseSession = async () => {
-    if (!session) { onClose(); return }
+  // ── Iniciar cierre (carga stats + settings, va a close-session) ───────────
+  const handleInitCloseSession = async () => {
+    if (!session || !branchId) { onClose(); return }
+    setStep('loading')
     try {
-      const res = await fetch(`/api/pos/sessions/${session.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ closing_balance: 0, notes: 'Cerrada desde Nuevo Gasto' }),
+      const [sessionRes, settingsRes] = await Promise.all([
+        fetch(`/api/pos/sessions?branch_id=${branchId}`).then(r => r.json()),
+        fetch('/api/settings').then(r => r.json()),
+      ])
+      const full: PosSessionFull = sessionRes.session
+      if (!full) { toast.error('No se encontró la sesión activa'); onClose(); return }
+      setClosingSessionFull(full)
+      setClosingBizSettings({
+        business_name:           settingsRes.business_name           ?? null,
+        whatsapp_report_number:  settingsRes.whatsapp_report_number  ?? null,
+        business_logo:           settingsRes.business_logo           ?? null,
+        receipt_phone:           settingsRes.receipt_phone           ?? null,
+        receipt_address:         settingsRes.receipt_address         ?? null,
+        receipt_footer:          settingsRes.receipt_footer          ?? null,
+        receipt_no_invoice_text: settingsRes.receipt_no_invoice_text ?? null,
       })
-      if (!res.ok) throw new Error((await res.json()).error)
-      toast.success('Sesión de caja cerrada')
-    } catch (err: unknown) {
-      toast.error((err as Error).message)
-    } finally {
-      onClose()
+      setClosingUserName(getSession()?.name ?? null)
+      setStep('close-session')
+    } catch {
+      toast.error('Error al cargar datos de sesión')
+      setStep('saved')
     }
+  }
+
+  // ── Confirmar cierre ──────────────────────────────────────────────────────
+  const handleConfirmClose = async (closing: number, notes: string) => {
+    if (!session) return
+    const res = await fetch(`/api/pos/sessions/${session.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ closing_balance: closing, notes }),
+    })
+    if (!res.ok) throw new Error((await res.json()).error)
+    toast.success('Sesión de caja cerrada')
+    onClose()
   }
 
   // ── Render por step ───────────────────────────────────────────────────────
@@ -268,7 +301,7 @@ export default function NuevoGastoDialog({
         <div>
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Nueva sesión</p>
           <button
-            onClick={handleCreateSession}
+            onClick={() => setStep('open-balance')}
             className="w-full flex items-center gap-3 p-3 rounded-xl border-2 border-dashed border-violet-200
                        hover:border-violet-400 hover:bg-violet-50/30 transition-all text-left"
           >
@@ -282,6 +315,15 @@ export default function NuevoGastoDialog({
           </button>
         </div>
       </div>
+    )
+
+    // OPEN-BALANCE
+    if (step === 'open-balance') return (
+      <OpenSessionContent
+        branchName={branchName}
+        onConfirm={handleCreateSession}
+        onCancel={() => setStep('session')}
+      />
     )
 
     // EXPENSE FORM
@@ -396,7 +438,7 @@ export default function NuevoGastoDialog({
 
           {sessionCreated && (
             <Button
-              onClick={handleCloseSession}
+              onClick={handleInitCloseSession}
               variant="outline"
               className="w-full gap-2 text-amber-700 border-amber-200 hover:bg-amber-50"
             >
@@ -412,17 +454,36 @@ export default function NuevoGastoDialog({
       </div>
     )
 
+    // CLOSE-SESSION
+    if (step === 'close-session' && closingSessionFull && closingBizSettings) return (
+      <CloseSessionContent
+        session={closingSessionFull}
+        businessSettings={closingBizSettings}
+        closingUserName={closingUserName}
+        onConfirm={handleConfirmClose}
+        onCancel={() => setStep('saved')}
+      />
+    )
+
     return null
   }
 
   return (
     <Dialog open onOpenChange={v => !v && onClose()}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className={
+        step === 'close-session'
+          ? "sm:max-w-md max-h-[90vh] overflow-y-auto"
+          : "sm:max-w-sm"
+      }>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <span className="text-lg">💸</span>
-            {STEP_TITLES[step]}
-          </DialogTitle>
+          {step === 'open-balance' || step === 'close-session' ? (
+            <DialogTitle />
+          ) : (
+            <DialogTitle className="flex items-center gap-2">
+              <span className="text-lg">💸</span>
+              {STEP_TITLES[step]}
+            </DialogTitle>
+          )}
         </DialogHeader>
         {content()}
       </DialogContent>

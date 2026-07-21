@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const authResult = await requireBusinessId()
+  if (authResult instanceof NextResponse) return authResult
+  const { businessId } = authResult
+
   const { id } = await params
   const productId = parseInt(id)
 
@@ -17,7 +22,7 @@ export async function GET(
       p.base_price::float AS amount,
       '{}'::json        AS extra
     FROM products p
-    WHERE p.id = $1
+    WHERE p.id = $1 AND p.business_id = $2
 
     UNION ALL
 
@@ -42,6 +47,7 @@ export async function GET(
     JOIN purchases pu       ON pu.id  = pd.purchase_id
     LEFT JOIN suppliers sup ON sup.id = pu.supplier_id
     WHERE pd.product_id = $1
+      AND EXISTS (SELECT 1 FROM products WHERE id = $1 AND business_id = $2)
 
     UNION ALL
 
@@ -64,6 +70,7 @@ export async function GET(
     JOIN branches br         ON br.id = s.branch_id
     LEFT JOIN app_users au   ON au.id = s.user_id
     WHERE pv.product_id = $1
+      AND EXISTS (SELECT 1 FROM products WHERE id = $1 AND business_id = $2)
 
     UNION ALL
 
@@ -86,6 +93,7 @@ export async function GET(
     JOIN branches br            ON br.id  = ex.branch_id
     LEFT JOIN app_users au      ON au.id  = ex.user_id
     WHERE pv.product_id = $1
+      AND EXISTS (SELECT 1 FROM products WHERE id = $1 AND business_id = $2)
 
     UNION ALL
 
@@ -108,9 +116,10 @@ export async function GET(
     JOIN branches br            ON br.id  = ex.branch_id
     LEFT JOIN app_users au      ON au.id  = ex.user_id
     WHERE pv2.product_id = $1
+      AND EXISTS (SELECT 1 FROM products WHERE id = $1 AND business_id = $2)
 
     ORDER BY date ASC
-  `, [productId])
+  `, [productId, businessId])
   return NextResponse.json(rows)
   } catch (err) {
     console.error('[GET /api/products/[id]/history]', err)
