@@ -84,8 +84,10 @@ export default function NuevoGastoDialog({
   const [amount,        setAmount      ] = useState('')
   const [payMethod,     setPayMethod   ] = useState<PayMethod>('efectivo')
   const [userId,        setUserId      ] = useState('')
-  const [saving,        setSaving      ] = useState(false)
-  const [savedAmount,   setSavedAmount ] = useState(0)
+  const [saving,          setSaving        ] = useState(false)
+  const [savedAmount,     setSavedAmount   ] = useState(0)
+  const [isRetroSession,  setIsRetroSession ] = useState(false)
+  const [sessionDateSearch, setSessionDateSearch] = useState('')
 
   // ── Carga inicial ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -114,6 +116,8 @@ export default function NuevoGastoDialog({
   // ── Verificar sesión ──────────────────────────────────────────────────────
   const checkSession = async (bid: number) => {
     setStep('loading')
+    setIsRetroSession(false)
+    setSessionDateSearch('')
     try {
       const [activeRes, recentRes] = await Promise.all([
         fetch(`/api/pos/sessions?branch_id=${bid}`).then(r => r.json()),
@@ -125,6 +129,18 @@ export default function NuevoGastoDialog({
     } catch {
       toast.error('Error al verificar sesión de caja')
       onClose()
+    }
+  }
+
+  // ── Buscar sesiones por fecha ─────────────────────────────────────────────
+  const fetchRecentByDate = async (date: string) => {
+    if (!branchId) return
+    const url = `/api/pos/sessions?branch_id=${branchId}&recent=true${date ? `&date=${date}` : ''}`
+    try {
+      const res = await fetch(url).then(r => r.json())
+      setRecentSessions(res.sessions ?? [])
+    } catch {
+      toast.error('Error al buscar sesiones')
     }
   }
 
@@ -163,6 +179,7 @@ export default function NuevoGastoDialog({
           description:     description.trim() || null,
           amount:          amt,
           payment_method:  payMethod,
+          ...(isRetroSession && { created_at: session.opened_at }),
         }),
       })
       const data = await res.json()
@@ -273,15 +290,26 @@ export default function NuevoGastoDialog({
           No hay caja abierta en <strong>{branchName}</strong>.
         </div>
 
-        {recentSessions.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide flex-1">
               Sesiones recientes
             </p>
-            {recentSessions.map(s => (
+            <input
+              type="date"
+              value={sessionDateSearch}
+              onChange={e => {
+                setSessionDateSearch(e.target.value)
+                fetchRecentByDate(e.target.value)
+              }}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600 focus:outline-none focus:ring-1 focus:ring-violet-400"
+            />
+          </div>
+          {recentSessions.length > 0 ? (
+            recentSessions.map(s => (
               <button
                 key={s.id}
-                onClick={() => { setSession(s); setStep('expense') }}
+                onClick={() => { setSession(s); setIsRetroSession(true); setStep('expense') }}
                 className="w-full flex items-center justify-between p-3 rounded-xl border border-gray-200
                            hover:border-violet-300 hover:bg-violet-50/30 transition-all text-left"
               >
@@ -294,9 +322,13 @@ export default function NuevoGastoDialog({
                 </div>
                 <ChevronRight className="h-4 w-4 text-gray-400" />
               </button>
-            ))}
-          </div>
-        )}
+            ))
+          ) : (
+            <p className="text-xs text-gray-400 italic px-1">
+              {sessionDateSearch ? 'Sin sesiones para esa fecha.' : 'Sin sesiones cerradas registradas.'}
+            </p>
+          )}
+        </div>
 
         <div>
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Nueva sesión</p>
@@ -447,7 +479,7 @@ export default function NuevoGastoDialog({
             </Button>
           )}
 
-          <Button onClick={onClose} variant="ghost" className="w-full text-gray-500">
+          <Button onClick={() => { onSaved?.(); onClose() }} variant="ghost" className="w-full text-gray-500">
             Cerrar
           </Button>
         </div>

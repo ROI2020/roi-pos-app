@@ -64,7 +64,7 @@ export async function POST(req: Request) {
 
     const {
       pos_session_id, branch_id, user_id, expense_type_id,
-      description, amount, payment_method,
+      description, amount, payment_method, created_at,
     } = await req.json()
 
     if (!branch_id) return NextResponse.json({ error: 'branch_id requerido' }, { status: 400 })
@@ -76,13 +76,13 @@ export async function POST(req: Request) {
 
     await client.query('BEGIN')
 
-    const { rows } = await client.query(`
-      INSERT INTO daily_expenses
-        (business_id, pos_session_id, branch_id, user_id, expense_type_id,
-         description, amount, payment_method)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-      RETURNING id, business_id, amount::float, payment_method, created_at
-    `, [
+    const insertCols = created_at
+      ? '(business_id, pos_session_id, branch_id, user_id, expense_type_id, description, amount, payment_method, created_at)'
+      : '(business_id, pos_session_id, branch_id, user_id, expense_type_id, description, amount, payment_method)'
+    const insertVals = created_at
+      ? 'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)'
+      : 'VALUES ($1,$2,$3,$4,$5,$6,$7,$8)'
+    const insertParams: unknown[] = [
       businessId,
       pos_session_id   ?? null,
       branchIdNum,
@@ -91,7 +91,14 @@ export async function POST(req: Request) {
       description?.trim() || null,
       parseFloat(amount),
       method,
-    ])
+    ]
+    if (created_at) insertParams.push(created_at)
+
+    const { rows } = await client.query(`
+      INSERT INTO daily_expenses ${insertCols}
+      ${insertVals}
+      RETURNING id, business_id, amount::float, payment_method, created_at
+    `, insertParams)
     const expense = rows[0]
 
     const fopId = await getFopId(client, branchIdNum, method)

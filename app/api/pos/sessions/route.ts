@@ -21,7 +21,15 @@ export async function GET(req: Request) {
   if (!branchId) return NextResponse.json({ error: 'branch_id requerido' }, { status: 400 })
 
   // ?recent=true → devuelve las últimas sesiones CERRADAS (sin el resumen pesado)
+  // ?date=YYYY-MM-DD → filtra por fecha de apertura
   if (searchParams.get('recent') === 'true') {
+    const dateFilter = searchParams.get('date')
+    const params: (string | number)[] = [parseInt(branchId), businessId]
+    let dateClause = ''
+    if (dateFilter) {
+      params.push(dateFilter)
+      dateClause = `AND ps.opened_at::date = $3::date`
+    }
     const { rows } = await pool.query(
       `SELECT ps.id, ps.branch_id, ps.opened_at, ps.closed_at, br.name AS branch_name
          FROM pos_sessions ps
@@ -29,9 +37,10 @@ export async function GET(req: Request) {
         WHERE ps.branch_id = $1
           AND ps.business_id = $2
           AND ps.closed_at IS NOT NULL
+          ${dateClause}
         ORDER BY ps.opened_at DESC
-        LIMIT 5`,
-      [parseInt(branchId), businessId]
+        LIMIT 10`,
+      params
     )
     return NextResponse.json({ sessions: rows })
   }
