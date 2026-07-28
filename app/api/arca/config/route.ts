@@ -68,10 +68,11 @@ export async function GET(req: Request) {
       })
     }
 
-    // Lista todas las configs
+    // Lista las configs del negocio autenticado
     const { rows } = await pool.query<ConfigRow>(
       `SELECT cuit, punto_venta, razon_social, condicion_iva, ambiente
-       FROM facturacion_config WHERE activo = true ORDER BY razon_social`
+       FROM facturacion_config WHERE activo = true AND business_id = $1 ORDER BY razon_social`,
+      [auth.businessId]
     )
     return NextResponse.json(
       rows.map(r => ({
@@ -156,8 +157,8 @@ export async function PATCH(req: Request) {
     }
 
     await pool.query(
-      `UPDATE branches SET cuit_emisor = $1 WHERE id = $2`,
-      [cuit ?? null, branchId]
+      `UPDATE branches SET cuit_emisor = $1 WHERE id = $2 AND business_id = $3`,
+      [cuit ?? null, branchId, auth.businessId]
     )
 
     return NextResponse.json({ ok: true })
