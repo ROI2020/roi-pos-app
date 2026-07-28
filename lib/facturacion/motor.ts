@@ -121,14 +121,12 @@ export async function motorFacturacion(rawInput: FacturacionInput): Promise<Fact
   } catch (e) {
     if ((e as ErrorFacturacion).categoria) {
       const mappedErr = mapearErrorArca(e as ErrorFacturacion)
-      // Persistir intento fallido para debugging
-      await persistirFactura({
-        input,
-        nroComprobante,
-        estado: 'error',
-        errorDetalle: mappedErr.mensaje,
-        rawResponse: null,
-      })
+      // Persistir intento fallido (non-fatal si falla el INSERT)
+      try {
+        await persistirFactura({ input, nroComprobante, estado: 'error', errorDetalle: mappedErr.mensaje, rawResponse: null })
+      } catch (persistErr) {
+        console.error('[motor] No se pudo guardar el error ARCA:', persistErr)
+      }
       throw mappedErr
     }
     const err: ErrorFacturacion = {
@@ -142,15 +140,22 @@ export async function motorFacturacion(rawInput: FacturacionInput): Promise<Fact
   // 7. Parsear CAEFchVto de YYYYMMDD a ISO date string
   const caeVtoISO = `${caeVto.slice(0, 4)}-${caeVto.slice(4, 6)}-${caeVto.slice(6, 8)}`
 
-  // 8. Persistir comprobante emitido
-  const facturaId = await persistirFactura({
-    input,
-    nroComprobante: nroCbte,
-    estado: 'emitida',
-    cae,
-    caeVto: caeVtoISO,
-    rawResponse,
-  })
+  // 8. Persistir comprobante emitido — si falla, ARCA ya aprobó: devolvemos el CAE de todas formas
+  let facturaId: string
+  try {
+    facturaId = await persistirFactura({ input, nroComprobante: nroCbte, estado: 'emitida', cae, caeVto: caeVtoISO, rawResponse })
+  } catch (persistErr) {
+    console.error('[motor] CRÍTICO: ARCA aprobó (CAE:', cae, 'nro:', nroCbte, ') pero el INSERT en facturas falló:', persistErr)
+    // Devolver el output igual — la factura ES válida ante ARCA aunque no esté en nuestra DB
+    // El operador debe verificar en el panel ARCA y registrar manualmente si es necesario
+    return {
+      cae,
+      caeVencimiento: caeVtoISO,
+      nroComprobante: nroCbte,
+      facturaId: 'sin-guardar',
+      pdfUrl: '',
+    }
+  }
 
   // 9. Retornar output
   return {
@@ -173,34 +178,41 @@ interface PersistirParams {
 }
 
 async function persistirFactura(p: PersistirParams): Promise<string> {
-  const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO facturas
-       (venta_id, origen_sistema, cuit_emisor, punto_venta, tipo_cbte,
-        nro_comprobante, fecha_cbte, cae, cae_vto,
-        importe_total, receptor_cuit, receptor_nombre,
-        estado, error_detalle, raw_request, raw_response,
-        business_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-       (SELECT business_id FROM facturacion_config WHERE cuit = $3 AND activo = true LIMIT 1))
-     RETURNING id`,
-    [
-      p.input.meta.origenId,
-      p.input.meta.origenSistema,
-      p.input.emisor.cuit,
-      p.input.emisor.puntoVenta,
-      11,
-      p.nroComprobante,
-      p.input.comprobante.fecha.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'),
-      p.cae ?? null,
-      p.caeVto ?? null,
-      p.input.comprobante.importeTotal,
-      p.input.receptor.cuit ?? null,
-      p.input.receptor.razonSocial ?? null,
-      p.estado,
-      p.errorDetalle ?? null,
-      JSON.stringify(p.input),
-      p.rawResponse ? JSON.stringify(p.rawResponse) : null,
-    ]
-  )
-  return rows[0].id
+  const params = [
+    p.input.meta.origenId,
+    p.input.meta.origenSistema,
+    p.input.emisor.cuit,
+    p.input.emisor.puntoVenta,
+    11,
+    p.nroComprobante,
+    p.input.comprobante.fecha.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'),
+    p.cae ?? null,
+    p.caeVto ?? null,
+    p.input.comprobante.importeTotal,
+    p.input.receptor.cuit ?? null,
+    p.input.receptor.razonSocial ?? null,
+    p.estado,
+    p.errorDetalle ?? null,
+    JSON.stringify(p.input),
+    p.rawResponse ? JSON.stringify(p.rawResponse) : null,
+  ]
+  console.log('[persistirFactura] params:', JSON.stringify(params.slice(0, 14)))
+  try {
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO facturas
+         (venta_id, origen_sistema, cuit_emisor, punto_venta, tipo_cbte,
+          nro_comprobante, fecha_cbte, cae, cae_vto,
+          importe_total, receptor_cuit, receptor_nombre,
+          estado, error_detalle, raw_request, raw_response,
+          business_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+         (SELECT business_id FROM facturacion_config WHERE cuit = $3::varchar AND activo = true LIMIT 1))
+       RETURNING id`,
+      params
+    )
+    return rows[0].id
+  } catch (dbErr) {
+    console.error('[persistirFactura] DB ERROR (estado=' + p.estado + '):', dbErr)
+    throw dbErr
+  }
 }
