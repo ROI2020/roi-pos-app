@@ -98,12 +98,16 @@ export async function adaptarVentaROIPOS(
     })
   }
 
-  // Fecha de la venta en formato YYYYMMDD
+  // Fecha en formato YYYYMMDD — ARCA rechaza fechas de más de 5 días (error 10148).
+  // Si la venta es antigua, usamos la fecha de hoy como fecha del comprobante.
   const fechaVenta = new Date(primera.sold_at)
+  const hoy = new Date()
+  const diffDias = (hoy.getTime() - fechaVenta.getTime()) / (1000 * 60 * 60 * 24)
+  const fechaEfectiva = diffDias > 4 ? hoy : fechaVenta
   const fecha = [
-    fechaVenta.getFullYear(),
-    String(fechaVenta.getMonth() + 1).padStart(2, '0'),
-    String(fechaVenta.getDate()).padStart(2, '0'),
+    fechaEfectiva.getFullYear(),
+    String(fechaEfectiva.getMonth() + 1).padStart(2, '0'),
+    String(fechaEfectiva.getDate()).padStart(2, '0'),
   ].join('')
 
   const condIva = primera.condicion_iva as 'monotributo' | 'responsable_inscripto'

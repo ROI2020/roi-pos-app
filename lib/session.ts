@@ -6,6 +6,7 @@ export interface UserSession {
   avatar_url: string | null
   business_id: number
   plan_id: number
+  product: 'roipos' | 'roifar'
 }
 
 const KEY = 'roipos_user'
@@ -26,6 +27,7 @@ export function setSession(user: UserSession) {
     role: user.role,
     business_id: user.business_id,
     plan_id: user.plan_id,
+    product: user.product,
   }))
   document.cookie = `roipos_session=${value}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`
 }
@@ -43,8 +45,8 @@ export function isRoisolAdmin(session: UserSession | null) {
   return session?.role === 'roisol_admin'
 }
 
-export function landingRoute(role: UserSession['role'], planId?: number): string {
-  if (planId === 10) return '/setup'
+export function landingRoute(role: UserSession['role'], product?: string): string {
+  if (product === 'roifar') return '/setup'
   if (role === 'administrador' || role === 'roisol_admin') return '/dashboard'
   return '/venta'
 }

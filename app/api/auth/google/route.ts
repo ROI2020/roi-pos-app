@@ -15,10 +15,11 @@ export async function POST(req: Request) {
 
     const { email, name, picture } = decodeGoogleJwt(credential)
 
-    // Buscar el usuario por email, resolviendo su plans.id real via business_plan
+    // Buscar el usuario por email, resolviendo plan y producto via business_plan
     const { rows } = await pool.query(
       `SELECT u.id, u.name, u.email, u.role, u.avatar_url, u.business_id,
-              COALESCE(p.id, 1) AS plan_id
+              COALESCE(p.id, 1)        AS plan_id,
+              COALESCE(bp.product, 'roipos') AS product
        FROM app_users u
        LEFT JOIN business b        ON b.id  = u.business_id
        LEFT JOIN business_plan bp  ON bp.id = b.active_subscription_id
@@ -47,6 +48,7 @@ export async function POST(req: Request) {
       avatar_url: picture,
       business_id: user.business_id,
       plan_id: user.plan_id ?? 1,
+      product: user.product ?? 'roipos',
     })
   } catch (err: unknown) {
     console.error('[POST /api/auth/google]', err)

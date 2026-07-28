@@ -40,6 +40,25 @@ function mapearErrorArca(err: ErrorFacturacion): ErrorFacturacion {
 // Orquestador principal. Recibe FacturacionInput y retorna FacturacionOutput.
 // No sabe de dónde vienen los datos ni qué sistema los originó.
 export async function motorFacturacion(rawInput: FacturacionInput): Promise<FacturacionOutput> {
+  // 0. Idempotencia: si ya existe una factura emitida para este origen, devolverla
+  if (rawInput.meta.origenSistema === 'roipos' && rawInput.meta.origenId) {
+    const dup = await pool.query<{ id: string; cae: string; cae_vto: string; nro_comprobante: number }>(
+      `SELECT id, cae, cae_vto, nro_comprobante FROM facturas
+       WHERE venta_id = $1 AND estado = 'emitida' LIMIT 1`,
+      [rawInput.meta.origenId]
+    )
+    if (dup.rows[0]?.cae) {
+      const r = dup.rows[0]
+      return {
+        cae: r.cae,
+        caeVencimiento: r.cae_vto,
+        nroComprobante: r.nro_comprobante,
+        facturaId: r.id,
+        pdfUrl: `/api/facturacion/pdf/${r.id}`,
+      }
+    }
+  }
+
   // 1. Validar input
   const input = adaptarDirecto(rawInput)
 
@@ -60,12 +79,34 @@ export async function motorFacturacion(rawInput: FacturacionInput): Promise<Fact
   const cfg = cfgResult.rows[0]
   const ambiente = cfg.ambiente   // siempre del DB, no de env var global
 
-  // 3. Obtener token WSAA (cert lo resuelve wsaa.ts desde ARCA_CERT_PEM / ARCA_KEY_PEM)
-  const auth = await obtenerToken(input.emisor.cuit, ambiente)
+  // 3. Obtener token WSAA — errores de red se convierten en ErrorFacturacion
+  let auth: { token: string; sign: string }
+  try {
+    auth = await obtenerToken(input.emisor.cuit, ambiente)
+  } catch (e) {
+    if ((e as ErrorFacturacion).categoria) throw e
+    const err: ErrorFacturacion = {
+      categoria: 'red',
+      mensaje: 'No se pudo autenticar con ARCA (WSAA). Verificá la conexión y reintentá en unos minutos.',
+      detalle: String(e),
+    }
+    throw err
+  }
   const authConCuit = { ...auth, cuit: input.emisor.cuit }
 
   // 4. Obtener último nro de comprobante y calcular el siguiente
-  const ultimoNro = await obtenerUltimoNroComprobante(authConCuit, cfg.punto_venta, 11, ambiente)
+  let ultimoNro: number
+  try {
+    ultimoNro = await obtenerUltimoNroComprobante(authConCuit, cfg.punto_venta, 11, ambiente)
+  } catch (e) {
+    if ((e as ErrorFacturacion).categoria) throw e
+    const err: ErrorFacturacion = {
+      categoria: 'red',
+      mensaje: 'No se pudo consultar el último comprobante en ARCA. Reintentá en unos minutos.',
+      detalle: String(e),
+    }
+    throw err
+  }
   const nroComprobante = ultimoNro + 1
 
   // 5-6. Solicitar CAE a ARCA

@@ -19,6 +19,7 @@ interface SessionCookie {
   role: string
   business_id?: number
   plan_id?: number
+  product?: string
 }
 
 function parseSession(raw: string | undefined): SessionCookie | null {
@@ -50,7 +51,7 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/login', req.url))
   }
 
-  const isFacturaRapida = session.plan_id === 10
+  const isFacturaRapida = session.product === 'roifar'
   const isRoisolAdmin   = session.role === 'roisol_admin'
 
   // ── Protección de /roisol — solo roisol_admin ────────────────
@@ -68,10 +69,11 @@ export async function middleware(req: NextRequest) {
   let businessId: number | null = null
   let businessName = ''
 
-  if (host.includes('localhost') || host.includes('127.0.0.1')) {
-    // En localhost el tenant viene de la sesión (evita mismatch FR/ROIPOS)
+  if (host.includes('localhost') || host.includes('127.0.0.1') || isFacturaRapida) {
+    // En localhost y para usuarios ROIFAR el tenant viene de la sesión
+    // (ROIFAR no tiene dominio propio en business_domains)
     businessId   = session.business_id ?? parseInt(process.env.DEV_BUSINESS_ID ?? '0', 10)
-    businessName = 'DEV'
+    businessName = isFacturaRapida ? 'ROIFAR' : 'DEV'
   } else {
     try {
       const res = await fetch(

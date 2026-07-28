@@ -79,14 +79,19 @@ export async function POST(req: Request) {
   try {
     const output = await motorFacturacion(input)
 
-    // Si el origen es ROIPOS, actualizar también la tabla sales con el CAE y número de comprobante
+    // Si el origen es ROIPOS, actualizar también la tabla sales con el CAE y número de comprobante.
+    // Es non-fatal: si el UPDATE falla, la factura ya está emitida y guardada en facturas.
     if (input.meta.origenSistema === 'roipos' && input.meta.origenId) {
       const invoiceNumber =
         `${String(input.emisor.puntoVenta).padStart(5, '0')}-${String(output.nroComprobante).padStart(8, '0')}`
-      await pool.query(
-        `UPDATE sales SET arca_cae = $1, arca_vto_cae = $2, invoice_number = $3 WHERE id = $4`,
-        [output.cae, output.caeVencimiento, invoiceNumber, Number(input.meta.origenId)]
-      )
+      try {
+        await pool.query(
+          `UPDATE sales SET arca_cae = $1, arca_vto_cae = $2, invoice_number = $3 WHERE id = $4`,
+          [output.cae, output.caeVencimiento, invoiceNumber, Number(input.meta.origenId)]
+        )
+      } catch (updateErr) {
+        console.error('[facturacion/emitir] WARNING: factura emitida pero no se pudo actualizar sales:', updateErr)
+      }
     }
 
     return NextResponse.json(output, { status: 200 })

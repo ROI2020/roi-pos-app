@@ -59,7 +59,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     const s = getSession()
-    if (s) router.replace(landingRoute(s.role, s.plan_id))
+    if (s) router.replace(landingRoute(s.role, s.product))
   }, [router])
 
   useEffect(() => {
@@ -103,7 +103,7 @@ export default function LoginPage() {
         return
       }
       setSession(data)
-      router.push(landingRoute(data.role, data.plan_id))
+      router.push(landingRoute(data.role, data.product))
     } catch {
       setError('Error de conexión. Intentá de nuevo.')
     } finally {
