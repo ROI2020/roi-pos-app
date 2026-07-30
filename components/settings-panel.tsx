@@ -754,6 +754,7 @@ function CatalogoTab() {
   const [showToken,   setShowToken  ] = useState(false)
   const [banner,      setBanner     ] = useState<string | null>(null)
   const [bannerText,  setBannerText ] = useState('')
+  const [envioInfo,   setEnvioInfo  ] = useState('')
   const [ga4MeasurementId, setGa4MeasurementId] = useState('')
   const [ga4PropertyId,    setGa4PropertyId   ] = useState('')
   const [saving,      setSaving     ] = useState(false)
@@ -769,6 +770,7 @@ function CatalogoTab() {
         setToken(d.catalog_token ?? '')
         setBanner(d.catalog_banner ?? null)
         setBannerText(d.catalog_banner_text ?? '')
+        setEnvioInfo(d.catalog_envio_info ?? '')
         setGa4MeasurementId(d.catalog_ga4_measurement_id ?? '')
         setGa4PropertyId(d.catalog_ga4_property_id ?? '')
       })
@@ -804,6 +806,7 @@ function CatalogoTab() {
           catalog_token:      token.trim() || null,
           catalog_banner:              banner,
           catalog_banner_text:         bannerText.trim() || null,
+          catalog_envio_info:          envioInfo.trim() || null,
           catalog_ga4_measurement_id:  ga4MeasurementId.trim() || null,
           catalog_ga4_property_id:     ga4PropertyId.trim() || null,
         }),
@@ -973,6 +976,21 @@ function CatalogoTab() {
           />
           <p className="text-xs text-gray-400">
             Cada línea se muestra como una entrada en la tienda. Podés usar emojis.
+          </p>
+        </div>
+
+        {/* Info de envío y retiro */}
+        <div className="space-y-1.5">
+          <Label>Información de envío y retiro</Label>
+          <textarea
+            value={envioInfo}
+            onChange={e => setEnvioInfo(e.target.value)}
+            rows={4}
+            placeholder={'📦 Envíos a todo el país por Correo Argentino y Andreani\n🏪 Retiro en tienda: Av. Ejemplo 1234, Lunes a Viernes 10-18hs\n⏱️ Entrega en 2-5 días hábiles'}
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none leading-relaxed"
+          />
+          <p className="text-xs text-gray-400">
+            Se muestra en el detalle de cada producto. Cada línea = una opción.
           </p>
         </div>
       </div>

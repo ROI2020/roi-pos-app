@@ -64,7 +64,7 @@ export default function LoginPage() {
     // wipe localStorage too so the Google button shows and a fresh login happens.
     const hasCookie = document.cookie.includes('roipos_session=')
     if (!hasCookie) { clearSession(); return }
-    router.replace(landingRoute(s.role, s.product))
+    window.location.replace(landingRoute(s.role, s.product))
   }, [router])
 
   useEffect(() => {
@@ -108,7 +108,9 @@ export default function LoginPage() {
         return
       }
       setSession(data)
-      router.push(landingRoute(data.role, data.product))
+      // Hard navigation para que el root layout se re-renderice con el cookie nuevo
+      // (router.push reutiliza el RSC cache donde isFacturaRapida puede ser stale)
+      window.location.href = landingRoute(data.role, data.product)
     } catch {
       setError('Error de conexión. Intentá de nuevo.')
     } finally {

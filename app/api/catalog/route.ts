@@ -18,7 +18,7 @@ export async function GET() {
        WHERE key IN (
          'business_name','business_logo',
          'receipt_address','receipt_phone','whatsapp_report_number',
-         'catalog_banner','catalog_banner_text'
+         'catalog_banner','catalog_banner_text','catalog_envio_info'
        )`
     )
     const s = Object.fromEntries(settingRows.map(r => [r.key, r.value]))
@@ -37,6 +37,7 @@ export async function GET() {
       size:               string
       specific_image_url: string | null
       in_stock:           boolean
+      stock_count:        number
     }>(
       `SELECT
          p.id                                                      AS product_id,
@@ -53,7 +54,12 @@ export async function GET() {
          (EXISTS (
            SELECT 1 FROM branch_inventory bi
            WHERE bi.product_variant_id = pv.id
-         ))                                                        AS in_stock
+         ))                                                        AS in_stock,
+         COALESCE((
+           SELECT COUNT(bi.id)::int
+           FROM branch_inventory bi
+           WHERE bi.product_variant_id = pv.id
+         ), 0)                                                     AS stock_count
        FROM products p
        LEFT JOIN categories c ON c.id = p.category_id
        JOIN product_variants pv ON pv.product_id = p.id
@@ -65,7 +71,7 @@ export async function GET() {
     const productMap = new Map<number, {
       id: number; name: string; description: string | null
       price: number; category: string | null; has_image: boolean
-      variants: { id: number; sku: string; color: string; size: string; specific_image_url: string | null; in_stock: boolean }[]
+      variants: { id: number; sku: string; color: string; size: string; specific_image_url: string | null; in_stock: boolean; stock_count: number }[]
     }>()
 
     for (const row of rows) {
@@ -87,6 +93,7 @@ export async function GET() {
         size:               row.size,
         specific_image_url: row.specific_image_url,
         in_stock:           row.in_stock,
+        stock_count:        row.stock_count,
       })
     }
 
@@ -97,13 +104,14 @@ export async function GET() {
 
     return NextResponse.json({
       store: {
-        name:        s.business_name           ?? null,
-        logo:        s.business_logo           ?? null,
-        address:     s.receipt_address         ?? null,
-        phone:       s.receipt_phone           ?? null,
-        whatsapp:    s.whatsapp_report_number  ?? null,
-        has_banner:  !!s.catalog_banner,
-        banner_text: s.catalog_banner_text     ?? null,
+        name:          s.business_name           ?? null,
+        logo:          s.business_logo           ?? null,
+        address:       s.receipt_address         ?? null,
+        phone:         s.receipt_phone           ?? null,
+        whatsapp:      s.whatsapp_report_number  ?? null,
+        has_banner:    !!s.catalog_banner,
+        banner_text:   s.catalog_banner_text     ?? null,
+        shipping_info: s.catalog_envio_info      ?? null,
       },
       categories,
       products,

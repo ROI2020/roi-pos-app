@@ -130,7 +130,13 @@ export async function GET(
     }
   }
 
-  const pdfBytes = await generarPDF(factura)
+  let pdfBytes: Uint8Array
+  try {
+    pdfBytes = await generarPDF(factura)
+  } catch (err) {
+    console.error('[facturacion/pdf/a4] error generando PDF:', err)
+    return NextResponse.json({ error: 'Error generando PDF' }, { status: 500 })
+  }
   const pdfBuffer = Buffer.from(pdfBytes)
 
   const storageDir = path.join(process.cwd(), 'storage', 'facturas', factura.cuit_emisor)
@@ -150,7 +156,10 @@ export async function GET(
 }
 
 function pdfResponse(buf: Uint8Array, filename: string): Response {
-  return new Response(buf.buffer as ArrayBuffer, {
+  // Pasar buf directamente (Uint8Array) en lugar de buf.buffer:
+  // buf.buffer puede devolver el ArrayBuffer del pool de Node.js completo
+  // cuando el Buffer fue asignado desde el pool compartido (byteOffset > 0).
+  return new Response(buf, {
     headers: {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${filename}"`,
@@ -197,11 +206,20 @@ async function generarPDF(factura: FacturaRow): Promise<Uint8Array> {
   }
 
   // ── Encabezado ───────────────────────────────────────────────────────────
-  drawText('FACTURA B', width / 2 - 50, y, 18, true)
+  const tipoCbteLabel: Record<number, string> = { 6: 'FACTURA B', 11: 'FACTURA C', 1: 'FACTURA A' }
+  const cbteLabel = tipoCbteLabel[factura.tipo_cbte] ?? `COMPROBANTE ${factura.tipo_cbte}`
+  drawText(cbteLabel, width / 2 - 50, y, 18, true)
   y -= 25
   drawText(`Nº ${String(factura.punto_venta).padStart(4, '0')}-${String(factura.nro_comprobante).padStart(8, '0')}`, width / 2 - 60, y, 12)
   y -= 20
-  drawText(`Fecha: ${factura.fecha_cbte}`, width / 2 - 40, y, 10)
+  const fechaCbteStr = (() => {
+    const raw = factura.fecha_cbte
+    if (raw instanceof Date) return `${String(raw.getDate()).padStart(2,'0')}/${String(raw.getMonth()+1).padStart(2,'0')}/${raw.getFullYear()}`
+    const s = String(raw).split('T')[0]
+    const [yr, mo, dy] = s.split('-')
+    return dy ? `${dy}/${mo}/${yr}` : s
+  })()
+  drawText(`Fecha: ${fechaCbteStr}`, width / 2 - 40, y, 10)
 
   y -= 15
   page.drawLine({ start: { x: margin, y }, end: { x: width - margin, y }, thickness: 1, color: rgb(0, 0, 0) })
