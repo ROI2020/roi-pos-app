@@ -30,9 +30,10 @@ export async function GET() {
     razon_social: string
     condicion_iva: string
     ambiente: string
+    concepto: number
     last_verified_at: string | null
   }>(
-    `SELECT cuit, punto_venta, razon_social, condicion_iva, ambiente, last_verified_at
+    `SELECT cuit, punto_venta, razon_social, condicion_iva, ambiente, concepto, last_verified_at
      FROM facturacion_config
      WHERE business_id = $1 AND activo = true
      LIMIT 1`,
@@ -48,6 +49,7 @@ export async function GET() {
     razonSocial:    cfg.razon_social,
     condicionIva:   cfg.condicion_iva as "monotributo" | "responsable_inscripto",
     ambiente:       cfg.ambiente as "homo" | "prod",
+    concepto:       (cfg.concepto ?? 2) as 1 | 2 | 3,
     lastVerifiedAt: cfg.last_verified_at,
   })
 }

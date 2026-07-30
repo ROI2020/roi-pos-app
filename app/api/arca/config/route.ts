@@ -21,6 +21,7 @@ interface ConfigRow {
   razon_social: string
   condicion_iva: string
   ambiente: string
+  concepto: number
 }
 
 /**
@@ -70,7 +71,7 @@ export async function GET(req: Request) {
 
     // Lista las configs del negocio autenticado
     const { rows } = await pool.query<ConfigRow>(
-      `SELECT cuit, punto_venta, razon_social, condicion_iva, ambiente
+      `SELECT cuit, punto_venta, razon_social, condicion_iva, ambiente, concepto
        FROM facturacion_config WHERE activo = true AND business_id = $1 ORDER BY razon_social`,
       [auth.businessId]
     )
@@ -81,6 +82,7 @@ export async function GET(req: Request) {
         razonSocial: r.razon_social,
         condicionIva: r.condicion_iva,
         ambiente: r.ambiente,
+        concepto: r.concepto as 1 | 2 | 3,
       }))
     )
   } catch (err) {
@@ -99,12 +101,13 @@ export async function POST(req: Request) {
   const { businessId } = auth
 
   try {
-    const { cuit, puntoVenta, razonSocial, condicionIva, ambiente } = await req.json() as {
+    const { cuit, puntoVenta, razonSocial, condicionIva, ambiente, concepto } = await req.json() as {
       cuit: string
       puntoVenta: number
       razonSocial: string
       condicionIva: string
       ambiente: string
+      concepto?: number
     }
 
     if (!cuit?.trim() || !razonSocial?.trim() || !puntoVenta) {
@@ -117,18 +120,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'condicionIva inválida' }, { status: 400 })
     }
 
+    const conceptoVal = concepto && [1, 2, 3].includes(concepto) ? concepto : 1
     await pool.query(
       `INSERT INTO facturacion_config
-         (cuit, punto_venta, razon_social, condicion_iva, ambiente, activo, business_id)
-       VALUES ($1, $2, $3, $4, $5, true, $6)
+         (cuit, punto_venta, razon_social, condicion_iva, ambiente, concepto, activo, business_id)
+       VALUES ($1, $2, $3, $4, $5, $6, true, $7)
        ON CONFLICT (cuit) DO UPDATE SET
          punto_venta   = EXCLUDED.punto_venta,
          razon_social  = EXCLUDED.razon_social,
          condicion_iva = EXCLUDED.condicion_iva,
          ambiente      = EXCLUDED.ambiente,
+         concepto      = EXCLUDED.concepto,
          business_id   = EXCLUDED.business_id,
          activo        = true`,
-      [cuit.trim(), puntoVenta, razonSocial.trim(), condicionIva, ambiente, businessId]
+      [cuit.trim(), puntoVenta, razonSocial.trim(), condicionIva, ambiente, conceptoVal, businessId]
     )
 
     return NextResponse.json({ ok: true })

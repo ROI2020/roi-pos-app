@@ -123,8 +123,7 @@ export default function SetupPage() {
         </div>
       )}
 
-      {/* ArcaConfigPanel reutilizado sin modificaciones */}
-      <ArcaConfigPanel />
+      <ArcaConfigPanel suggestedConcepto={2} />
     </div>
   )
 }

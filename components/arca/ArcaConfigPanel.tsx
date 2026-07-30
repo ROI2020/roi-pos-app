@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 
 type CondicionIva = 'monotributo' | 'responsable_inscripto'
 type Ambiente = 'homo' | 'prod'
+type Concepto = 1 | 2 | 3
 
 interface ArcaConfig {
   cuit: string
@@ -13,6 +14,7 @@ interface ArcaConfig {
   razonSocial: string
   condicionIva: CondicionIva
   ambiente: Ambiente
+  concepto: Concepto
 }
 
 interface Branch {
@@ -49,14 +51,15 @@ function validarCuit(cuit: string): boolean {
   return check === parseInt(digits[10])
 }
 
-const EMPTY_FORM: ArcaConfig = {
+const makeEmptyForm = (suggestedConcepto: Concepto): ArcaConfig => ({
   cuit: '', puntoVenta: 1, razonSocial: '', condicionIva: 'monotributo', ambiente: 'homo',
-}
+  concepto: suggestedConcepto,
+})
 
-export default function ArcaConfigPanel() {
+export default function ArcaConfigPanel({ suggestedConcepto = 1 }: { suggestedConcepto?: Concepto }) {
   const [configs,        setConfigs       ] = useState<ArcaConfig[]>([])
   const [branches,       setBranches      ] = useState<Branch[]>([])
-  const [form,           setForm          ] = useState<ArcaConfig>(EMPTY_FORM)
+  const [form,           setForm          ] = useState<ArcaConfig>(() => makeEmptyForm(suggestedConcepto))
   const [selectedCuit,   setSelectedCuit  ] = useState<string | null>(null)
   const [saving,         setSaving        ] = useState(false)
   const [saveOk,         setSaveOk        ] = useState(false)
@@ -93,7 +96,7 @@ export default function ArcaConfigPanel() {
   }
 
   function newConfig() {
-    setForm(EMPTY_FORM); setSelectedCuit(null)
+    setForm(makeEmptyForm(suggestedConcepto)); setSelectedCuit(null)
     setVerificacion(null); setSaveOk(false); setSaveError(null)
   }
 
@@ -107,7 +110,7 @@ export default function ArcaConfigPanel() {
       const res = await fetch('/api/arca/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, concepto: form.concepto }),
       })
       const data = await res.json()
       if (!res.ok) { setSaveError(data.error ?? 'Error al guardar'); return }
@@ -253,6 +256,32 @@ export default function ArcaConfigPanel() {
                 ⚠️ Producción emite facturas reales con validez fiscal.
               </p>
             )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Concepto AFIP
+              {form.concepto !== suggestedConcepto && (
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, concepto: suggestedConcepto }))}
+                  className="ml-2 text-xs text-violet-500 hover:underline font-normal"
+                >
+                  (volver al sugerido)
+                </button>
+              )}
+            </label>
+            <select
+              value={form.concepto}
+              onChange={e => setForm(f => ({ ...f, concepto: parseInt(e.target.value) as Concepto }))}
+              className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
+            >
+              <option value={1}>1 — Productos{suggestedConcepto === 1 ? ' (sugerido)' : ''}</option>
+              <option value={2}>2 — Servicios{suggestedConcepto === 2 ? ' (sugerido)' : ''}</option>
+              <option value={3}>3 — Productos y Servicios{suggestedConcepto === 3 ? ' (sugerido)' : ''}</option>
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              Determina si facturas ventas de mercadería, servicios prestados, o ambos.
+            </p>
           </div>
         </div>
 

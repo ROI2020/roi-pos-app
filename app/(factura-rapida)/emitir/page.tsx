@@ -36,6 +36,7 @@ interface FRConfig {
   razonSocial:   string
   condicionIva:  "monotributo" | "responsable_inscripto"
   ambiente:      "homo" | "prod"
+  concepto:      1 | 2 | 3
 }
 
 const MAX_FILAS = 20
@@ -82,7 +83,7 @@ function buildInput(
       importeTotal: importe,
       importeNeto:  importe,
       importeIva:   0,
-      concepto:     2,  // servicios
+      concepto:     config.concepto,
     },
     meta: {
       origenId:      crypto.randomUUID(),
