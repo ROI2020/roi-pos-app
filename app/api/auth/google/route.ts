@@ -15,11 +15,11 @@ export async function POST(req: Request) {
 
     const { email, name, picture } = decodeGoogleJwt(credential)
 
-    // Buscar el usuario por email, resolviendo plan y producto via business_plan
+    // product: plans.product es la fuente de verdad; bp.product como fallback legacy; default 'roipos'.
     const { rows } = await pool.query(
       `SELECT u.id, u.name, u.email, u.role, u.avatar_url, u.business_id,
-              COALESCE(p.id, 1)        AS plan_id,
-              COALESCE(bp.product, 'roipos') AS product
+              COALESCE(p.id, 1) AS plan_id,
+              COALESCE(p.product, bp.product, 'roipos') AS product
        FROM app_users u
        LEFT JOIN business b        ON b.id  = u.business_id
        LEFT JOIN business_plan bp  ON bp.id = b.active_subscription_id

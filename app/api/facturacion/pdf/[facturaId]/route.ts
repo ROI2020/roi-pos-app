@@ -17,7 +17,7 @@ async function isAuthorized(req: Request): Promise<boolean> {
   if (!raw) return false
   try {
     const { role } = JSON.parse(decodeURIComponent(raw)) as { id: number; role: string }
-    return role === 'administrador'
+    return role === 'administrador' || role === 'roisol_admin'
   } catch {
     return false
   }

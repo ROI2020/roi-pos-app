@@ -141,6 +141,23 @@ export async function solicitarCAE(
   const docTipo = input.receptor.cuit ? 80 : 99
   const docNro  = input.receptor.cuit ? input.receptor.cuit.replace(/-/g, '') : '0'
 
+  // Concepto 2 o 3 (servicios) exige FchServDesde, FchServHasta y FchVtoPago.
+  // Se deriva del mes de la fecha del comprobante.
+  const concepto = input.comprobante.concepto
+  let servicioXml = ''
+  if (concepto === 2 || concepto === 3) {
+    const fecha = input.comprobante.fecha // YYYYMMDD
+    const year  = parseInt(fecha.slice(0, 4))
+    const month = parseInt(fecha.slice(4, 6))
+    const desde = `${fecha.slice(0, 6)}01`
+    const lastDay = new Date(year, month, 0).getDate()
+    const hasta = `${fecha.slice(0, 6)}${String(lastDay).padStart(2, '0')}`
+    servicioXml = `
+            <ar:FchServDesde>${desde}</ar:FchServDesde>
+            <ar:FchServHasta>${hasta}</ar:FchServHasta>
+            <ar:FchVtoPago>${hasta}</ar:FchVtoPago>`
+  }
+
   const soapBody = `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" ${AR_NS}>
   <soapenv:Header/>
@@ -155,7 +172,7 @@ export async function solicitarCAE(
         </ar:FeCabReq>
         <ar:FeDetReq>
           <ar:FECAEDetRequest>
-            <ar:Concepto>${input.comprobante.concepto}</ar:Concepto>
+            <ar:Concepto>${concepto}</ar:Concepto>
             <ar:DocTipo>${docTipo}</ar:DocTipo>
             <ar:DocNro>${docNro}</ar:DocNro>
             <ar:CbteDesde>${nroComprobante}</ar:CbteDesde>
@@ -168,7 +185,7 @@ export async function solicitarCAE(
             <ar:ImpIVA>0</ar:ImpIVA>
             <ar:ImpTrib>0</ar:ImpTrib>
             <ar:MonId>PES</ar:MonId>
-            <ar:MonCotiz>1</ar:MonCotiz>
+            <ar:MonCotiz>1</ar:MonCotiz>${servicioXml}
           </ar:FECAEDetRequest>
         </ar:FeDetReq>
       </ar:FeCAEReq>

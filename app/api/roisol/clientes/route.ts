@@ -63,7 +63,7 @@ export async function POST(req: Request) {
     if (!puntoVenta || puntoVenta < 1) return NextResponse.json({ error: 'Punto de venta inválido' }, { status: 400 })
     if (!razonSocial?.trim()) return NextResponse.json({ error: 'Razón social obligatoria' }, { status: 400 })
 
-    const subdominio = `${slug}.roisol.com.ar`
+    const subdominio = `${slug}.roipos.com.ar`
     const dominioFinal = dominioPropio?.trim() || null
 
     const client = await pool.connect()
@@ -90,7 +90,7 @@ export async function POST(req: Request) {
         [bplan.id, businessId]
       )
 
-      // 2. Insertar subdominio *.roisol.com.ar
+      // 2. Insertar subdominio *.roipos.com.ar
       //    Es primario solo si no hay dominio propio
       await client.query(
         `INSERT INTO business_domains (business_id, domain, is_primary)
