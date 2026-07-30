@@ -2,7 +2,8 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { clearSession } from "@/lib/session"
+import { useEffect, useState } from "react"
+import { clearSession, getSession, type UserSession } from "@/lib/session"
 import { LogOut, Settings, FileText, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -15,6 +16,9 @@ const NAV_LINKS = [
 export function FRHeader({ businessName }: { businessName: string }) {
   const pathname = usePathname()
   const router   = useRouter()
+  const [session, setSession] = useState<UserSession | null>(null)
+
+  useEffect(() => { setSession(getSession()) }, [])
 
   function signOut() {
     clearSession()
@@ -30,10 +34,25 @@ export function FRHeader({ businessName }: { businessName: string }) {
           <span className="text-sm font-semibold text-slate-700">Factura Rápida</span>
         </div>
         <span className="text-xs text-slate-500 hidden sm:block truncate max-w-[160px]">{businessName}</span>
-        <Button variant="ghost" size="sm" onClick={signOut} className="gap-1.5 text-slate-500 hover:text-slate-700">
-          <LogOut className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline text-xs">Salir</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          {session?.avatar_url && (
+            <img src={session.avatar_url} alt={session.name}
+              className="h-7 w-7 rounded-full ring-2 ring-violet-200 shrink-0" />
+          )}
+          <span className="text-xs text-slate-500 hidden lg:block max-w-[120px] truncate">
+            {session?.name}
+          </span>
+          <span
+            className="text-[10px] text-slate-300 hidden lg:block select-none"
+            title={`Build ${process.env.NEXT_PUBLIC_BUILD_DATE}`}
+          >
+            v{process.env.NEXT_PUBLIC_APP_VERSION}
+          </span>
+          <Button variant="ghost" size="sm" onClick={signOut} className="gap-1.5 text-slate-500 hover:text-slate-700">
+            <LogOut className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline text-xs">Salir</span>
+          </Button>
+        </div>
       </header>
 
       <nav className="bg-white border-b px-2 flex items-center gap-0">

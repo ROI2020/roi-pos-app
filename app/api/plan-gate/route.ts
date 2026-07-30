@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
 import { getBusinessPlanInfo, getAllFeatureAccess } from '@/lib/plan-gate'
 
 // GET /api/plan-gate
@@ -6,7 +7,17 @@ import { getBusinessPlanInfo, getAllFeatureAccess } from '@/lib/plan-gate'
 // Lo consume el PlanContext en el cliente (se llama una sola vez al cargar la app).
 export async function GET() {
   try {
-    const planInfo = await getBusinessPlanInfo(1)
+    const cookieStore = await cookies()
+    const raw = cookieStore.get('roipos_session')?.value
+    let businessId = 1
+    if (raw) {
+      try {
+        const s = JSON.parse(decodeURIComponent(raw)) as { business_id?: number }
+        if (s.business_id) businessId = s.business_id
+      } catch { /* usa default 1 */ }
+    }
+
+    const planInfo = await getBusinessPlanInfo(businessId)
     const features = await getAllFeatureAccess(planInfo.planLevel)
 
     return NextResponse.json({

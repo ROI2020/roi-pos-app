@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { setSession, getSession, landingRoute } from "@/lib/session"
+import { setSession, getSession, clearSession, landingRoute } from "@/lib/session"
 import { Loader2, ShieldAlert, ArrowLeft } from "lucide-react"
 
 const ERRORES_DOMINIO: Record<string, { titulo: string; mensaje: string; codigo: string }> = {
@@ -59,7 +59,12 @@ export default function LoginPage() {
 
   useEffect(() => {
     const s = getSession()
-    if (s) router.replace(landingRoute(s.role, s.product))
+    if (!s) return
+    // If the cookie is gone (e.g. user cleared cookies but not localStorage),
+    // wipe localStorage too so the Google button shows and a fresh login happens.
+    const hasCookie = document.cookie.includes('roipos_session=')
+    if (!hasCookie) { clearSession(); return }
+    router.replace(landingRoute(s.role, s.product))
   }, [router])
 
   useEffect(() => {
