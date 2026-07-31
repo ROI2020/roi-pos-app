@@ -60,9 +60,9 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(new URL('/', req.url))
     }
     // roisol_admin en /roisol: pasar sin más restricciones
-    const response = NextResponse.next()
-    response.headers.set('x-is-factura-rapida', 'false')
-    return response
+    const rqh = new Headers(req.headers)
+    rqh.set('x-is-factura-rapida', 'false')
+    return NextResponse.next({ request: { headers: rqh } })
   }
 
   // ── Detección de tenant ──────────────────────────────────────
@@ -133,14 +133,16 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // ── Inyectar headers de contexto ────────────────────────────
-  const response = NextResponse.next()
+  // ── Inyectar headers de contexto como request headers ───────
+  // IMPORTANTE: deben ir en request.headers (no response.headers) para que
+  // los Server Components los lean vía headers() de next/headers.
+  const requestHeaders = new Headers(req.headers)
+  requestHeaders.set('x-is-factura-rapida', String(isFacturaRapida))
   if (businessId !== null) {
-    response.headers.set('x-business-id', String(businessId))
-    response.headers.set('x-business-name', businessName)
+    requestHeaders.set('x-business-id', String(businessId))
+    requestHeaders.set('x-business-name', businessName)
   }
-  response.headers.set('x-is-factura-rapida', String(isFacturaRapida))
-  return response
+  return NextResponse.next({ request: { headers: requestHeaders } })
 }
 
 export const config = {

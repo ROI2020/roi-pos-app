@@ -18,7 +18,8 @@ export async function GET() {
        WHERE key IN (
          'business_name','business_logo',
          'receipt_address','receipt_phone','whatsapp_report_number',
-         'catalog_banner','catalog_banner_text','catalog_envio_info'
+         'catalog_banner','catalog_banner_text','catalog_envio_info',
+         'catalog_phone'
        )`
     )
     const s = Object.fromEntries(settingRows.map(r => [r.key, r.value]))
@@ -108,7 +109,7 @@ export async function GET() {
         logo:          s.business_logo           ?? null,
         address:       s.receipt_address         ?? null,
         phone:         s.receipt_phone           ?? null,
-        whatsapp:      s.whatsapp_report_number  ?? null,
+        whatsapp:      s.catalog_phone            ?? s.whatsapp_report_number ?? null,
         has_banner:    !!s.catalog_banner,
         banner_text:   s.catalog_banner_text     ?? null,
         shipping_info: s.catalog_envio_info      ?? null,
