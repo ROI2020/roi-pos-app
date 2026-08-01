@@ -3,8 +3,9 @@ const { version } = JSON.parse(readFileSync(new URL('./package.json', import.met
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // node-soap usa CommonJS y no puede ser bundleado por webpack — debe cargarse en runtime
-  serverExternalPackages: ['node-soap'],
+  // Paquetes que no pueden ser bundleados por webpack (usan CommonJS, binarios nativos, etc.)
+  // sharp y @img/* son arrastrados por quagga2 → ndarray-pixels en el path Node.js del scanner
+  serverExternalPackages: ['node-soap', 'sharp'],
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -26,6 +27,16 @@ const nextConfig = {
         ? [...config.externals, 'node-soap']
         : [config.externals, 'node-soap'].filter(Boolean)
     }
+
+    // sharp y @img/* (binarios nativos .so / .node) son arrastrados por
+    // @ericblade/quagga2 → ndarray-pixels → sharp en su path de Node.js.
+    // Webpack no puede parsear binarios nativos, así que los marcamos externos
+    // tanto para el bundle del cliente como del servidor.
+    const nativeExternals = ['sharp', /^@img\//]
+    config.externals = Array.isArray(config.externals)
+      ? [...config.externals, ...nativeExternals]
+      : [config.externals, ...nativeExternals].filter(Boolean)
+
     return config
   },
 }
