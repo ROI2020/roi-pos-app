@@ -118,7 +118,7 @@ function LabelCard({ variant, settings }: { variant: LabelVariant; settings: Lab
 
       {/* Código de barras */}
       <div className="label-barcode">
-        <BarcodeImg value={variant.barcode} height={22} />
+        <BarcodeImg value={variant.barcode} height={40} />
       </div>
 
       {/* Marca de ya impresa (solo visible en pantalla) */}
@@ -480,6 +480,89 @@ function SelectionPanel({
   )
 }
 
+// ── Generador de HTML de impresión (ventana dedicada) ─────────────────────────
+function buildLabelsHTML(
+  variants: LabelVariant[],
+  settings: LabelSettings,
+  barcodeSVGs: string[],
+): string {
+  const fmtP = (n: number) =>
+    new Intl.NumberFormat('es-AR', {
+      style: 'currency', currency: 'ARS', maximumFractionDigits: 0,
+    }).format(n)
+
+  const bizName = settings.businessName ?? 'ROI POS'
+  const logoTag = settings.businessLogo
+    ? `<img src="${settings.businessLogo}" alt="" style="height:5mm;width:auto;max-width:14mm;object-fit:contain;flex-shrink:0;" />`
+    : ''
+
+  const cardsHTML = variants.map((v, idx) => `
+    <div class="lc">
+      <div class="lh">
+        ${logoTag}
+        <span class="lb">${bizName}</span>
+        <span class="lby">by ROIPOS</span>
+      </div>
+      <div class="lr">
+        <span class="lp">${v.product_name}</span>
+        <span class="lpr">${fmtP(v.base_price)}</span>
+      </div>
+      <div class="la">
+        <span>${v.color}</span>
+        <span class="ls"> · </span>
+        <span class="lsz">T.${v.size}</span>
+        <span class="lsk">${v.barcode}</span>
+      </div>
+      <div class="lbc">${barcodeSVGs[idx] ?? ''}</div>
+    </div>`
+  ).join('')
+
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<title>Etiquetas</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;color:#000;}
+body{background:#fff;font-family:Arial,Helvetica,sans-serif;}
+@page{size:60mm 30mm;margin:0;}
+.lc{
+  display:flex;flex-direction:column;
+  width:60mm;height:30mm;
+  padding:1mm 2mm 0.5mm;
+  overflow:hidden;
+  page-break-before:always;break-before:page;
+  page-break-inside:avoid;break-inside:avoid;
+}
+.lc:first-child{page-break-before:auto;break-before:auto;}
+.lh{
+  position:relative;display:flex;align-items:center;
+  justify-content:space-between;min-height:4mm;
+  border-bottom:.3mm solid #000;
+  padding-bottom:.3mm;margin-bottom:.3mm;
+}
+.lb{
+  position:absolute;left:0;right:0;text-align:center;
+  font-size:6pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+}
+.lby{font-size:5pt;color:#555;flex-shrink:0;}
+.lr{display:flex;align-items:baseline;justify-content:space-between;gap:1mm;}
+.lp{font-size:6.5pt;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.lpr{font-size:8pt;font-weight:700;white-space:nowrap;flex-shrink:0;}
+.la{font-size:6pt;display:flex;align-items:center;gap:1mm;}
+.ls{color:#999;}
+.lsz{font-weight:600;}
+.lsk{margin-left:auto;font-size:5.5pt;color:#444;letter-spacing:.02em;}
+.lbc{margin-top:0;}
+.lbc svg{width:100%!important;height:16mm!important;}
+</style>
+</head>
+<body>
+${cardsHTML}
+</body>
+</html>`
+}
+
 // ── Panel de previsualización (step = 'preview') ──────────────────────────────
 function PreviewPanel({
   variants,
@@ -513,8 +596,25 @@ function PreviewPanel({
     }
     setMarking(false)
 
-    // 2. Abrir diálogo de impresión
-    setTimeout(() => window.print(), 100)
+    // 2. Recolectar SVGs ya renderizados del DOM
+    const cards = document.querySelectorAll('.label-print-area .label-card')
+    const svgs: string[] = []
+    cards.forEach(card => {
+      const svg = card.querySelector('.label-barcode svg')
+      svgs.push(svg ? svg.outerHTML : '')
+    })
+
+    // 3. Abrir ventana dedicada (sin UI de la app) → @page aplica limpio
+    const html = buildLabelsHTML(variants, settings, svgs)
+    const w = window.open('', '_blank', 'width=400,height=300,scrollbars=yes')
+    if (!w) {
+      toast.error('El navegador bloqueó la ventana. Permitir popups para este sitio.')
+      return
+    }
+    w.document.write(html)
+    w.document.close()
+    w.focus()
+    setTimeout(() => w.print(), 400)
   }
 
   const handleUnmark = async () => {
@@ -567,9 +667,10 @@ function PreviewPanel({
 
       {/* Nota de instrucciones */}
       <div className="no-print bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3 text-sm text-emerald-700">
-        <strong>Consejo:</strong> en el diálogo de impresión, desactivá los encabezados/pies de página
-        y ajustá el margen a 5mm para que las etiquetas queden bien alineadas.
-        Tamaño de etiqueta: <strong>60mm × 30mm</strong> · rollo continuo.
+        <strong>Consejo:</strong> al hacer clic en <em>Imprimir</em> se abre una ventana dedicada.
+        En el diálogo del navegador: desactivá encabezados/pies de página, márgenes en 0 y
+        verificá que el tamaño sea <strong>60mm × 30mm</strong>.
+        Si las etiquetas salen rotadas 90°, cambiá la orientación a <strong>Horizontal (Apaisado)</strong> en preferencias de impresora.
       </div>
 
       {/* Grilla de etiquetas */}
