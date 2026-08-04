@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import {
   Printer, Search, ArrowLeft, Plus, Loader2, AlertTriangle,
   CheckCircle2, ChevronDown, ChevronRight, Tag, RotateCcw,
@@ -53,78 +53,72 @@ const fmtPrice = (n: number) =>
     style: 'currency', currency: 'ARS', maximumFractionDigits: 0,
   }).format(n)
 
-// ── Componente barcode (jsbarcode via useEffect, solo client) ─────────────────
-function BarcodeImg({ value, height = 40 }: { value: string; height?: number }) {
-  const svgRef = useRef<SVGSVGElement>(null)
+// ── Componente QR (qrcode via useEffect, solo client) ────────────────────────
+function QRImg({ value, size = 90 }: { value: string; size?: number }) {
+  const [svg, setSvg] = useState('')
 
   useEffect(() => {
-    if (!value || !svgRef.current) return
-    import('jsbarcode').then(mod => {
-      const JsBarcode = mod.default
-      try {
-        JsBarcode(svgRef.current, value, {
-          format:       'CODE128',
-          width:        2,
-          height,
-          displayValue: false,
-          margin:       2,
-          background:   'transparent',
-          lineColor:    '#000',
-        })
-      } catch {
-        // valor inválido para barcode, ignorar
-      }
-    })
-  }, [value, height])
+    if (!value) return
+    import('qrcode').then(mod =>
+      mod.default.toString(value, {
+        type:                 'svg',
+        errorCorrectionLevel: 'M',
+        margin:               1,
+        color:                { dark: '#000000', light: '#ffffff' },
+      })
+    ).then(setSvg).catch(() => {})
+  }, [value])
 
-  return <svg ref={svgRef} className="max-w-full" />
+  if (!svg) return <div style={{ width: size, height: size, background: '#f3f4f6', borderRadius: 4 }} />
+  return (
+    <div
+      dangerouslySetInnerHTML={{ __html: svg }}
+      style={{ width: size, height: size, lineHeight: 0 }}
+    />
+  )
 }
 
 // ── Etiqueta individual ────────────────────────────────────────────────────────
-// Dimensiones de impresión: 60mm × 30mm  (rollo continuo)
+// Layout: QR 28mm (izq) | info 32mm (der) — total 60mm × 30mm
 function LabelCard({ variant, settings }: { variant: LabelVariant; settings: LabelSettings }) {
-  const printed  = !!variant.label_printed_at
-  const bizName  = settings.businessName ?? 'ROI POS'
+  const printed = !!variant.label_printed_at
+  const bizName = settings.businessName ?? 'ROI POS'
 
   return (
     <div className="label-card">
-      {/* Header: logo izquierda | nombre centrado | by ROIPOS derecha */}
-      <div className="label-header">
-        {settings.businessLogo && (
-          <img
-            src={settings.businessLogo}
-            alt=""
-            className="label-logo"
-            onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-          />
-        )}
-        <span className="label-brand">{bizName}</span>
-        <span className="label-by">by ROIPOS</span>
+
+      {/* ── Zona izquierda: QR ── */}
+      <div className="label-qr">
+        <QRImg value={variant.barcode} size={90} />
       </div>
 
-      {/* Nombre del producto (izq) + Precio (der) */}
-      <div className="label-product-row">
+      {/* ── Zona derecha: info ── */}
+      <div className="label-info">
+        {/* Header */}
+        <div className="label-header">
+          {settings.businessLogo && (
+            <img
+              src={settings.businessLogo}
+              alt=""
+              className="label-logo"
+              onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+            />
+          )}
+          <span className="label-brand">{bizName}</span>
+          <span className="label-by">by ROIPOS</span>
+        </div>
+
         <p className="label-product">{variant.product_name}</p>
+        <p className="label-attrs">
+          <span>{variant.color}</span>
+          <span className="label-sep"> · </span>
+          <span className="label-size">T.{variant.size}</span>
+        </p>
         <p className="label-price">{fmtPrice(variant.base_price)}</p>
+        <p className="label-sku">{variant.barcode}</p>
       </div>
 
-      {/* Color + Talle + SKU */}
-      <div className="label-attrs">
-        <span>{variant.color}</span>
-        <span className="label-sep">·</span>
-        <span className="label-size">T.{variant.size}</span>
-        <span className="label-sku">{variant.barcode}</span>
-      </div>
-
-      {/* Código de barras */}
-      <div className="label-barcode">
-        <BarcodeImg value={variant.barcode} height={40} />
-      </div>
-
-      {/* Marca de ya impresa (solo visible en pantalla) */}
-      {printed && (
-        <div className="label-printed-badge">✓ impresa</div>
-      )}
+      {printed && <div className="label-printed-badge">✓ impresa</div>}
     </div>
   )
 }
@@ -484,7 +478,7 @@ function SelectionPanel({
 function buildLabelsHTML(
   variants: LabelVariant[],
   settings: LabelSettings,
-  barcodeSVGs: string[],
+  qrSVGs: string[],           // SVG strings generados por qrcode library
 ): string {
   const fmtP = (n: number) =>
     new Intl.NumberFormat('es-AR', {
@@ -493,29 +487,36 @@ function buildLabelsHTML(
 
   const bizName = settings.businessName ?? 'ROI POS'
   const logoTag = settings.businessLogo
-    ? `<img src="${settings.businessLogo}" alt="" style="height:5mm;width:auto;max-width:14mm;object-fit:contain;flex-shrink:0;" />`
+    ? `<img src="${settings.businessLogo}" alt="" style="height:4.5mm;width:auto;max-width:12mm;object-fit:contain;flex-shrink:0;" />`
     : ''
 
-  const cardsHTML = variants.map((v, idx) => `
+  const cardsHTML = variants.map((v, idx) => {
+    // Forzar width/height en el SVG del QR para que ocupe exactamente la zona
+    const qrSVG = (qrSVGs[idx] ?? '').replace(
+      /<svg /,
+      '<svg style="width:26mm;height:26mm;" '
+    )
+    return `
     <div class="lc">
-      <div class="lh">
-        ${logoTag}
-        <span class="lb">${bizName}</span>
-        <span class="lby">by ROIPOS</span>
+
+      <!-- Zona izquierda: QR -->
+      <div class="lq">${qrSVG}</div>
+
+      <!-- Zona derecha: info -->
+      <div class="li">
+        <div class="lih">
+          ${logoTag}
+          <span class="lib">${bizName}</span>
+          <span class="liby">by ROIPOS</span>
+        </div>
+        <div class="lip">${v.product_name}</div>
+        <div class="lia">${v.color} · T.${v.size}</div>
+        <div class="lipr">${fmtP(v.base_price)}</div>
+        <div class="lisk">${v.barcode}</div>
       </div>
-      <div class="lr">
-        <span class="lp">${v.product_name}</span>
-        <span class="lpr">${fmtP(v.base_price)}</span>
-      </div>
-      <div class="la">
-        <span>${v.color}</span>
-        <span class="ls"> · </span>
-        <span class="lsz">T.${v.size}</span>
-        <span class="lsk">${v.barcode}</span>
-      </div>
-      <div class="lbc">${barcodeSVGs[idx] ?? ''}</div>
+
     </div>`
-  ).join('')
+  }).join('')
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -526,35 +527,50 @@ function buildLabelsHTML(
 *{margin:0;padding:0;box-sizing:border-box;color:#000;}
 body{background:#fff;font-family:Arial,Helvetica,sans-serif;}
 @page{size:60mm 30mm;margin:0;}
+
+/* ── Tarjeta: fila izq/der ── */
 .lc{
-  display:flex;flex-direction:column;
+  display:flex;flex-direction:row;
   width:60mm;height:30mm;
-  padding:1mm 2mm 0.5mm;
   overflow:hidden;
   page-break-before:always;break-before:page;
   page-break-inside:avoid;break-inside:avoid;
 }
 .lc:first-child{page-break-before:auto;break-before:auto;}
-.lh{
-  position:relative;display:flex;align-items:center;
-  justify-content:space-between;min-height:4mm;
-  border-bottom:.3mm solid #000;
-  padding-bottom:.3mm;margin-bottom:.3mm;
+
+/* ── Zona QR (izq, 28mm) ── */
+.lq{
+  width:28mm;height:30mm;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  border-right:.3mm solid #ccc;
 }
-.lb{
-  position:absolute;left:0;right:0;text-align:center;
-  font-size:6pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+.lq svg{width:26mm!important;height:26mm!important;}
+
+/* ── Zona info (der, resto) — min-width:0 imprescindible para ellipsis en flex ── */
+.li{
+  flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;
+  padding:.8mm 1.5mm;gap:.4mm;overflow:hidden;
 }
-.lby{font-size:5pt;color:#555;flex-shrink:0;}
-.lr{display:flex;align-items:baseline;justify-content:space-between;gap:1mm;}
-.lp{font-size:6.5pt;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
-.lpr{font-size:8pt;font-weight:700;white-space:nowrap;flex-shrink:0;}
-.la{font-size:6pt;display:flex;align-items:center;gap:1mm;}
-.ls{color:#999;}
-.lsz{font-weight:600;}
-.lsk{margin-left:auto;font-size:5.5pt;color:#444;letter-spacing:.02em;}
-.lbc{margin-top:0;}
-.lbc svg{width:100%!important;height:16mm!important;}
+
+/* Header: logo + nombre + by ROIPOS */
+.lih{
+  display:flex;align-items:center;justify-content:space-between;
+  border-bottom:.3mm solid #000;padding-bottom:.3mm;margin-bottom:.3mm;
+  overflow:hidden;
+}
+.lib{font-size:6pt;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  text-align:center;padding:0 1mm;}
+.liby{font-size:5pt;color:#555;flex-shrink:0;white-space:nowrap;}
+
+/* Datos — todos con ellipsis para nombres/colores largos */
+.lip{font-size:7pt;font-weight:700;line-height:1.2;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.lia{font-size:6pt;line-height:1.2;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.lipr{font-size:9pt;font-weight:700;margin-top:.4mm;white-space:nowrap;}
+.lisk{font-size:5.5pt;color:#444;letter-spacing:.02em;margin-top:.2mm;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
 </style>
 </head>
 <body>
@@ -596,16 +612,21 @@ function PreviewPanel({
     }
     setMarking(false)
 
-    // 2. Recolectar SVGs ya renderizados del DOM
-    const cards = document.querySelectorAll('.label-print-area .label-card')
-    const svgs: string[] = []
-    cards.forEach(card => {
-      const svg = card.querySelector('.label-barcode svg')
-      svgs.push(svg ? svg.outerHTML : '')
-    })
+    // 2. Generar QR SVGs directamente (sin tocar el DOM)
+    const qrcode = await import('qrcode')
+    const qrSVGs = await Promise.all(
+      variants.map(v =>
+        qrcode.default.toString(v.barcode, {
+          type:                 'svg',
+          errorCorrectionLevel: 'M',
+          margin:               0,
+          color:                { dark: '#000000', light: '#ffffff' },
+        })
+      )
+    )
 
     // 3. Abrir ventana dedicada (sin UI de la app) → @page aplica limpio
-    const html = buildLabelsHTML(variants, settings, svgs)
+    const html = buildLabelsHTML(variants, settings, qrSVGs)
     const w = window.open('', '_blank', 'width=400,height=300,scrollbars=yes')
     if (!w) {
       toast.error('El navegador bloqueó la ventana. Permitir popups para este sitio.')
@@ -678,71 +699,85 @@ function PreviewPanel({
         {variants.map(v => <LabelCard key={v.id} variant={v} settings={settings} />)}
       </div>
 
-      {/* Estilos de impresión inyectados inline */}
+      {/* Estilos del preview de pantalla */}
       <style>{`
-
         /* ════════════════════════════════════════
-           PANTALLA: preview compacto ~240 x 115px
+           PANTALLA: preview 240 × 120px (ratio 2:1)
         ════════════════════════════════════════ */
         .label-print-area {
           display: flex;
           flex-wrap: wrap;
-          gap: 10px;
+          gap: 12px;
           padding: 8px 0;
         }
 
+        /* Tarjeta: fila QR izq | info der */
         .label-card {
           position: relative;
           width: 240px;
+          height: 120px;
           border: 1px solid #d1d5db;
           border-radius: 6px;
-          padding: 6px 10px 4px;
           background: #fff;
           display: flex;
-          flex-direction: column;
-          gap: 1px;
+          flex-direction: row;
           box-shadow: 0 1px 3px rgba(0,0,0,.08);
           overflow: hidden;
         }
 
-        /* Header: logo izq | nombre centrado | by ROIPOS der */
+        /* Zona QR (izq ~112px) */
+        .label-qr {
+          width: 112px;
+          height: 120px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          padding: 6px;
+          border-right: 1px solid #e5e7eb;
+          background: #fafafa;
+        }
+        .label-qr div { display: flex; }
+        .label-qr svg { width: 90px !important; height: 90px !important; }
+
+        /* Zona info (der ~128px) — min-width:0 para que ellipsis funcione en flex */
+        .label-info {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          padding: 6px 8px;
+          gap: 2px;
+          overflow: hidden;
+        }
+
+        /* Header */
         .label-header {
-          position: relative;
           display: flex;
           align-items: center;
           justify-content: space-between;
-          min-height: 20px;
           border-bottom: 1px solid #e5e7eb;
           padding-bottom: 3px;
           margin-bottom: 2px;
+          min-height: 18px;
+          overflow: hidden;
         }
-        .label-logo {
-          height: 18px; width: auto; max-width: 38px;
-          object-fit: contain; flex-shrink: 0; z-index: 1;
-        }
-        .label-brand {
-          position: absolute; left: 0; right: 0;
-          text-align: center; pointer-events: none;
-          font-size: 8px; font-weight: 700; color: #4c1d95;
-          letter-spacing: .05em; text-transform: uppercase;
-        }
-        .label-by { font-size: 8px; color: #666; z-index: 1; flex-shrink: 0; }
+        .label-logo  { height: 14px; width: auto; max-width: 28px; object-fit: contain; flex-shrink: 0; }
+        .label-brand { font-size: 8px; font-weight: 700; color: #4c1d95; text-transform: uppercase;
+                       letter-spacing: .05em; flex: 1; min-width: 0; text-align: center;
+                       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 3px; }
+        .label-by    { font-size: 7px; color: #888; flex-shrink: 0; white-space: nowrap; }
 
-        /* Nombre + precio en la misma fila */
-        .label-product-row {
-          display: flex;
-          align-items: baseline;
-          justify-content: space-between;
-          gap: 4px;
-        }
-        .label-product { font-size: 10px; font-weight: 600; color: #111; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-        .label-price   { font-size: 12px; font-weight: 700; color: #111; white-space: nowrap; flex-shrink: 0; }
-        .label-attrs   { font-size: 9px; color: #333; display: flex; align-items: center; gap: 3px; }
-        .label-sep     { color: #999; }
+        /* Datos — todos con ellipsis */
+        .label-product { font-size: 10px; font-weight: 700; color: #111; line-height: 1.2;
+                         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .label-attrs   { font-size: 9px; color: #444;
+                         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .label-sep     { color: #bbb; }
         .label-size    { font-weight: 600; }
-        .label-sku     { margin-left: auto; font-size: 8px; color: #888; letter-spacing: .03em; }
-        .label-barcode { margin-top: 2px; }
-        .label-barcode svg { width: 100%; height: auto; }
+        .label-price   { font-size: 13px; font-weight: 700; color: #111; margin-top: 2px; white-space: nowrap; }
+        .label-sku     { font-size: 8px; color: #888; font-family: monospace; letter-spacing: .02em;
+                         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
         .label-printed-badge {
           position: absolute; top: 3px; right: 3px;
@@ -751,101 +786,9 @@ function PreviewPanel({
           border-radius: 3px; padding: 1px 4px;
         }
 
-
-        /* ════════════════════════════════════════
-           IMPRESIÓN: rollo 60 mm × 30 mm
-           Negro puro — sin grises ni colores
-        ════════════════════════════════════════ */
+        /* Ocultar UI al imprimir desde esta página (fallback) */
         @media print {
-
-          /* 1. Ocultar toda la UI */
-          nav, header, .no-print, [data-sonner-toaster] {
-            display: none !important;
-          }
-
-          /* 2. Reset nuclear: eliminar CUALQUIER margen/padding que desplace las etiquetas */
-          * {
-            margin: 0 !important;
-            padding: 0 !important;
-            box-sizing: border-box !important;
-          }
-
-          body { background: white !important; }
-
-          /* 3. Una etiqueta = una página del rollo (60 × 30 mm) */
-          @page { size: 60mm 30mm; margin: 0; }
-
-          /* 4. Contenedor: bloque sin espacio */
-          .label-print-area {
-            display: block !important;
-            width: 60mm !important;
-          }
-
-          /* 5. Cada etiqueta ocupa exactamente 1 página.
-                page-break-BEFORE en todas excepto la primera →
-                sin página en blanco al final */
-          .label-card {
-            display: flex !important;
-            flex-direction: column !important;
-            width: 60mm !important;
-            height: 30mm !important;
-            padding: 1.5mm 2.5mm 1mm !important;
-            overflow: hidden !important;
-            border: none !important;
-            border-radius: 0 !important;
-            box-shadow: none !important;
-            background: white !important;
-            page-break-before: always !important;
-            break-before: page !important;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-          }
-
-          /* Primera etiqueta: empieza sin salto previo */
-          .label-card:first-child {
-            page-break-before: auto !important;
-            break-before: auto !important;
-          }
-
-          /* Negro puro en todo */
-          .label-card, .label-card * { color: #000 !important; }
-
-          /* Header: logo izq | nombre centrado | by ROIPOS der */
-          .label-header {
-            position: relative !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: space-between !important;
-            min-height: 5.5mm !important;
-            border-bottom: 0.3mm solid #000 !important;
-            padding-bottom: 0.7mm !important;
-            margin-bottom: 0.7mm !important;
-            padding-top: 0 !important;
-          }
-          .label-logo  { max-height: 5mm !important; width: auto !important; max-width: 14mm !important; }
-          .label-brand { font-size: 6.5pt !important; font-weight: 700 !important; text-transform: uppercase !important; }
-          .label-by    { font-size: 5.5pt !important; color: #555 !important; }
-
-          /* Nombre + precio en la misma fila */
-          .label-product-row {
-            display: flex !important;
-            align-items: baseline !important;
-            justify-content: space-between !important;
-            gap: 1mm !important;
-          }
-          .label-product { font-size: 7pt !important; font-weight: 600 !important; line-height: 1.25 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; min-width: 0 !important; }
-          .label-price   { font-size: 8.5pt !important; font-weight: 700 !important; white-space: nowrap !important; flex-shrink: 0 !important; }
-
-          /* Color · Talle · SKU */
-          .label-attrs   { font-size: 6.5pt !important; display: flex !important; align-items: center !important; }
-          .label-sku     { margin-left: auto !important; font-size: 6pt !important; color: #444 !important; letter-spacing: .02em !important; }
-
-          /* Barcode — sin texto abajo, barras más altas */
-          .label-barcode { margin-top: 0.5mm !important; }
-          .label-barcode svg { width: 100% !important; height: 12mm !important; }
-
-          /* Ocultar badge */
-          .label-printed-badge { display: none !important; }
+          nav, header, .no-print, [data-sonner-toaster] { display: none !important; }
         }
       `}</style>
     </div>
