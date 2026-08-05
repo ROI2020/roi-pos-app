@@ -68,7 +68,7 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
       scannerRef.current = scanner
 
       await scanner.start(
-        { facingMode: { ideal: 'environment' } },
+        { facingMode: 'environment' },
         {
           fps: 10,
           // Caja cuadrada: buena para QR y aceptable para 1D
