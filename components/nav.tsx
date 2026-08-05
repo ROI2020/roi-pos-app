@@ -6,7 +6,7 @@ import { useEffect, useState } from "react"
 import {
   ShoppingBag, Tags, Warehouse, LayoutDashboard, Printer,
   ShoppingCart, Settings, Package, ArrowLeftRight, TrendingUp, ChevronDown,
-  FileSpreadsheet, Store, Menu, LogOut, FileText, Building2,
+  FileSpreadsheet, Store, Menu, LogOut, FileText, Building2, Layers,
 } from "lucide-react"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -26,6 +26,7 @@ const MAIN_LINKS = [
 
 const INVENTORY_LINKS = [
   { href: "/productos",     label: "Productos",      Icon: Package,        featureCode: undefined           },
+  { href: "/stock",         label: "Stock",          Icon: Layers,         featureCode: undefined           },
   { href: "/clasificacion", label: "Clasificar",     Icon: Tags,           featureCode: undefined           },
   { href: "/asignacion",    label: "Asignación",     Icon: Warehouse,      featureCode: undefined           },
   { href: "/etiquetas",     label: "Etiquetas",      Icon: Printer,        featureCode: 'pos.label_print'   },
@@ -33,8 +34,9 @@ const INVENTORY_LINKS = [
 ]
 
 const ANALYTICS_LINKS = [
-  { href: "/rendimiento", label: "Rendimiento", Icon: TrendingUp,      featureCode: 'kpi.performance' },
-  { href: "/dashboard",   label: "Dashboard",   Icon: LayoutDashboard, featureCode: undefined         },
+  { href: "/rendimiento",                  label: "Rendimiento",        Icon: TrendingUp,      featureCode: 'kpi.performance' },
+  { href: "/dashboard",                    label: "Dashboard",          Icon: LayoutDashboard, featureCode: undefined         },
+  { href: "/analisis/productos-vendidos",  label: "Productos Vendidos", Icon: ShoppingBag,     featureCode: undefined         },
 ]
 
 const PLAN_BADGE: Record<number, { bg: string; fg: string }> = {

@@ -97,7 +97,7 @@ const fmt = (n: number) =>
 const fmtPct = (n: number | null) => n === null ? '—' : `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`
 
 // ── Cálculos ──────────────────────────────────────────────────────────────────
-const margin   = (rev: number, cost: number) => cost > 0 ? (rev - cost) / cost * 100 : null
+const margin   = (rev: number, cost: number) => rev > 0 ? (rev - cost) / rev * 100 : null
 const pctSold  = (sold: number, total: number) => total > 0 ? sold / total * 100 : 0
 
 // ── Colores ───────────────────────────────────────────────────────────────────

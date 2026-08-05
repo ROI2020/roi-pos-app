@@ -67,25 +67,27 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
       })
       scannerRef.current = scanner
 
-      await scanner.start(
-        { facingMode: 'environment' },
-        {
-          fps: 10,
-          // Caja cuadrada: buena para QR y aceptable para 1D
-          qrbox: (w: number, h: number) => {
-            const side = Math.round(Math.min(w, h) * 0.7)
-            return { width: side, height: side }
-          },
-          aspectRatio: 4 / 3,
+      const scanConfig = {
+        fps: 10,
+        qrbox: (w: number, h: number) => {
+          const side = Math.round(Math.min(w, h) * 0.7)
+          return { width: side, height: side }
         },
-        (decodedText: string) => {
-          if (detected.current) return
-          detected.current = true
-          onScan(decodedText)
-          onClose()
-        },
-        undefined  // error frame por frame — silencioso
-      )
+        aspectRatio: 4 / 3,
+      }
+      const onSuccess = (decodedText: string) => {
+        if (detected.current) return
+        detected.current = true
+        onScan(decodedText)
+        onClose()
+      }
+
+      // Intentar cámara trasera; si no existe (PC) usar la disponible
+      try {
+        await scanner.start({ facingMode: 'environment' }, scanConfig, onSuccess, undefined)
+      } catch {
+        await scanner.start({ facingMode: 'user' }, scanConfig, onSuccess, undefined)
+      }
 
       setStatus('active')
 
