@@ -67,6 +67,25 @@ function totalStock(product: Product): number {
 // ══════════════════════════════════════════════════════════════════════════════
 // Modal de detalle de producto
 // ══════════════════════════════════════════════════════════════════════════════
+// ── Tipo de sugerencia (respuesta de /api/catalog/suggestions) ────────────────
+interface SuggestionProduct {
+  id:                 number
+  name:               string
+  price:              number
+  category:           string | null
+  has_image:          boolean
+  specific_image_url: string | null
+  stock_total:        number
+  sold_30d:           number
+  reason:             'complementary' | 'trending'
+}
+
+// ── Labels por razón de sugerencia ────────────────────────────────────────────
+const SUGGESTION_LABEL: Record<SuggestionProduct['reason'], string> = {
+  complementary: 'Para combinar 🎯',
+  trending:      'Lo más vendido 🔥',
+}
+
 function ProductModal({
   product, store, allProducts, onClose,
 }: {
@@ -136,9 +155,23 @@ function ProductModal({
     }
   }, [onClose])
 
-  const related = allProducts
-    .filter(p => p.category === product.category && p.id !== product.id)
-    .slice(0, 8)
+  // ── Sugerencias inteligentes ───────────────────────────────────────────────
+  const [suggestions, setSuggestions] = useState<SuggestionProduct[]>([])
+
+  useEffect(() => {
+    setSuggestions([])
+    const qs = new URLSearchParams({ exclude: String(product.id), limit: '8' })
+    if (product.category) qs.set('category', product.category)
+    fetch(`/api/catalog/suggestions?${qs}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setSuggestions(Array.isArray(data) ? data : []))
+      .catch(() => {})
+  }, [product.id, product.category])
+
+  // Label de la sección según el motivo de la primera sugerencia
+  const sugLabel = suggestions.length > 0
+    ? SUGGESTION_LABEL[suggestions[0].reason]
+    : 'Para combinar 🎯'
 
   const canBuy = product.variants.some(v => v.in_stock) &&
     (singleSize || (selSize && inStockSizes.has(selSize)))
@@ -361,45 +394,52 @@ function ProductModal({
               </div>
             </div>
 
-            {/* Productos relacionados */}
-            {related.length > 0 && (
+            {/* Sugerencias inteligentes */}
+            {suggestions.length > 0 && (
               <>
                 <div className="border-t border-gray-100" />
                 <div className="space-y-3">
-                  <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                    También te puede gustar
+                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                    {sugLabel}
                   </p>
                   <div className="flex gap-3 overflow-x-auto pb-2 -mx-5 px-5 scrollbar-none">
-                    {related.map(rel => {
-                      const relStock = rel.variants.some(v => v.in_stock)
-                      const relImg = rel.variants[0]?.specific_image_url ??
-                        (rel.has_image ? `/api/images/products/${rel.id}` : null)
+                    {suggestions.map(sug => {
+                      const sugImg = sug.specific_image_url ??
+                        (sug.has_image ? `/api/images/products/${sug.id}` : null)
                       return (
                         <button
-                          key={rel.id}
+                          key={sug.id}
                           onClick={() => {
+                            // Buscar el producto completo (con variantes) en el catálogo
+                            const fullProduct = allProducts.find(p => p.id === sug.id)
+                            if (!fullProduct) return
                             onClose()
                             setTimeout(() => {
-                              document.dispatchEvent(new CustomEvent('open-product', { detail: rel }))
+                              document.dispatchEvent(new CustomEvent('open-product', { detail: fullProduct }))
                             }, 50)
                           }}
                           className="flex-none w-32 rounded-xl overflow-hidden bg-white border border-gray-100 shadow-sm hover:shadow-md transition-shadow text-left"
                         >
                           <div className="aspect-[3/4] bg-gray-100 overflow-hidden">
-                            {relImg ? (
-                              <img src={relImg} alt={rel.name} className="w-full h-full object-cover" loading="lazy" />
+                            {sugImg ? (
+                              <img src={sugImg} alt={sug.name} className="w-full h-full object-cover" loading="lazy" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-violet-50 to-pink-50">
                                 <span className="text-2xl font-bold text-violet-200">
-                                  {rel.name.charAt(0).toUpperCase()}
+                                  {sug.name.charAt(0).toUpperCase()}
                                 </span>
                               </div>
                             )}
                           </div>
                           <div className="p-2">
-                            <p className="text-xs font-medium text-gray-800 line-clamp-2 leading-tight">{rel.name}</p>
-                            <p className="text-xs font-bold text-violet-700 mt-1">{fmt(rel.price)}</p>
-                            {!relStock && (
+                            {sug.category && (
+                              <p className="text-[9px] text-violet-500 font-medium uppercase tracking-wide mb-0.5 truncate">
+                                {sug.category}
+                              </p>
+                            )}
+                            <p className="text-xs font-medium text-gray-800 line-clamp-2 leading-tight">{sug.name}</p>
+                            <p className="text-xs font-bold text-violet-700 mt-1">{fmt(sug.price)}</p>
+                            {sug.stock_total === 0 && (
                               <p className="text-[10px] text-gray-400">Sin stock</p>
                             )}
                           </div>
