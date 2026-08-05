@@ -8,35 +8,37 @@ import {
 } from "@/components/ui/dialog"
 
 interface CameraScannerProps {
-  open: boolean
+  open:    boolean
   onClose: () => void
-  onScan: (value: string) => void
+  onScan:  (value: string) => void
 }
 
 type Status = 'idle' | 'loading' | 'active' | 'error'
 
+// ID fijo para el div que html5-qrcode necesita
+const SCANNER_DIV_ID = 'roipos-qr-scanner'
+
 export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const running      = useRef(false)
-  const detected     = useRef(false)
+  const scannerRef = useRef<unknown>(null)
+  const detected   = useRef(false)
 
   const [status,   setStatus  ] = useState<Status>('idle')
   const [errorMsg, setErrorMsg] = useState('')
 
   const stop = useCallback(async () => {
-    if (!running.current) return
-    running.current = false
+    if (!scannerRef.current) return
     try {
-      const Quagga = (await import('@ericblade/quagga2')).default
-      Quagga.stop()
+      const { Html5Qrcode } = await import('html5-qrcode')
+      const s = scannerRef.current as InstanceType<typeof Html5Qrcode>
+      if (s.isScanning) await s.stop()
+      s.clear()
     } catch { /* noop */ }
+    scannerRef.current = null
     setStatus('idle')
   }, [])
 
   // Debe llamarse desde un onClick directo (iOS/Android requieren gesto del usuario)
   const start = useCallback(async () => {
-    if (!containerRef.current) return
-
     if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
       setStatus('error')
       setErrorMsg('La cámara solo funciona con HTTPS. Usá la versión online del sistema.')
@@ -48,64 +50,53 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
     detected.current = false
 
     try {
-      const Quagga = (await import('@ericblade/quagga2')).default
+      const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode')
 
-      await new Promise<void>((resolve, reject) => {
-        Quagga.init(
-          {
-            inputStream: {
-              type: 'LiveStream',
-              target: containerRef.current!,
-              constraints: {
-                facingMode: { ideal: 'environment' },
-                width:  { ideal: 1280 },
-                height: { ideal: 720 },
-              },
-            },
-            decoder: {
-              readers: [
-                'code_128_reader',
-                'ean_reader',
-                'ean_8_reader',
-                'code_39_reader',
-                'upc_reader',
-              ],
-              debug: {
-                drawBoundingBox: false,
-                showFrequency:   false,
-                drawScanline:    true,
-                showPattern:     false,
-              },
-            },
-            locate: true,
-            locator: { halfSample: true, patchSize: 'medium' },
-          },
-          (err) => { err ? reject(err) : resolve() }
-        )
+      // formatsToSupport va en el constructor (no en start)
+      const scanner = new Html5Qrcode(SCANNER_DIV_ID, {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.QR_CODE,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+        ],
+        verbose: false,
       })
+      scannerRef.current = scanner
 
-      Quagga.start()
-      running.current = true
+      await scanner.start(
+        { facingMode: { ideal: 'environment' } },
+        {
+          fps: 10,
+          // Caja cuadrada: buena para QR y aceptable para 1D
+          qrbox: (w: number, h: number) => {
+            const side = Math.round(Math.min(w, h) * 0.7)
+            return { width: side, height: side }
+          },
+          aspectRatio: 4 / 3,
+        },
+        (decodedText: string) => {
+          if (detected.current) return
+          detected.current = true
+          onScan(decodedText)
+          onClose()
+        },
+        undefined  // error frame por frame — silencioso
+      )
+
       setStatus('active')
 
-      Quagga.onDetected((result) => {
-        if (detected.current) return
-        const code = result.codeResult?.code
-        if (code) {
-          detected.current = true
-          onScan(code)
-          onClose()
-        }
-      })
-
     } catch (err: unknown) {
-      running.current = false
+      scannerRef.current = null
       setStatus('error')
       const msg = String((err as Error)?.message ?? err ?? '').toLowerCase()
       if (/permission|notallowed|not allowed|denied/i.test(msg)) {
         setErrorMsg(
-          'Permiso de cámara denegado. ' +
-          'En Ajustes del teléfono → Aplicaciones → Navegador → Permisos → Cámara → Permitir. ' +
+          'Permiso de cámara denegado.\n' +
+          'En Ajustes del teléfono → Aplicaciones → Navegador → Permisos → Cámara → Permitir.\n' +
           'Luego volvé y tocá "Activar cámara".'
         )
       } else if (/notfound|no camera|devicenotfound/i.test(msg)) {
@@ -134,24 +125,29 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
         <DialogHeader className="px-4 pt-4 pb-2">
           <DialogTitle className="flex items-center gap-2 text-base">
             <Camera className="h-4 w-4 text-violet-600" />
-            Escanear código de barras
+            Escanear código
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Apuntá la cámara al código de barras del producto
+            Apuntá la cámara al código QR o de barras del producto
           </DialogDescription>
         </DialogHeader>
 
         <div className="relative bg-black">
-          {/* Quagga renderiza su video + canvas de escaneo aquí */}
+          {/*
+            html5-qrcode inyecta su video + canvas de análisis aquí.
+            Ocultamos los controles propios de la lib con CSS.
+          */}
           <div
-            ref={containerRef}
+            id={SCANNER_DIV_ID}
             className="w-full aspect-[4/3] overflow-hidden
               [&_video]:w-full [&_video]:h-full [&_video]:object-cover
-              [&_canvas.drawingBuffer]:hidden
-              [&_canvas]:absolute [&_canvas]:inset-0 [&_canvas]:w-full [&_canvas]:h-full [&_canvas]:pointer-events-none"
+              [&_canvas]:absolute [&_canvas]:inset-0 [&_canvas]:w-full [&_canvas]:h-full [&_canvas]:pointer-events-none
+              [&_img]:hidden
+              [&_select]:hidden
+              [&_button]:hidden"
           />
 
-          {/* Botón inicial — onClick directo requerido en iOS/Android */}
+          {/* Overlay: botón de inicio */}
           {status === 'idle' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80">
               <Camera className="h-10 w-10 text-violet-400" />
@@ -161,6 +157,7 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
               >
                 Activar cámara
               </button>
+              <p className="text-xs text-gray-400">Lee QR y códigos de barras</p>
             </div>
           )}
 
@@ -170,12 +167,12 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
             </div>
           )}
 
-          {/* Marco de encuadre */}
+          {/* Marco de encuadre cuadrado (QR) */}
           {status === 'active' && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="relative w-[80%] h-[38%]">
-                <div className="absolute top-0 left-0   w-5 h-5 border-t-2 border-l-2 border-violet-400 rounded-tl" />
-                <div className="absolute top-0 right-0  w-5 h-5 border-t-2 border-r-2 border-violet-400 rounded-tr" />
+              <div className="relative w-[65%] aspect-square">
+                <div className="absolute top-0    left-0  w-5 h-5 border-t-2 border-l-2 border-violet-400 rounded-tl" />
+                <div className="absolute top-0    right-0 w-5 h-5 border-t-2 border-r-2 border-violet-400 rounded-tr" />
                 <div className="absolute bottom-0 left-0  w-5 h-5 border-b-2 border-l-2 border-violet-400 rounded-bl" />
                 <div className="absolute bottom-0 right-0 w-5 h-5 border-b-2 border-r-2 border-violet-400 rounded-br" />
               </div>
@@ -197,7 +194,7 @@ export function CameraScanner({ open, onClose, onScan }: CameraScannerProps) {
 
         <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t">
           <p className="text-xs text-gray-400">
-            {status === 'active' ? 'Apuntá al código de barras' : 'Lector de códigos'}
+            {status === 'active' ? 'Apuntá al QR o código de barras' : 'Lector de códigos'}
           </p>
           <Button variant="outline" size="sm" onClick={onClose} className="h-8 text-xs">
             Cancelar

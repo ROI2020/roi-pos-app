@@ -156,12 +156,13 @@ export async function GET(
 }
 
 function pdfResponse(buf: Uint8Array, filename: string): Response {
-  // Pasar buf directamente (Uint8Array) en lugar de buf.buffer:
-  // buf.buffer puede devolver el ArrayBuffer del pool de Node.js completo
-  // cuando el Buffer fue asignado desde el pool compartido (byteOffset > 0).
-  return new Response(buf, {
+  // TS 5.7+ tipó Uint8Array como Uint8Array<ArrayBufferLike>, pero BlobPart
+  // espera ArrayBuffer (estricto). Copiamos el segmento exacto con slice()
+  // (que sí devuelve ArrayBuffer) y evitamos además el pool-sharing de Node.js.
+  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+  const blob = new Blob([ab], { type: 'application/pdf' })
+  return new Response(blob, {
     headers: {
-      'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${filename}"`,
     },
   })

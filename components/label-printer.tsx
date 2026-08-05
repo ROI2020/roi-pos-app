@@ -63,7 +63,7 @@ function QRImg({ value, size = 90 }: { value: string; size?: number }) {
       mod.default.toString(value, {
         type:                 'svg',
         errorCorrectionLevel: 'M',
-        margin:               1,
+        margin:               2,      // quiet zone obligatorio
         color:                { dark: '#000000', light: '#ffffff' },
       })
     ).then(setSvg).catch(() => {})
@@ -619,7 +619,7 @@ function PreviewPanel({
         qrcode.default.toString(v.barcode, {
           type:                 'svg',
           errorCorrectionLevel: 'M',
-          margin:               0,
+          margin:               2,      // quiet zone obligatorio para scanners
           color:                { dark: '#000000', light: '#ffffff' },
         })
       )
