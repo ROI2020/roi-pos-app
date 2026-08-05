@@ -21,21 +21,24 @@ interface PurchaseSummary {
   total_units:      number
   total_cost:       number
   sold_units:       number
-  revenue:          number
+  gross_revenue:    number   // venta bruta (sin descuento)
+  discount:         number   // descuento proporcional
+  revenue:          number   // venta NETA — base para márgenes
   cost_of_sold:     number
   last_sale_at:     string | null
   days_since_purchase: number
 }
 
 interface VariantDetail {
-  id:         number
-  sku:        string
-  color:      string
-  size:       string
-  unit_cost:  number
-  status:     'vendido' | 'en_stock' | 'sin_asignar'
-  sale_price: number | null
-  sold_at:    string | null
+  id:          number
+  sku:         string
+  color:       string
+  size:        string
+  unit_cost:   number
+  status:      'vendido' | 'en_stock' | 'sin_asignar'
+  sale_price:  number | null   // precio NETO (con descuento proporcional)
+  gross_price: number | null   // precio bruto (sin descuento)
+  sold_at:     string | null
 }
 
 interface ProductGroup {
@@ -45,7 +48,9 @@ interface ProductGroup {
   total_units:         number
   total_cost:          number
   sold_units:          number
-  revenue:             number
+  gross_revenue:       number   // venta bruta
+  discount:            number   // descuento proporcional
+  revenue:             number   // venta NETA
   cost_of_sold:        number
   last_sale_at:        string | null
   days_since_purchase: number
@@ -510,7 +515,7 @@ export default function PurchaseRoiReport() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {[
               { label: 'Invertido',   value: fmt(kpi.total_cost),   sub: `${purchases.length} compras`,           color: 'border-l-gray-400'   },
-              { label: 'Recuperado',  value: fmt(kpi.revenue),      sub: `${kpi.sold_units} prendas vendidas`,    color: 'border-l-green-500'  },
+              { label: 'Venta Neta',  value: fmt(kpi.revenue),      sub: `${kpi.sold_units} prendas vendidas`,    color: 'border-l-green-500'  },
               { label: 'Balance',     value: fmt(kpi.balance),      sub: 'ingresos − costo vendido',              color: kpi.balance>=0?'border-l-green-500':'border-l-red-500' },
               { label: 'Margen',      value: fmtPct(kpi.gross_margin), sub: 'sobre lo vendido',                  color: 'border-l-violet-500' },
               { label: 'Vendido',     value: `${kpi.sold_units}/${kpi.total_units}`, sub: `${pctSold(kpi.sold_units,kpi.total_units).toFixed(0)}% del total`, color: 'border-l-emerald-500' },
@@ -546,7 +551,7 @@ export default function PurchaseRoiReport() {
                   <th className="text-right px-3 py-2.5">Unidades</th>
                   <th className="text-right px-3 py-2.5">$ Costo</th>
                   <th className="text-left px-3 py-2.5">% Vendido</th>
-                  <th className="text-right px-3 py-2.5">$ Venta</th>
+                  <th className="text-right px-3 py-2.5">Venta Neta</th>
                   <th className="text-right px-3 py-2.5">Margen</th>
                   <th className="text-center px-3 py-2.5">Días</th>
                 </tr>
@@ -715,6 +720,11 @@ export default function PurchaseRoiReport() {
                               </td>
                               <td className="px-3 py-1.5 text-right tabular-nums text-green-700">
                                 {v.sale_price ? fmt(v.sale_price) : '—'}
+                                {v.gross_price && v.gross_price !== v.sale_price && (
+                                  <p className="text-[10px] text-gray-400 line-through">
+                                    {fmt(v.gross_price)}
+                                  </p>
+                                )}
                                 {v.sold_at && (
                                   <p className="text-[10px] text-gray-400">
                                     {fmtDateStr(v.sold_at)} {fmtHour(v.sold_at)}

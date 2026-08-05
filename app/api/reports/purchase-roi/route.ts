@@ -11,6 +11,11 @@ import { requireBusinessId } from '@/lib/get-business-id'
  *   to         YYYY-MM-DD  (requerido)
  *   supplier   texto libre — ILIKE sobre company_name
  *   product    texto libre — ILIKE sobre product name (filtra compras que contengan ese producto)
+ *
+ * Descuentos: distribuidos proporcionalmente por ítem (unit_price × total_amount / subtotal).
+ *   gross_revenue  — venta bruta sin descuento
+ *   discount       — descuento proporcional
+ *   revenue        — venta NETA (base para cálculo de márgenes)
  */
 export async function GET(req: Request) {
   const blocked = await requireFeature('finance.reports')
@@ -40,7 +45,6 @@ export async function GET(req: Request) {
   }
 
   if (product) {
-    // Filtra solo las compras que contengan al menos un producto con ese nombre
     extraConditions.push(`
       pu.id IN (
         SELECT DISTINCT pd2.purchase_id
@@ -52,7 +56,6 @@ export async function GET(req: Request) {
     params.push(`%${product}%`)
   }
 
-  // Add businessId as the last parameter
   params.push(businessId)
   const bizParamNum = params.length
 
@@ -66,14 +69,35 @@ export async function GET(req: Request) {
       pu.purchase_date,
       pu.title,
       pu.invoice_number,
-      s.company_name                                                              AS supplier_name,
-      COUNT(DISTINCT pv.id)::int                                                  AS total_units,
-      COALESCE(SUM(pd.unit_cost), 0)::float                                       AS total_cost,
-      COUNT(DISTINCT pv.id) FILTER (WHERE sd.id IS NOT NULL)::int                 AS sold_units,
-      COALESCE(SUM(sd.unit_price)  FILTER (WHERE sd.id IS NOT NULL), 0)::float    AS revenue,
-      COALESCE(SUM(pd.unit_cost)   FILTER (WHERE sd.id IS NOT NULL), 0)::float    AS cost_of_sold,
-      MAX(sal.sold_at)                                                             AS last_sale_at,
-      EXTRACT(DAY FROM NOW() - pu.purchase_date::timestamp)::int                  AS days_since_purchase
+      s.company_name                                                               AS supplier_name,
+      COUNT(DISTINCT pv.id)::int                                                   AS total_units,
+      COALESCE(SUM(pd.unit_cost), 0)::float                                        AS total_cost,
+      COUNT(DISTINCT pv.id) FILTER (WHERE sd.id IS NOT NULL)::int                  AS sold_units,
+
+      -- Venta BRUTA (precio etiqueta, sin descuento)
+      COALESCE(SUM(sd.unit_price)
+        FILTER (WHERE sd.id IS NOT NULL), 0)::float                                AS gross_revenue,
+
+      -- Descuento proporcional por ítem
+      COALESCE(SUM(
+        CASE WHEN sal.subtotal > 0
+          THEN sd.unit_price * sal.discount_amount / sal.subtotal
+          ELSE 0
+        END
+      ) FILTER (WHERE sd.id IS NOT NULL), 0)::float                                AS discount,
+
+      -- Venta NETA = bruta - descuento proporcional
+      COALESCE(SUM(
+        CASE WHEN sal.subtotal > 0
+          THEN sd.unit_price * sal.total_amount / sal.subtotal
+          ELSE sd.unit_price
+        END
+      ) FILTER (WHERE sd.id IS NOT NULL), 0)::float                                AS revenue,
+
+      COALESCE(SUM(pd.unit_cost)
+        FILTER (WHERE sd.id IS NOT NULL), 0)::float                                AS cost_of_sold,
+      MAX(sal.sold_at)                                                              AS last_sale_at,
+      EXTRACT(DAY FROM NOW() - pu.purchase_date::timestamp)::int                   AS days_since_purchase
     FROM purchases pu
     LEFT JOIN suppliers         s   ON s.id   = pu.supplier_id
     LEFT JOIN purchase_details  pd  ON pd.purchase_id = pu.id

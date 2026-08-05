@@ -8,6 +8,15 @@ import { requireBusinessId } from '@/lib/get-business-id'
  * Devuelve una fila por producto con sus métricas de ventas en el período.
  * Solo aparecen productos con al menos 1 venta en el rango (INNER JOIN con sales).
  * Excluye ventas que son parte de un canje (exchanges).
+ *
+ * Descuentos: el descuento se aplica a nivel de venta (sales.discount_amount).
+ * Se distribuye proporcional a cada sale_detail: unit_price × total_amount / subtotal.
+ *
+ * Columnas retornadas:
+ *   gross_revenue  — suma de unit_price sin descuento
+ *   discount       — descuento proporcional a cada item
+ *   revenue        — venta NETA = gross_revenue - discount  (usar para márgenes)
+ *   cost           — costo total de lo vendido
  */
 export async function GET(req: Request) {
   const result = await requireBusinessId()
@@ -39,11 +48,27 @@ export async function GET(req: Request) {
       -- Unidades vendidas en el período
       COUNT(sd.id)::int                  AS qty_sold,
 
-      -- Ingreso total (precio de venta real, con descuentos)
-      COALESCE(SUM(sd.unit_price), 0)::float  AS revenue,
+      -- Venta BRUTA (precio de etiqueta, sin descuento)
+      COALESCE(SUM(sd.unit_price), 0)::float                                        AS gross_revenue,
+
+      -- Descuento proporcional por ítem: unit_price × discount_amount / subtotal
+      COALESCE(SUM(
+        CASE WHEN sal.subtotal > 0
+          THEN sd.unit_price * sal.discount_amount / sal.subtotal
+          ELSE 0
+        END
+      ), 0)::float                                                                   AS discount,
+
+      -- Venta NETA = gross - descuento proporcional  (base para márgenes)
+      COALESCE(SUM(
+        CASE WHEN sal.subtotal > 0
+          THEN sd.unit_price * sal.total_amount / sal.subtotal
+          ELSE sd.unit_price
+        END
+      ), 0)::float                                                                   AS revenue,
 
       -- Costo total de lo vendido (costo de compra por unidad)
-      COALESCE(SUM(pd.unit_cost),  0)::float  AS cost
+      COALESCE(SUM(pd.unit_cost), 0)::float                                         AS cost
 
     FROM products p
     LEFT JOIN categories c  ON c.id = p.category_id
@@ -60,7 +85,14 @@ export async function GET(req: Request) {
           )
     WHERE p.business_id = $3
     GROUP BY c.name, g.name, p.id, p.name
-    ORDER BY (COALESCE(SUM(sd.unit_price), 0) - COALESCE(SUM(pd.unit_cost), 0)) DESC NULLS LAST
+    ORDER BY (
+      COALESCE(SUM(
+        CASE WHEN sal.subtotal > 0
+          THEN sd.unit_price * sal.total_amount / sal.subtotal
+          ELSE sd.unit_price
+        END
+      ), 0) - COALESCE(SUM(pd.unit_cost), 0)
+    ) DESC NULLS LAST
   `, [from, to, businessId])
 
   return NextResponse.json(rows)

@@ -11,25 +11,29 @@ import { DateRangeFilter, useDateRange } from '@/components/date-range-filter'
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 interface ProductRow {
-  category:     string
-  gender:       string
-  product_id:   number
-  product_name: string
-  stock_actual: number
-  qty_sold:     number
-  revenue:      number
-  cost:         number
+  category:      string
+  gender:        string
+  product_id:    number
+  product_name:  string
+  stock_actual:  number
+  qty_sold:      number
+  gross_revenue: number   // venta bruta (sin descuento)
+  discount:      number   // descuento proporcional
+  revenue:       number   // venta NETA — base para márgenes
+  cost:          number
 }
 
 interface CategoryGroup {
-  category:     string
-  stock_actual: number
-  qty_sold:     number
-  revenue:      number
-  cost:         number
-  margin:       number
-  marginPct:    number
-  products:     (ProductRow & { margin: number; marginPct: number })[]
+  category:      string
+  stock_actual:  number
+  qty_sold:      number
+  gross_revenue: number
+  discount:      number
+  revenue:       number   // neta
+  cost:          number
+  margin:        number
+  marginPct:     number
+  products:      (ProductRow & { margin: number; marginPct: number })[]
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -160,22 +164,25 @@ export default function ProductosVendidosPage() {
     const map = new Map<string, CategoryGroup>()
 
     for (const r of rows) {
-      const margin    = r.revenue - r.cost
+      const margin    = r.revenue - r.cost   // neta - costo
       const marginPct = r.revenue > 0 ? margin / r.revenue : 0
 
       if (!map.has(r.category)) {
         map.set(r.category, {
           category: r.category,
-          stock_actual: 0, qty_sold: 0, revenue: 0, cost: 0, margin: 0, marginPct: 0,
+          stock_actual: 0, qty_sold: 0, gross_revenue: 0, discount: 0,
+          revenue: 0, cost: 0, margin: 0, marginPct: 0,
           products: [],
         })
       }
       const g = map.get(r.category)!
-      g.stock_actual += r.stock_actual
-      g.qty_sold     += r.qty_sold
-      g.revenue      += r.revenue
-      g.cost         += r.cost
-      g.margin       += margin
+      g.stock_actual  += r.stock_actual
+      g.qty_sold      += r.qty_sold
+      g.gross_revenue += r.gross_revenue
+      g.discount      += r.discount
+      g.revenue       += r.revenue
+      g.cost          += r.cost
+      g.margin        += margin
       g.products.push({ ...r, margin, marginPct })
     }
 
@@ -192,12 +199,14 @@ export default function ProductosVendidosPage() {
   const totals = useMemo(() => {
     const t = groups.reduce(
       (acc, g) => ({
-        qty:     acc.qty     + g.qty_sold,
-        revenue: acc.revenue + g.revenue,
-        cost:    acc.cost    + g.cost,
-        margin:  acc.margin  + g.margin,
+        qty:          acc.qty          + g.qty_sold,
+        gross_revenue: acc.gross_revenue + g.gross_revenue,
+        discount:     acc.discount     + g.discount,
+        revenue:      acc.revenue      + g.revenue,
+        cost:         acc.cost         + g.cost,
+        margin:       acc.margin       + g.margin,
       }),
-      { qty: 0, revenue: 0, cost: 0, margin: 0 }
+      { qty: 0, gross_revenue: 0, discount: 0, revenue: 0, cost: 0, margin: 0 }
     )
     return { ...t, marginPct: t.revenue > 0 ? t.margin / t.revenue : 0 }
   }, [groups])
@@ -247,9 +256,11 @@ export default function ProductosVendidosPage() {
                 color: 'text-violet-600 bg-violet-50',
               },
               {
-                label: 'Venta total',
+                label: 'Venta Neta',
                 value: fmt(totals.revenue),
-                sub:   null,
+                sub:   totals.discount > 0
+                  ? `Bruta ${fmt(totals.gross_revenue)} · Dto. ${fmt(totals.discount)}`
+                  : null,
                 Icon:  Banknote,
                 color: 'text-sky-600 bg-sky-50',
               },
@@ -263,7 +274,7 @@ export default function ProductosVendidosPage() {
               {
                 label: 'Margen total',
                 value: fmt(totals.margin),
-                sub:   `${fmtPct(totals.marginPct)} sobre venta`,
+                sub:   `${fmtPct(totals.marginPct)} sobre venta neta`,
                 Icon:  BadgeDollarSign,
                 color: 'text-emerald-600 bg-emerald-50',
               },
@@ -276,7 +287,7 @@ export default function ProductosVendidosPage() {
                   <p className="text-xs text-gray-500 truncate">{c.label}</p>
                   <p className="text-base font-bold text-gray-900 truncate">{c.value}</p>
                   {c.sub && (
-                    <p className="text-xs text-emerald-600 font-medium">{c.sub}</p>
+                    <p className="text-xs text-gray-400 truncate">{c.sub}</p>
                   )}
                 </div>
               </div>
@@ -312,7 +323,9 @@ export default function ProductosVendidosPage() {
                     <th className="px-3 py-3 text-left">Producto</th>
                     <th className="px-3 py-3 text-right">Stock</th>
                     <th className="px-3 py-3 text-right">Vendido</th>
-                    <th className="px-3 py-3 text-right">Venta</th>
+                    <th className="px-3 py-3 text-right">Bruta</th>
+                    <th className="px-3 py-3 text-right text-red-400">Dto.</th>
+                    <th className="px-3 py-3 text-right font-semibold text-gray-700">Venta Neta</th>
                     <th className="px-3 py-3 text-right">Costo</th>
                     <th className="px-3 py-3 text-right">Margen</th>
                     <th className="px-3 py-3 text-right text-gray-400">%</th>
@@ -348,7 +361,13 @@ export default function ProductosVendidosPage() {
                           <td className="px-3 py-3 text-right text-gray-700 font-medium">
                             {fmtN(g.qty_sold)}
                           </td>
-                          <td className="px-3 py-3 text-right text-gray-700 font-medium">
+                          <td className="px-3 py-3 text-right text-gray-400 text-xs tabular-nums">
+                            {fmt(g.gross_revenue)}
+                          </td>
+                          <td className="px-3 py-3 text-right text-red-400 text-xs tabular-nums">
+                            {g.discount > 0 ? `−${fmt(g.discount)}` : '—'}
+                          </td>
+                          <td className="px-3 py-3 text-right text-gray-800 font-semibold tabular-nums">
                             {fmt(g.revenue)}
                           </td>
                           <td className="px-3 py-3 text-right text-gray-500">
@@ -384,7 +403,13 @@ export default function ProductosVendidosPage() {
                             <td className="px-3 py-2.5 text-right text-gray-600">
                               {fmtN(p.qty_sold)}
                             </td>
-                            <td className="px-3 py-2.5 text-right text-gray-600">
+                            <td className="px-3 py-2.5 text-right text-gray-400 text-xs tabular-nums">
+                              {fmt(p.gross_revenue)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-red-400 text-xs tabular-nums">
+                              {p.discount > 0 ? `−${fmt(p.discount)}` : '—'}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-gray-800 font-medium tabular-nums">
                               {fmt(p.revenue)}
                             </td>
                             <td className="px-3 py-2.5 text-right">
@@ -417,7 +442,13 @@ export default function ProductosVendidosPage() {
                     </td>
                     <td className="px-3 py-3 text-right" />
                     <td className="px-3 py-3 text-right">{fmtN(totals.qty)}</td>
-                    <td className="px-3 py-3 text-right">{fmt(totals.revenue)}</td>
+                    <td className="px-3 py-3 text-right text-gray-400 text-xs tabular-nums font-normal">
+                      {fmt(totals.gross_revenue)}
+                    </td>
+                    <td className="px-3 py-3 text-right text-red-400 text-xs tabular-nums font-normal">
+                      {totals.discount > 0 ? `−${fmt(totals.discount)}` : '—'}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums">{fmt(totals.revenue)}</td>
                     <td className="px-3 py-3 text-right text-gray-500 font-normal">{fmt(totals.cost)}</td>
                     <td className={`px-3 py-3 text-right ${marginColor(totals.marginPct)}`}>
                       {fmt(totals.margin)}
