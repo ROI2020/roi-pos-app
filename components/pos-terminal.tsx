@@ -7,7 +7,7 @@ import {
   ShoppingCart, Search, Trash2, Loader2, CheckCircle2,
   AlertTriangle, X, CreditCard, Banknote, Smartphone,
   ArrowDownUp, ChevronDown, Camera, Plus, Lock, Unlock,
-  Receipt, RefreshCw, ReceiptText, Vault,
+  Receipt, RefreshCw, ReceiptText, Vault, User, Tag, Ticket,
 } from "lucide-react"
 import {
   OpenSessionContent, CloseSessionContent,
@@ -81,7 +81,31 @@ interface Variant {
   product_id: number; product_name: string; base_price: number
   category_name: string | null; branch_name: string | null
 }
-interface CartItem extends Variant { unit_price: number }
+interface CartItem extends Variant {
+  unit_price:     number
+  promo_discount: number           // descuento por promo (0 si no aplica)
+  applied_promo?: ApplicablePromo  // promo aplicada (para mostrar label y poder quitarla)
+}
+
+interface ApplicablePromo {
+  id: number; name: string
+  discount_type: 'percentage' | 'fixed_amount'
+  discount_value: number
+}
+interface SaleCustomer  { id: number; name: string; phone: string }
+interface ValidatedCode  {
+  id:               number
+  code:             string
+  discount_type:    'percentage' | 'fixed_amount'
+  discount_value:   number
+  promotion_id:     number | null
+  // Condiciones del cupón (para mostrar info)
+  promotion_detail: string | null
+  category_name:    string | null
+  age_group_name:   string | null
+  season_name:      string | null
+  gender_name:      string | null
+}
 
 // ── Formateo ───────────────────────────────────────────────────────────────────
 const fmt = (n: number) =>
@@ -545,6 +569,17 @@ export default function PosTerminal() {
   const [invoiceNum,    setInvoiceNum   ] = useState('')
   const [processing,    setProcessing   ] = useState(false)
 
+  // ── Cliente de la venta ────────────────────────────────────────────────
+  const [saleCustomer,    setSaleCustomer   ] = useState<SaleCustomer | null>(null)
+  const [customerPhone,   setCustomerPhone  ] = useState('')
+  const [customerSearching, setCustomerSearching] = useState(false)
+
+  // ── Promos por ítem y código de descuento ──────────────────────────────
+  const [itemPromos,      setItemPromos     ] = useState<Map<number, ApplicablePromo[]>>(new Map())
+  const [promoCode,       setPromoCode      ] = useState('')
+  const [appliedCode,     setAppliedCode    ] = useState<ValidatedCode | null>(null)
+  const [codeValidating,  setCodeValidating ] = useState(false)
+
   // ── Pago mixto ─────────────────────────────────────────────────────────
   const [mixedMode, setMixedMode] = useState(false)
   const [splitAmts, setSplitAmts] = useState<Partial<Record<PayMethod, string>>>({})
@@ -586,11 +621,21 @@ export default function PosTerminal() {
   const isAdmin = getSession()?.role === 'administrador'
 
   // ── Totales ────────────────────────────────────────────────────────────
-  const subtotal = cart.reduce((s, i) => s + i.unit_price, 0)
-  const discountAmount = useMemo(() => {
+  // subtotal = suma de precios brutos (sin descuentos de promo por ítem)
+  const subtotal = cart.reduce((s, i) => s + (parseFloat(String(i.unit_price)) || 0), 0)
+  // descuento acumulado de todas las promos por ítem
+  const promoDiscountTotal = cart.reduce((s, i) => s + (i.promo_discount ?? 0), 0)
+  // base neta sobre la que aplica el descuento manual / código
+  const netAfterPromos = subtotal - promoDiscountTotal
+  // descuento manual o de código (sobre la base neta)
+  const manualDiscount = useMemo(() => {
     const v = parseFloat(discountValue) || 0
-    return discountType === 'pct' ? subtotal * (v / 100) : v
-  }, [subtotal, discountValue, discountType])
+    return discountType === 'pct'
+      ? Math.round(netAfterPromos * v / 100)
+      : Math.min(v, Math.max(0, netAfterPromos))
+  }, [netAfterPromos, discountValue, discountType])
+  // descuento total que se envía a la API (promos + manual/código)
+  const discountAmount = promoDiscountTotal + manualDiscount
   const total = Math.max(0, subtotal - discountAmount)
 
   // ── Carga de sucursales ────────────────────────────────────────────────
@@ -733,18 +778,54 @@ export default function PosTerminal() {
   }, [doSearch])
 
   // ── Manejo del carrito ─────────────────────────────────────────────────
-  const addToCart = (variant: Variant) => {
+  const addToCart = async (variant: Variant) => {
     if (cart.some(i => i.id === variant.id)) {
       toast.warning('Esa prenda ya está en el carrito'); return
     }
-    setCart(prev => [...prev, { ...variant, unit_price: variant.base_price }])
+    const unitPrice = parseFloat(String(variant.base_price)) || 0
+
+    // Si hay un código de ruleta activo con promo específica, verificar si aplica al nuevo ítem
+    let initDiscount = 0
+    let initPromo: ApplicablePromo | undefined = undefined
+    if (appliedCode?.promotion_id) {
+      try {
+        const res = await fetch(
+          `/api/promotions/applicable?variant_id=${variant.id}&promotion_id=${appliedCode.promotion_id}`
+        )
+        const rows = await res.json() as {
+          id: number; name: string | null; summary: string | null
+          discount_type: string; value: number
+        }[]
+        if (rows[0]) {
+          initPromo = {
+            id:             rows[0].id,
+            name:           rows[0].name || rows[0].summary || 'Promo Ruleta',
+            discount_type:  rows[0].discount_type as 'percentage' | 'fixed_amount',
+            discount_value: rows[0].value,
+          }
+          initDiscount = initPromo.discount_type === 'percentage'
+            ? Math.round(unitPrice * initPromo.discount_value / 100)
+            : Math.min(Math.round(initPromo.discount_value), unitPrice)
+        }
+      } catch {}
+    }
+
+    setCart(prev => [...prev, {
+      ...variant,
+      unit_price:     unitPrice,
+      promo_discount: initDiscount,
+      applied_promo:  initPromo,
+    }])
     toast.success(`${variant.product_name} T.${variant.size} agregada`, { duration: 1500 })
     setQuery(''); setSearchResults([]); setShowResults(false)
     searchRef.current?.focus()
+    fetchItemPromos(variant.id)
   }
 
-  const removeFromCart = (variantId: number) =>
+  const removeFromCart = (variantId: number) => {
     setCart(prev => prev.filter(i => i.id !== variantId))
+    setItemPromos(prev => { const m = new Map(prev); m.delete(variantId); return m })
+  }
 
   const updatePrice = (variantId: number, price: number) =>
     setCart(prev => prev.map(i => i.id === variantId ? { ...i, unit_price: price } : i))
@@ -753,7 +834,141 @@ export default function PosTerminal() {
     setCart([]); setDiscountValue(''); setInvoiceNum('')
     setPayMethod('efectivo')
     setMixedMode(false); setSplitAmts({})
+    setSaleCustomer(null); setCustomerPhone('')
+    setItemPromos(new Map())
+    setPromoCode(''); setAppliedCode(null)
     searchRef.current?.focus()
+  }
+
+  // ── Promos por ítem ────────────────────────────────────────────────────
+  const fetchItemPromos = async (variantId: number) => {
+    try {
+      const res = await fetch(`/api/promotions/applicable?variant_id=${variantId}`)
+      if (!res.ok) return
+      const raw = await res.json() as {
+        id: number; name: string | null; summary: string | null
+        discount_type: string; value: number
+      }[]
+      const promos: ApplicablePromo[] = raw.map(p => ({
+        id:             p.id,
+        name:           p.name || p.summary || 'Promo',
+        discount_type:  p.discount_type as 'percentage' | 'fixed_amount',
+        discount_value: p.value,
+      }))
+      if (promos.length > 0) {
+        setItemPromos(prev => new Map(prev).set(variantId, promos))
+      }
+    } catch {}
+  }
+
+  const applyPromoToItem = (variantId: number, promo: ApplicablePromo) => {
+    setCart(prev => prev.map(item => {
+      if (item.id !== variantId) return item
+      const price    = parseFloat(String(item.unit_price)) || 0
+      const discVal  = parseFloat(String(promo.discount_value)) || 0
+      const discount = promo.discount_type === 'percentage'
+        ? Math.round(price * discVal / 100)
+        : Math.min(Math.round(discVal), price)
+      return { ...item, promo_discount: discount, applied_promo: promo }
+    }))
+  }
+
+  const removeItemPromo = (variantId: number) => {
+    setCart(prev => prev.map(item =>
+      item.id !== variantId ? item : { ...item, promo_discount: 0, applied_promo: undefined }
+    ))
+  }
+
+  // ── Aplica un código de ruleta a los ítems que correspondan ───────────────
+  // Llama a /api/promotions/applicable con promotion_id para saltear el día de semana.
+  const applyCodeToItems = async (code: ValidatedCode) => {
+    if (!code.promotion_id) {
+      // Código sin promo específica → descuento global como fallback
+      setDiscountType(code.discount_type === 'percentage' ? 'pct' : 'amt')
+      setDiscountValue(String(code.discount_value))
+      return
+    }
+    // Verificar cada ítem del carrito en paralelo
+    const checks = await Promise.all(
+      cart.map(async item => {
+        try {
+          const res = await fetch(
+            `/api/promotions/applicable?variant_id=${item.id}&promotion_id=${code.promotion_id}`
+          )
+          const rows = await res.json() as {
+            id: number; name: string | null; summary: string | null
+            discount_type: string; value: number
+          }[]
+          return { variantId: item.id, promo: rows[0] ?? null }
+        } catch {
+          return { variantId: item.id, promo: null }
+        }
+      })
+    )
+    let applied = 0
+    for (const { variantId, promo } of checks) {
+      if (promo) {
+        applyPromoToItem(variantId, {
+          id:             promo.id,
+          name:           promo.name || promo.summary || 'Promo Ruleta',
+          discount_type:  promo.discount_type as 'percentage' | 'fixed_amount',
+          discount_value: promo.value,
+        })
+        applied++
+      }
+    }
+    if (applied === 0) {
+      toast.info('Este código no aplica a los productos en el carrito')
+    }
+  }
+
+  // ── Búsqueda de cliente ────────────────────────────────────────────────
+  const handleCustomerSearch = async () => {
+    if (!customerPhone.trim()) return
+    setCustomerSearching(true)
+    try {
+      const res  = await fetch(`/api/customers?q=${encodeURIComponent(customerPhone.trim())}`)
+      const data = await res.json()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const list: any[] = Array.isArray(data) ? data : (data.customers ?? [])
+      if (list.length > 0) {
+        const c = list[0]
+        setSaleCustomer({ id: c.id, name: c.name, phone: c.phone })
+      } else {
+        toast.error('Cliente no encontrado. Podés registrarlo en Clientes.')
+      }
+    } catch {
+      toast.error('Error al buscar cliente')
+    } finally {
+      setCustomerSearching(false)
+    }
+  }
+
+  // ── Código de descuento ────────────────────────────────────────────────
+  const handleValidateCode = async () => {
+    if (!promoCode.trim()) return
+    setCodeValidating(true)
+    try {
+      const res  = await fetch('/api/discount-codes/validate', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ code: promoCode.trim() }),
+      })
+      const data = await res.json()
+      if (!data.valid) { toast.error(data.reason ?? 'Código inválido'); return }
+      const code = data.discount_code as ValidatedCode
+      setAppliedCode(code)
+      // Aplicar por ítem (salta day-of-week); fallback global si no tiene promo_id
+      await applyCodeToItems(code)
+      const label = code.discount_type === 'percentage'
+        ? `${code.discount_value}% OFF`
+        : `${fmt(code.discount_value)} OFF`
+      toast.success(`✅ Código ${code.code} — ${label}`)
+    } catch {
+      toast.error('Error al validar el código')
+    } finally {
+      setCodeValidating(false)
+    }
   }
 
   // ── Confirmar venta ────────────────────────────────────────────────────
@@ -801,13 +1016,15 @@ export default function PosTerminal() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          branch_id:       snapBranchId,
-          pos_session_id:  session.id,
-          invoice_number:  snapInvoiceNum.trim() || null,
-          discount_amount: snapDiscountAmt,
-          payment_method:  snapPrimaryMethod,
-          payment_split:   snapSplit,
-          user_id:         currentUserId ?? null,
+          branch_id:        snapBranchId,
+          pos_session_id:   session.id,
+          invoice_number:   snapInvoiceNum.trim() || null,
+          discount_amount:  snapDiscountAmt,
+          payment_method:   snapPrimaryMethod,
+          payment_split:    snapSplit,
+          user_id:          currentUserId ?? null,
+          customer_id:      saleCustomer?.id ?? null,
+          discount_code_id: appliedCode?.id ?? null,
           items: snapItems.map(i => ({ variant_id: i.id, unit_price: i.unit_price })),
         }),
       })
@@ -1147,6 +1364,47 @@ export default function PosTerminal() {
               )}
             </div>
 
+            {/* Cliente opcional */}
+            <div className="px-3 py-2 border-b border-gray-100 bg-gray-50/40">
+              {saleCustomer ? (
+                <div className="flex items-center gap-2">
+                  <User className="h-3.5 w-3.5 text-violet-500 shrink-0" />
+                  <span className="text-xs font-medium text-gray-800 flex-1 truncate">{saleCustomer.name}</span>
+                  <button
+                    className="text-gray-300 hover:text-red-400"
+                    onClick={() => { setSaleCustomer(null); setCustomerPhone('') }}
+                    title="Quitar cliente"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <User className="h-3.5 w-3.5 text-gray-300 shrink-0" />
+                  <input
+                    type="text"
+                    placeholder="Celular del cliente (opcional)"
+                    value={customerPhone}
+                    onChange={e => setCustomerPhone(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleCustomerSearch()}
+                    className="flex-1 text-xs border-0 bg-transparent focus:outline-none text-gray-600 placeholder:text-gray-300 min-w-0"
+                  />
+                  {customerPhone.trim() && (
+                    <button
+                      onClick={handleCustomerSearch}
+                      disabled={customerSearching}
+                      className="text-xs text-violet-500 hover:text-violet-700 shrink-0 disabled:opacity-50"
+                    >
+                      {customerSearching
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : 'Buscar'
+                      }
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Items del carrito */}
             <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
               {cart.length === 0 ? (
@@ -1160,6 +1418,56 @@ export default function PosTerminal() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">{item.product_name}</p>
                       <p className="text-xs text-gray-400">{item.color} · T.{item.size}</p>
+                      {/* Promo badge */}
+                      {item.applied_promo ? (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">
+                            <Tag className="h-2.5 w-2.5" />
+                            {item.applied_promo.name}
+                            {' '}
+                            <span className="opacity-70">
+                              −{fmt(item.promo_discount)}
+                            </span>
+                          </span>
+                          <button
+                            className="text-gray-300 hover:text-red-400"
+                            onClick={() => removeItemPromo(item.id)}
+                            title="Quitar promo"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ) : itemPromos.get(item.id)?.length ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button className="inline-flex items-center gap-1 text-[10px] font-medium text-violet-600 bg-violet-50 border border-violet-200 rounded px-1.5 py-0.5 mt-0.5 hover:bg-violet-100">
+                              <Tag className="h-2.5 w-2.5" />
+                              {itemPromos.get(item.id)!.length === 1
+                                ? 'Promo aplicable'
+                                : `${itemPromos.get(item.id)!.length} promos`
+                              }
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="min-w-[200px]">
+                            {itemPromos.get(item.id)!.map(promo => (
+                              <DropdownMenuItem
+                                key={promo.id}
+                                onClick={() => applyPromoToItem(item.id, promo)}
+                                className="gap-2"
+                              >
+                                <Tag className="h-3.5 w-3.5 text-violet-500 shrink-0" />
+                                <span className="flex-1 text-sm">{promo.name}</span>
+                                <span className="text-xs text-gray-400 shrink-0">
+                                  {promo.discount_type === 'percentage'
+                                    ? `${promo.discount_value}% OFF`
+                                    : `${fmt(parseFloat(String(promo.discount_value)))} OFF`
+                                  }
+                                </span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : null}
                     </div>
                     {/* Precio editable */}
                     <div className="relative w-24 shrink-0">
@@ -1190,8 +1498,9 @@ export default function PosTerminal() {
               <div className="flex items-center gap-2">
                 <button
                   className="text-xs text-gray-500 border rounded px-2 py-0.5 hover:bg-gray-50 shrink-0"
-                  onClick={() => setDiscountType(d => d === 'pct' ? 'amt' : 'pct')}
+                  onClick={() => { if (!appliedCode) setDiscountType(d => d === 'pct' ? 'amt' : 'pct') }}
                   title="Cambiar tipo de descuento"
+                  disabled={!!appliedCode}
                 >
                   {discountType === 'pct' ? '%' : '$'}
                 </button>
@@ -1200,7 +1509,8 @@ export default function PosTerminal() {
                   placeholder={discountType === 'pct' ? 'Descuento %' : 'Descuento $'}
                   className="h-8 text-sm"
                   value={discountValue}
-                  onChange={e => setDiscountValue(e.target.value)}
+                  onChange={e => { if (!appliedCode) setDiscountValue(e.target.value) }}
+                  readOnly={!!appliedCode}
                 />
                 <Input
                   placeholder="Nro. comprobante"
@@ -1210,16 +1520,76 @@ export default function PosTerminal() {
                 />
               </div>
 
+              {/* Código de descuento de Ruleta */}
+              {appliedCode ? (
+                <div className="flex items-center gap-2 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
+                  <Ticket className="h-4 w-4 text-violet-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-violet-700 font-mono">{appliedCode.code}</p>
+                    <p className="text-[10px] text-violet-500">
+                      {appliedCode.discount_type === 'percentage'
+                        ? `${appliedCode.discount_value}% de descuento`
+                        : `${fmt(appliedCode.discount_value)} de descuento`
+                      }
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { setAppliedCode(null); setPromoCode(''); setDiscountValue('') }}
+                    className="text-violet-300 hover:text-red-400"
+                    title="Quitar código"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <Ticket className="h-4 w-4 text-gray-300 shrink-0" />
+                  <Input
+                    placeholder="Código de descuento"
+                    className="h-8 text-sm flex-1 uppercase"
+                    value={promoCode}
+                    onChange={e => setPromoCode(e.target.value.toUpperCase())}
+                    onKeyDown={e => e.key === 'Enter' && handleValidateCode()}
+                  />
+                  {promoCode.trim() && (
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-8 text-xs px-2 shrink-0"
+                      onClick={handleValidateCode}
+                      disabled={codeValidating}
+                    >
+                      {codeValidating
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : 'Aplicar'
+                      }
+                    </Button>
+                  )}
+                </div>
+              )}
+
               {/* Totales */}
               <div className="space-y-1 text-sm">
                 <div className="flex justify-between text-gray-500">
                   <span>Subtotal</span>
                   <span className="tabular-nums">{fmt(subtotal)}</span>
                 </div>
-                {discountAmount > 0 && (
+                {promoDiscountTotal > 0 && (
+                  <div className="flex justify-between text-violet-600">
+                    <span>Desc. promos</span>
+                    <span className="tabular-nums">−{fmt(promoDiscountTotal)}</span>
+                  </div>
+                )}
+                {manualDiscount > 0 && (
                   <div className="flex justify-between text-orange-600">
-                    <span>Descuento {discountType === 'pct' ? `(${discountValue}%)` : ''}</span>
-                    <span className="tabular-nums">−{fmt(discountAmount)}</span>
+                    <span>
+                      {appliedCode
+                        ? `Código (${appliedCode.code})`
+                        : discountType === 'pct'
+                          ? `Descuento (${discountValue}%)`
+                          : 'Descuento'
+                      }
+                    </span>
+                    <span className="tabular-nums">−{fmt(manualDiscount)}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-bold text-lg text-gray-900 pt-1 border-t border-gray-100">

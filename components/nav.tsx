@@ -7,6 +7,7 @@ import {
   ShoppingBag, Tags, Warehouse, LayoutDashboard, Printer,
   ShoppingCart, Settings, Package, ArrowLeftRight, TrendingUp, ChevronDown,
   FileSpreadsheet, Store, Menu, LogOut, FileText, Building2, Layers,
+  Users, Tag, Dices,
 } from "lucide-react"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -39,6 +40,12 @@ const ANALYTICS_LINKS = [
   { href: "/analisis/productos-vendidos",  label: "Productos Vendidos", Icon: ShoppingBag,     featureCode: undefined         },
 ]
 
+const PROMOS_LINKS = [
+  { href: "/clientes",   label: "Clientes",    Icon: Users,  featureCode: undefined as string | undefined },
+  { href: "/promociones",label: "Promociones", Icon: Tag,    featureCode: undefined as string | undefined },
+  { href: "/ruleta",     label: "Ruleta",      Icon: Dices,  featureCode: undefined as string | undefined },
+]
+
 const PLAN_BADGE: Record<number, { bg: string; fg: string }> = {
   1: { bg: '#d1fae5', fg: '#059669' },  // verde agua  — Showroom
   2: { bg: '#cffafe', fg: '#0891b2' },  // celeste     — Boutique
@@ -53,6 +60,7 @@ const FACTURACION_LINKS = [
 const ALL_SECONDARY = [
   { section: "Inventario",  links: INVENTORY_LINKS   },
   { section: "Análisis",    links: ANALYTICS_LINKS   },
+  { section: "Promos & Ruleta", links: PROMOS_LINKS  },
   { section: "Facturación", links: FACTURACION_LINKS },
   { section: "Otros", links: [
     { href: "/tienda",        label: "Tienda",        Icon: Store,     featureCode: undefined as string | undefined },
@@ -101,6 +109,7 @@ export default function Nav() {
 
   const inventoryActive = INVENTORY_LINKS.some(l => l.href === path)
   const analyticsActive = ANALYTICS_LINKS.some(l => l.href === path)
+  const promosActive    = PROMOS_LINKS.some(l => l.href === path)
 
   return (
     <>
@@ -216,6 +225,25 @@ export default function Nav() {
                       </DropdownMenuItem>
                     )
                 })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Promos & Ruleta dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+                  ${promosActive ? "bg-violet-100 text-violet-700" : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"}`}>
+                  <Dices className="h-4 w-4" />Promos<ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-44">
+                {PROMOS_LINKS.map(({ href, label, Icon }) => (
+                  <DropdownMenuItem key={href} asChild>
+                    <Link href={href} className={`flex items-center gap-2 w-full ${path === href ? 'text-violet-700 font-medium' : ''}`}>
+                      <Icon className="h-4 w-4" />{label}
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
 

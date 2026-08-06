@@ -29,6 +29,7 @@ export async function POST(req: Request) {
     const {
       branch_id, pos_session_id, invoice_number,
       discount_amount, payment_method, payment_split, notes, items, user_id,
+      customer_id, discount_code_id,
     } = await req.json()
 
     // ── Validaciones básicas ─────────────────────────────────────────────
@@ -56,8 +57,8 @@ export async function POST(req: Request) {
       `INSERT INTO sales
          (branch_id, pos_session_id, invoice_number,
           subtotal, discount_amount, total_amount,
-          payment_method, payment_split, notes, user_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          payment_method, payment_split, notes, user_id, customer_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING id, business_id`,
       [
         branch_id,
@@ -68,6 +69,7 @@ export async function POST(req: Request) {
         splitJson,
         notes?.trim() || null,
         user_id ?? null,
+        customer_id ?? null,
       ]
     )
 
@@ -105,6 +107,14 @@ export async function POST(req: Request) {
         `DELETE FROM branch_inventory
           WHERE product_variant_id = $1 AND branch_id = $2`,
         [item.variant_id, branch_id]
+      )
+    }
+
+    // ── 2b. Marcar código de descuento como usado ─────────────────────────────
+    if (discount_code_id) {
+      await client.query(
+        `UPDATE discount_codes SET used_at = NOW() WHERE id = $1 AND used_at IS NULL`,
+        [discount_code_id]
       )
     }
 

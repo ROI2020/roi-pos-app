@@ -1,10 +1,19 @@
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
-import { ThemeProvider } from '@/components/theme-provider'
+import { DM_Sans } from 'next/font/google'
 import { Toaster } from '@/components/ui/sonner'
 import Nav from '@/components/nav'
 import { PlanProvider } from '@/contexts/PlanContext'
+import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
+
+// ── Fuente del sistema ─────────────────────────────────────────────────────────
+// Para cambiar a Roboto: reemplazá DM_Sans por Roboto y actualizá el nombre.
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight:  ['400', '500', '600', '700'],
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'ROIPOS',
@@ -23,7 +32,7 @@ export default async function RootLayout({
 
   return (
     <html lang="es" suppressHydrationWarning>
-      <body className="font-sans antialiased" suppressHydrationWarning>
+      <body className={`${dmSans.className} antialiased`} suppressHydrationWarning>
         <ThemeProvider
           attribute="class"
           defaultTheme="light"
