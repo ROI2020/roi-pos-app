@@ -46,8 +46,9 @@ export async function middleware(req: NextRequest) {
   const host = req.headers.get('host')?.replace(/^www\./, '') ?? ''
   const session = parseSession(req.cookies.get('roipos_session')?.value)
 
-  // Sin sesión → login
+  // Sin sesión: la raíz pública va a la tienda; el resto al login
   if (!session) {
+    if (pathname === '/') return NextResponse.redirect(new URL('/tienda', req.url))
     return NextResponse.redirect(new URL('/login', req.url))
   }
 

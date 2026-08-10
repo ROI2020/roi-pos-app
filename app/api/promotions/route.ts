@@ -58,6 +58,7 @@ export async function POST(req: Request) {
       end_date          = null,
       roulette_weight   = 10,
       roulette_daily_limit = null,
+      roulette_only     = false,
       estimated_savings = 0,
       active            = true,
       created_by        = null,
@@ -74,17 +75,17 @@ export async function POST(req: Request) {
          discount_type, value, days_of_week,
          category_id, age_group_id, season_id, gender_id,
          start_date, end_date,
-         roulette_weight, roulette_daily_limit,
+         roulette_weight, roulette_daily_limit, roulette_only,
          estimated_savings, active, created_by
        ) VALUES (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
        ) RETURNING *`,
       [
         businessId, name, summary, detail,
         discount_type, value, days_of_week,
         category_id, age_group_id, season_id, gender_id,
         start_date || null, end_date || null,
-        roulette_weight, roulette_daily_limit || null,
+        roulette_weight, roulette_daily_limit || null, roulette_only,
         estimated_savings, active, created_by,
       ]
     )

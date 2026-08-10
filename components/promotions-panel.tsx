@@ -3,8 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react"
 import {
   Plus, Pencil, Trash2, Tag, BarChart3, RefreshCw,
-  CheckCircle2, Circle, Calendar, Percent, DollarSign,
-  Trophy, Loader2,
+  Percent, DollarSign, Trophy, Loader2, Eye, Printer,
 } from "lucide-react"
 import { toast }     from "sonner"
 import { Button }    from "@/components/ui/button"
@@ -45,6 +44,7 @@ interface Promotion {
   end_date:             string | null
   roulette_weight:      number
   roulette_daily_limit: number | null
+  roulette_only:        boolean
   estimated_savings:    number
   active:               boolean
   created_at:           string
@@ -130,6 +130,7 @@ const EMPTY_FORM = {
   end_date:             '',
   roulette_weight:      '10',
   roulette_daily_limit: '',
+  roulette_only:        false,
   estimated_savings:    '',
   active:               true,
 }
@@ -153,6 +154,344 @@ function daysLabel(days: string) {
   return days.split('').map(d => DAYS.find(x => x.d === d)?.label ?? d).join(' · ')
 }
 
+// ── PromoFlyer ────────────────────────────────────────────────────────────────
+function PromoFlyer({
+  promo, logoUrl, storeName,
+}: {
+  promo: Promotion
+  logoUrl: string | null
+  storeName: string | null
+}) {
+  const isPercent   = promo.discount_type === 'percentage'
+  const bigNumber   = isPercent ? `${promo.value}%` : `$${promo.value.toLocaleString('es-AR')}`
+  const daysText    = promo.days_of_week === '1234567' ? 'Todos los días' : daysLabel(promo.days_of_week)
+  const hasFilters  = !!(promo.category_name || promo.age_group_name || promo.season_name || promo.gender_name)
+  const hasDates    = !!(promo.start_date || promo.end_date)
+
+  return (
+    <div
+      id="promo-flyer"
+      className="relative w-[360px] flex flex-col overflow-hidden select-none"
+      style={{
+        background: 'linear-gradient(160deg,#0b0b14 0%,#110e2e 45%,#0b0b14 100%)',
+        fontFamily: "'DM Sans', ui-sans-serif, system-ui, sans-serif",
+        color: '#fff',
+      }}
+    >
+      {/* Glow decorativo */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-16 -left-16 w-64 h-64 rounded-full opacity-25"
+          style={{ background: 'radial-gradient(circle, #7c3aed, transparent)' }} />
+        <div className="absolute -top-8 -right-8 w-48 h-48 rounded-full opacity-15"
+          style={{ background: 'radial-gradient(circle, #ec4899, transparent)' }} />
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-72 h-32 opacity-10"
+          style={{ background: 'radial-gradient(ellipse, #7c3aed, transparent)' }} />
+      </div>
+
+      {/* Barra superior */}
+      <div className="h-1.5 w-full shrink-0"
+        style={{ background: 'linear-gradient(90deg,#7c3aed,#ec4899,#7c3aed)' }} />
+
+      {/* Logo + nombre */}
+      <div className="relative flex flex-col items-center pt-7 pb-4 gap-2">
+        {logoUrl ? (
+          <img src={logoUrl} alt={storeName ?? ''} className="h-14 w-auto object-contain" />
+        ) : (
+          <div className="w-14 h-14 rounded-full flex items-center justify-center"
+            style={{ background: 'linear-gradient(135deg,#7c3aed,#ec4899)' }}>
+            <Tag className="h-7 w-7 text-white" />
+          </div>
+        )}
+        {storeName && (
+          <p className="text-[11px] font-bold uppercase tracking-[0.3em]"
+            style={{ color: '#a78bfa' }}>
+            {storeName}
+          </p>
+        )}
+      </div>
+
+      {/* Caja principal del descuento */}
+      <div className="relative mx-6 mb-5">
+        {/* borde gradiente */}
+        <div className="absolute inset-0 rounded-2xl p-px"
+          style={{ background: 'linear-gradient(135deg,#7c3aed,#ec4899,#7c3aed)', borderRadius: '1rem' }}>
+          <div className="w-full h-full rounded-2xl" style={{ background: '#0b0b14' }} />
+        </div>
+        <div className="relative rounded-2xl px-6 py-6 text-center"
+          style={{ background: 'rgba(11,11,20,0.85)' }}>
+          <p className="text-[10px] font-bold uppercase tracking-[0.4em] mb-2"
+            style={{ color: '#a78bfa' }}>
+            DESCUENTO ESPECIAL
+          </p>
+          <p className="font-black leading-none mb-1"
+            style={{
+              fontSize: '72px',
+              background: 'linear-gradient(135deg,#fff 0%,#ddd6fe 50%,#f9a8d4 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+            }}>
+            {bigNumber}
+          </p>
+          <p className="text-xl font-bold tracking-[0.25em]" style={{ color: '#f472b6' }}>
+            OFF
+          </p>
+        </div>
+      </div>
+
+      {/* Nombre + summary */}
+      <div className="relative text-center px-6 pb-5">
+        {promo.name && (
+          <p className="text-lg font-bold text-white mb-1 leading-tight">{promo.name}</p>
+        )}
+        {promo.summary && (
+          <p className="text-sm font-semibold" style={{ color: '#c4b5fd' }}>{promo.summary}</p>
+        )}
+      </div>
+
+      {/* Filtros (qué aplica) */}
+      {hasFilters && (
+        <div className="relative px-6 pb-5 flex flex-wrap justify-center gap-2">
+          {promo.category_name  && <FilterChip icon="📦" label={promo.category_name} />}
+          {promo.age_group_name && <FilterChip icon="👤" label={promo.age_group_name} />}
+          {promo.season_name    && <FilterChip icon="🌸" label={promo.season_name} />}
+          {promo.gender_name    && <FilterChip icon="✦"  label={promo.gender_name} />}
+        </div>
+      )}
+
+      {/* Separador */}
+      <div className="mx-6 mb-4" style={{ height: '1px', background: 'rgba(124,58,237,0.3)' }} />
+
+      {/* Días + vigencia */}
+      <div className="relative px-6 pb-4 flex flex-col gap-2 text-center">
+        <div>
+          <p className="text-[9px] font-bold uppercase tracking-[0.3em] mb-0.5"
+            style={{ color: '#8b5cf6' }}>Válido</p>
+          <p className="text-sm font-semibold" style={{ color: '#ddd6fe' }}>{daysText}</p>
+        </div>
+        {hasDates && (
+          <div>
+            <p className="text-[9px] font-bold uppercase tracking-[0.3em] mb-0.5"
+              style={{ color: '#8b5cf6' }}>Período</p>
+            <p className="text-sm font-semibold" style={{ color: '#ddd6fe' }}>
+              {promo.start_date ? formatDate(promo.start_date) : '—'} al{' '}
+              {promo.end_date ? formatDate(promo.end_date) : '—'}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Condiciones */}
+      {promo.detail && (
+        <>
+          <div className="mx-6 mb-3" style={{ height: '1px', background: 'rgba(124,58,237,0.2)' }} />
+          <div className="relative px-6 pb-5">
+            <p className="text-[9px] font-bold uppercase tracking-[0.3em] mb-1.5"
+              style={{ color: '#8b5cf6' }}>Condiciones</p>
+            <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(221,214,254,0.65)' }}>
+              {promo.detail}
+            </p>
+          </div>
+        </>
+      )}
+
+      {/* Barra inferior */}
+      <div className="h-1.5 w-full mt-2 shrink-0"
+        style={{ background: 'linear-gradient(90deg,#7c3aed,#ec4899,#7c3aed)' }} />
+    </div>
+  )
+}
+
+function FilterChip({ icon, label }: { icon: string; label: string }) {
+  return (
+    <span
+      className="flex items-center gap-1 text-[11px] font-semibold px-3 py-1 rounded-full"
+      style={{
+        background: 'rgba(109,40,217,0.25)',
+        border: '1px solid rgba(124,58,237,0.35)',
+        color: '#ddd6fe',
+      }}
+    >
+      <span>{icon}</span> {label}
+    </span>
+  )
+}
+
+// ── Print flyer ───────────────────────────────────────────────────────────────
+function buildFlyerHtml(promo: Promotion, logoUrl: string | null, storeName: string | null): string {
+  const isPercent  = promo.discount_type === 'percentage'
+  const bigNumber  = isPercent ? `${promo.value}%` : `$${promo.value.toLocaleString('es-AR')}`
+  const daysText   = promo.days_of_week === '1234567' ? 'Todos los días' : daysLabel(promo.days_of_week)
+  const hasDates   = !!(promo.start_date || promo.end_date)
+
+  const filterBadges = [
+    promo.category_name  && `<span class="badge">📦 ${promo.category_name}</span>`,
+    promo.age_group_name && `<span class="badge">👤 ${promo.age_group_name}</span>`,
+    promo.season_name    && `<span class="badge">🌸 ${promo.season_name}</span>`,
+    promo.gender_name    && `<span class="badge">✦ ${promo.gender_name}</span>`,
+  ].filter(Boolean).join('')
+
+  const logoHtml = logoUrl
+    ? `<img src="${logoUrl}" alt="${storeName ?? ''}" class="logo" />`
+    : `<div class="logo-placeholder"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M20.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.69a8.18 8.18 0 004.78 1.52V6.75a4.85 4.85 0 01-1.01-.06z"/></svg></div>`
+
+  const condHtml = promo.detail
+    ? `<div class="divider"></div>
+       <div class="section">
+         <p class="section-label">Condiciones</p>
+         <p class="cond-text">${promo.detail}</p>
+       </div>`
+    : ''
+
+  const datesHtml = hasDates
+    ? `<div class="info-item">
+         <p class="info-label">Período</p>
+         <p class="info-value">${promo.start_date ? formatDate(promo.start_date) : '—'} al ${promo.end_date ? formatDate(promo.end_date) : '—'}</p>
+       </div>`
+    : ''
+
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${promo.name || promo.summary || 'Promoción'}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;0,9..40,800;0,9..40,900&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    width:100vw; min-height:100vh;
+    display:flex; align-items:center; justify-content:center;
+    background:#1e1b4b;
+    font-family:'DM Sans',ui-sans-serif,system-ui,sans-serif;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  @page { size:A5 portrait; margin:0; }
+  @media print { body { background:#1e1b4b; } }
+
+  .flyer {
+    width:380px;
+    background:linear-gradient(160deg,#0b0b14 0%,#110e2e 45%,#0b0b14 100%);
+    color:#fff; position:relative; overflow:hidden;
+  }
+  .top-bar, .bot-bar {
+    height:6px; width:100%;
+    background:linear-gradient(90deg,#7c3aed,#ec4899,#7c3aed);
+  }
+  .glow1 {
+    position:absolute; top:-60px; left:-60px; width:240px; height:240px;
+    border-radius:50%; opacity:0.22;
+    background:radial-gradient(circle,#7c3aed,transparent);
+    pointer-events:none;
+  }
+  .glow2 {
+    position:absolute; top:-30px; right:-30px; width:180px; height:180px;
+    border-radius:50%; opacity:0.12;
+    background:radial-gradient(circle,#ec4899,transparent);
+    pointer-events:none;
+  }
+  .header { display:flex; flex-direction:column; align-items:center; padding:28px 24px 20px; gap:8px; position:relative; }
+  .logo { height:52px; width:auto; object-fit:contain; }
+  .logo-placeholder {
+    width:52px; height:52px; border-radius:50%;
+    background:linear-gradient(135deg,#7c3aed,#ec4899);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .store-name {
+    font-size:10px; font-weight:700; letter-spacing:0.3em;
+    text-transform:uppercase; color:#a78bfa;
+  }
+
+  .discount-box {
+    margin:0 24px 20px; border-radius:16px; padding:1px; position:relative;
+    background:linear-gradient(135deg,#7c3aed,#ec4899,#7c3aed);
+  }
+  .discount-inner {
+    background:rgba(11,11,20,0.9); border-radius:15px;
+    padding:24px 24px 20px; text-align:center;
+  }
+  .disc-eyebrow {
+    font-size:9px; font-weight:700; letter-spacing:0.4em;
+    text-transform:uppercase; color:#a78bfa; margin-bottom:8px;
+  }
+  .disc-number {
+    font-size:80px; font-weight:900; line-height:1;
+    background:linear-gradient(135deg,#fff 0%,#ddd6fe 50%,#f9a8d4 100%);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+    background-clip:text; margin-bottom:4px;
+  }
+  .disc-off {
+    font-size:22px; font-weight:700; letter-spacing:0.25em; color:#f472b6;
+  }
+
+  .promo-title { text-align:center; padding:0 24px 20px; position:relative; }
+  .promo-name { font-size:17px; font-weight:700; margin-bottom:4px; }
+  .promo-summary { font-size:13px; font-weight:600; color:#c4b5fd; }
+
+  .badges { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; padding:0 24px 20px; position:relative; }
+  .badge {
+    font-size:11px; font-weight:600; padding:4px 12px; border-radius:999px;
+    background:rgba(109,40,217,0.25); border:1px solid rgba(124,58,237,0.35);
+    color:#ddd6fe;
+  }
+
+  .divider { margin:0 24px 16px; height:1px; background:rgba(124,58,237,0.3); }
+  .info-row { display:flex; justify-content:center; gap:32px; padding:0 24px 16px; position:relative; }
+  .info-item { text-align:center; }
+  .info-label { font-size:9px; font-weight:700; letter-spacing:0.3em; text-transform:uppercase; color:#8b5cf6; margin-bottom:2px; }
+  .info-value { font-size:13px; font-weight:600; color:#c4b5fd; }
+
+  .section { padding:0 24px 20px; position:relative; }
+  .section-label { font-size:9px; font-weight:700; letter-spacing:0.3em; text-transform:uppercase; color:#8b5cf6; margin-bottom:6px; }
+  .cond-text { font-size:10px; line-height:1.6; color:rgba(196,181,253,0.65); }
+</style>
+</head>
+<body>
+<div class="flyer">
+  <div class="glow1"></div>
+  <div class="glow2"></div>
+  <div class="top-bar"></div>
+
+  <div class="header">
+    ${logoHtml}
+    ${storeName ? `<p class="store-name">${storeName}</p>` : ''}
+  </div>
+
+  <div class="discount-box">
+    <div class="discount-inner">
+      <p class="disc-eyebrow">DESCUENTO ESPECIAL</p>
+      <p class="disc-number">${bigNumber}</p>
+      <p class="disc-off">OFF</p>
+    </div>
+  </div>
+
+  ${(promo.name || promo.summary) ? `
+  <div class="promo-title">
+    ${promo.name ? `<p class="promo-name">${promo.name}</p>` : ''}
+    ${promo.summary ? `<p class="promo-summary">${promo.summary}</p>` : ''}
+  </div>` : ''}
+
+  ${filterBadges ? `<div class="badges">${filterBadges}</div>` : ''}
+
+  <div class="divider"></div>
+
+  <div class="info-row">
+    <div class="info-item">
+      <p class="info-label">Válido</p>
+      <p class="info-value">${daysText}</p>
+    </div>
+    ${datesHtml}
+  </div>
+
+  ${condHtml}
+
+  <div class="bot-bar"></div>
+</div>
+<script>window.onload = function() { window.print() }</script>
+</body>
+</html>`
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function PromotionsPanel() {
   const [promotions, setPromotions] = useState<Promotion[]>([])
@@ -174,6 +513,11 @@ export default function PromotionsPanel() {
 
   // Delete
   const [deleteTarget, setDeleteTarget] = useState<Promotion | null>(null)
+
+  // Flyer
+  const [flyerPromo,   setFlyerPromo  ] = useState<Promotion | null>(null)
+  const [businessLogo, setBusinessLogo] = useState<string | null>(null)
+  const [businessName, setBusinessName] = useState<string | null>(null)
 
   // ── Fetch ────────────────────────────────────────────────────────────────
   const loadPromotions = useCallback(async () => {
@@ -208,6 +552,14 @@ export default function PromotionsPanel() {
     loadPromotions()
     loadStats()
     loadLookups()
+    // Cargar logo y nombre del negocio para el flyer
+    fetch('/api/settings')
+      .then(r => r.ok ? r.json() : {})
+      .then(d => {
+        if (d.business_logo) setBusinessLogo(d.business_logo)
+        if (d.business_name) setBusinessName(d.business_name)
+      })
+      .catch(() => {})
   }, [loadPromotions, loadStats, loadLookups])
 
   // ── Toggle active ────────────────────────────────────────────────────────
@@ -253,6 +605,7 @@ export default function PromotionsPanel() {
       end_date:             p.end_date   ? p.end_date.slice(0, 10)   : '',
       roulette_weight:      String(p.roulette_weight),
       roulette_daily_limit: p.roulette_daily_limit ? String(p.roulette_daily_limit) : '',
+      roulette_only:        p.roulette_only,
       estimated_savings:    p.estimated_savings ? String(p.estimated_savings) : '',
       active:               p.active,
     })
@@ -283,6 +636,7 @@ export default function PromotionsPanel() {
         end_date:             form.end_date     || null,
         roulette_weight:      parseInt(form.roulette_weight) || 10,
         roulette_daily_limit: form.roulette_daily_limit ? parseInt(form.roulette_daily_limit) : null,
+        roulette_only:        form.roulette_only,
         estimated_savings:    form.estimated_savings ? parseFloat(form.estimated_savings) : 0,
         active:               form.active,
       }
@@ -318,6 +672,38 @@ export default function PromotionsPanel() {
     } else {
       toast.error(d.error ?? 'Error al eliminar')
     }
+  }
+
+  // ── Print flyer ───────────────────────────────────────────────────────────
+  async function handlePrintFlyer(p: Promotion) {
+    // Asegurarse de que el logo sea un data-URL autocontenido
+    let logoDataUrl: string | null = null
+    if (businessLogo) {
+      if (businessLogo.startsWith('data:')) {
+        // Ya es base64 (guardado así en la DB) → usar directamente
+        logoDataUrl = businessLogo
+      } else {
+        // Es una URL o path → fetch y convertir
+        try {
+          const src  = businessLogo.startsWith('http')
+            ? businessLogo
+            : `${window.location.origin}${businessLogo}`
+          const res  = await fetch(src)
+          const blob = await res.blob()
+          logoDataUrl = await new Promise<string>(resolve => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(reader.result as string)
+            reader.readAsDataURL(blob)
+          })
+        } catch { /* sin logo — no es crítico */ }
+      }
+    }
+    const html = buildFlyerHtml(p, logoDataUrl, businessName)
+    const win  = window.open('', '_blank', 'width=480,height=720,left=200,top=100')
+    if (!win) { toast.error('Popup bloqueado — habilitá las ventanas emergentes'); return }
+    win.document.open()
+    win.document.write(html)
+    win.document.close()
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -416,15 +802,30 @@ export default function PromotionsPanel() {
                       </div>
                     </td>
                     <td className="px-3 py-3 text-center">
-                      <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded">
-                        {p.roulette_weight}
-                      </span>
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded">
+                          {p.roulette_weight}
+                        </span>
+                        {p.roulette_only && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">
+                            🎡 Solo Ruleta
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-3 text-center">
                       <Switch checked={p.active} onCheckedChange={() => toggleActive(p)} />
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex gap-1 justify-end">
+                        <Button
+                          size="sm" variant="ghost"
+                          className="h-7 px-2 text-violet-400 hover:text-violet-700 hover:bg-violet-50"
+                          title="Ver flyer"
+                          onClick={() => setFlyerPromo(p)}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </Button>
                         <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => openEdit(p)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -644,8 +1045,23 @@ export default function PromotionsPanel() {
               />
             </div>
 
+            {/* Solo Ruleta */}
+            <div className="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-3">
+              <Switch
+                checked={form.roulette_only}
+                onCheckedChange={v => setForm(f => ({ ...f, roulette_only: v }))}
+                className="mt-0.5 data-[state=checked]:bg-amber-500"
+              />
+              <div>
+                <Label className="cursor-pointer font-semibold text-amber-900">🎡 Solo para RULETA</Label>
+                <p className="text-[11px] text-amber-700 mt-0.5">
+                  Esta promo aparece únicamente en la ruleta. No se auto-aplica en el POS ni se muestra en la Tienda.
+                </p>
+              </div>
+            </div>
+
             {/* Activa */}
-            <div className="flex items-center gap-3 pt-5">
+            <div className="flex items-center gap-3 pt-2">
               <Switch
                 checked={form.active}
                 onCheckedChange={v => setForm(f => ({ ...f, active: v }))}
@@ -660,6 +1076,53 @@ export default function PromotionsPanel() {
               {saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear promoción'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Flyer Dialog ───────────────────────────────────────────────────── */}
+      <Dialog open={!!flyerPromo} onOpenChange={o => !o && setFlyerPromo(null)}>
+        <DialogContent className="p-0 bg-[#0b0b14] border-violet-800/50 max-w-[400px] gap-0">
+          {/* Title oculto para accesibilidad (screen readers) */}
+          <DialogTitle className="sr-only">
+            {flyerPromo ? (flyerPromo.name || flyerPromo.summary || 'Flyer de promoción') : 'Flyer de promoción'}
+          </DialogTitle>
+
+          {/* Contenedor flex — independiente del grid interno de shadcn */}
+          <div className="flex flex-col" style={{ maxHeight: '90vh' }}>
+
+            {/* Toolbar — no scrollea */}
+            <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-violet-900/50">
+              <span className="text-sm font-semibold text-violet-300">Vista previa del flyer</span>
+              {flyerPromo && (
+                <Button
+                  size="sm"
+                  onClick={() => handlePrintFlyer(flyerPromo)}
+                  className="h-8 gap-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  Imprimir / PDF
+                </Button>
+              )}
+            </div>
+
+            {/* Flyer — scrollea si no entra */}
+            <div className="overflow-y-auto" style={{ flex: '1 1 auto', minHeight: 0 }}>
+              {flyerPromo && (
+                <PromoFlyer
+                  promo={flyerPromo}
+                  logoUrl={businessLogo}
+                  storeName={businessName}
+                />
+              )}
+            </div>
+
+            {/* Tip — no scrollea */}
+            <div className="shrink-0 px-4 py-2.5 border-t border-violet-900/50 text-center">
+              <p className="text-[10px] text-violet-500">
+                Tip: elegí <strong className="text-violet-400">"Guardar como PDF"</strong> en la ventana de impresión para compartir en redes
+              </p>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

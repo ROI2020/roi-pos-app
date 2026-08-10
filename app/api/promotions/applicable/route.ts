@@ -71,6 +71,7 @@ export async function GET(req: Request) {
      FROM promotions p
      WHERE p.business_id = $1
        AND p.active = true
+       AND p.roulette_only = false
        AND (p.start_date IS NULL OR p.start_date <= CURRENT_DATE)
        AND (p.end_date   IS NULL OR p.end_date   >= CURRENT_DATE)
        AND p.days_of_week LIKE $2

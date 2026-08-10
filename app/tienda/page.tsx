@@ -15,7 +15,8 @@ interface Variant {
 }
 interface Product {
   id: number; name: string; description: string | null
-  price: number; category: string | null; has_image: boolean
+  price: number; category: string | null; age_group: string | null
+  has_image: boolean; today_promo: string | null
   variants: Variant[]
 }
 interface Store {
@@ -23,7 +24,7 @@ interface Store {
   address: string | null; phone: string | null; whatsapp: string | null
   has_banner: boolean; banner_text: string | null; shipping_info: string | null
 }
-interface CatalogData { store: Store; categories: string[]; products: Product[] }
+interface CatalogData { store: Store; categories: string[]; age_groups: string[]; products: Product[] }
 
 // ── Paleta de colores en español ───────────────────────────────────────────────
 const COLOR_CSS: Record<string, string> = {
@@ -486,6 +487,15 @@ function ProductModal({
 // ══════════════════════════════════════════════════════════════════════════════
 // Tarjeta de producto
 // ══════════════════════════════════════════════════════════════════════════════
+function TodayPromoBadge({ summary }: { summary: string }) {
+  return (
+    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 text-white shadow-sm">
+      <span className="text-[10px] font-black uppercase tracking-widest opacity-80">HOY</span>
+      <span className="text-[11px] font-bold leading-tight">{summary}</span>
+    </div>
+  )
+}
+
 function ProductCard({
   product, waNumber, onSelect,
 }: {
@@ -596,8 +606,11 @@ function ProductCard({
           )}
         </div>
 
-        {/* Precio */}
-        <p className="text-xl font-bold text-gray-900 tracking-tight">{fmt(product.price)}</p>
+        {/* Precio + promo */}
+        <div className="space-y-1.5">
+          <p className="text-xl font-bold text-gray-900 tracking-tight">{fmt(product.price)}</p>
+          {product.today_promo && <TodayPromoBadge summary={product.today_promo} />}
+        </div>
 
         {/* Círculos de color */}
         {colors.length > 0 && (
@@ -685,6 +698,7 @@ export default function TiendaPage() {
   const [data,           setData          ] = useState<CatalogData | null>(null)
   const [loading,        setLoading       ] = useState(true)
   const [selCategory,    setSelCategory   ] = useState<string>('__all__')
+  const [selAgeGroup,    setSelAgeGroup   ] = useState<string>('__all__')
   const [inStockOnly,    setInStockOnly   ] = useState(false)
   const [search,         setSearch        ] = useState('')
   const [filtersOpen,    setFiltersOpen   ] = useState(false)
@@ -726,6 +740,7 @@ export default function TiendaPage() {
     if (!data) return []
     return data.products.filter(p => {
       if (selCategory !== '__all__' && p.category !== selCategory) return false
+      if (selAgeGroup !== '__all__' && p.age_group !== selAgeGroup) return false
       if (inStockOnly && !p.variants.some(v => v.in_stock)) return false
       if (search.trim()) {
         const q = search.toLowerCase()
@@ -735,7 +750,7 @@ export default function TiendaPage() {
       }
       return true
     })
-  }, [data, selCategory, inStockOnly, search])
+  }, [data, selCategory, selAgeGroup, inStockOnly, search])
 
   const store = data?.store
 
@@ -818,6 +833,7 @@ export default function TiendaPage() {
 
       {/* ── Barra de filtros ───────────────────────────────────────────────── */}
       <div className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b shadow-sm">
+        {/* Fila 1: Búsqueda + categorías + botones */}
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
@@ -862,6 +878,27 @@ export default function TiendaPage() {
             </button>
           </div>
         </div>
+
+        {/* Fila 2: Filtro por grupo de edad (solo si hay más de uno) */}
+        {(data?.age_groups ?? []).length > 0 && (
+          <div className="max-w-7xl mx-auto px-4 pb-2.5 flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0 mr-1">Edad:</span>
+            {[{ label: 'Todos', val: '__all__' }, ...(data?.age_groups ?? []).map(ag => ({ label: ag, val: ag }))].map(({ label, val }) => (
+              <button
+                key={val}
+                onClick={() => setSelAgeGroup(val)}
+                className={`whitespace-nowrap px-3 py-1 rounded-full text-xs font-medium transition-colors shrink-0
+                  ${selAgeGroup === val
+                    ? 'bg-pink-500 text-white'
+                    : 'bg-pink-50 text-pink-700 hover:bg-pink-100'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Mobile: categorías expandibles */}
         {filtersOpen && (
           <div className="sm:hidden px-4 pb-3 flex flex-wrap gap-1.5">
             {[{ label: 'Todo', val: '__all__' }, ...(data?.categories ?? []).map(c => ({ label: c, val: c }))].map(({ label, val }) => (
@@ -886,6 +923,7 @@ export default function TiendaPage() {
               ? 'No hay productos que coincidan'
               : `${filtered.length} producto${filtered.length !== 1 ? 's' : ''}`}
             {selCategory !== '__all__' && ` en ${selCategory}`}
+            {selAgeGroup !== '__all__' && ` · ${selAgeGroup}`}
             {search && ` · "${search}"`}
           </p>
         )}
@@ -924,10 +962,10 @@ export default function TiendaPage() {
           <div className="flex flex-col items-center justify-center py-20 text-gray-300 gap-3">
             <ShoppingBag className="h-14 w-14" />
             <p className="text-base text-gray-400">No hay productos disponibles</p>
-            {(selCategory !== '__all__' || inStockOnly || search) && (
+            {(selCategory !== '__all__' || selAgeGroup !== '__all__' || inStockOnly || search) && (
               <button
                 className="text-sm text-violet-500 hover:text-violet-700"
-                onClick={() => { setSelCategory('__all__'); setInStockOnly(false); setSearch('') }}
+                onClick={() => { setSelCategory('__all__'); setSelAgeGroup('__all__'); setInStockOnly(false); setSearch('') }}
               >
                 Limpiar filtros
               </button>

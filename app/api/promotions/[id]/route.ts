@@ -6,7 +6,7 @@ const ALLOWED = [
   'name', 'summary', 'detail', 'discount_type', 'value', 'days_of_week',
   'category_id', 'age_group_id', 'season_id', 'gender_id',
   'start_date', 'end_date',
-  'roulette_weight', 'roulette_daily_limit',
+  'roulette_weight', 'roulette_daily_limit', 'roulette_only',
   'estimated_savings', 'active',
 ]
 
