@@ -29,6 +29,7 @@ interface Product {
   name:         string
   description:  string | null
   base_price:   number
+  cuotas:       number
   photo_url:    string | null
   category_id:  number | null; category_name:  string | null
   age_group_id: number | null; age_group_name: string | null
@@ -188,10 +189,10 @@ function PhotoUploadButton({
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 5_000_000) { toast.error('Foto máx. 5 MB'); return }
+    if (file.size > 20_000_000) { toast.error('Foto máx. 20 MB'); return }
     setBusy(true)
     try {
-      const dataUrl = await resizeImage(file, 900)
+      const dataUrl = await resizeImage(file, 1200)
       const res = await fetch(`/api/products/${product.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body:   JSON.stringify({ photo_url: dataUrl }),
@@ -506,11 +507,11 @@ function ProductCard({
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 5_000_000) { toast.error('Foto máx. 5 MB'); return }
+    if (file.size > 20_000_000) { toast.error('Foto máx. 20 MB'); return }
     setUploading(true)
     const prev = product.photo_url
     try {
-      const dataUrl = await resizeImage(file, 900)
+      const dataUrl = await resizeImage(file, 1200)
       onUpdate({ photo_url: dataUrl })
       const res = await fetch(`/api/products/${product.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -572,7 +573,7 @@ function ProductCard({
             ? <Loader2 className="h-8 w-8 text-white animate-spin" />
             : <Upload  className="h-8 w-8 text-white" />
           }
-          {!uploading && <span className="text-white text-xs drop-shadow">JPG/PNG · máx. 5 MB</span>}
+          {!uploading && <span className="text-white text-xs drop-shadow">JPG/PNG · máx. 20 MB</span>}
         </div>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
       </div>
@@ -706,6 +707,139 @@ function ProductRow({
   )
 }
 
+// ── Fotos por color ───────────────────────────────────────────────────────────
+/**
+ * Sección del diálogo de edición que permite subir una foto por cada color
+ * de las variantes del producto. La foto se asocia al color (no al talle),
+ * de modo que en la Tienda al seleccionar un color cambia la imagen.
+ */
+function PhotosByColorSection({ productId }: { productId: number }) {
+  const [colors,          setColors         ] = useState<string[]>([])
+  const [colorImages,     setColorImages     ] = useState<Record<string, number>>({}) // color → imgId
+  const [uploadingColor,  setUploadingColor  ] = useState<string | null>(null)
+  const [deletingColor,   setDeletingColor   ] = useState<string | null>(null)
+  const colorFileRefs = useRef<Record<string, HTMLInputElement | null>>({})
+
+  // Cargar colores de variantes y fotos existentes
+  useEffect(() => {
+    Promise.all([
+      fetch(`/api/products/${productId}/variants`).then(r => r.json()),
+      fetch(`/api/products/${productId}/images`).then(r => r.json()),
+    ]).then(([variants, images]) => {
+      const uniqueColors = [...new Set<string>(
+        (variants as { color: string }[]).map(v => v.color).filter(Boolean)
+      )]
+      setColors(uniqueColors)
+
+      const imgMap: Record<string, number> = {}
+      for (const img of (images as { id: number; color: string | null }[])) {
+        if (img.color) imgMap[img.color] = img.id
+      }
+      setColorImages(imgMap)
+    }).catch(() => {})
+  }, [productId])
+
+  const handleColorPhoto = async (color: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 20_000_000) { toast.error('Foto máx. 20 MB'); return }
+    setUploadingColor(color)
+    try {
+      const dataUrl = await resizeImage(file, 1200)
+      const res = await fetch(`/api/products/${productId}/images`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ color, photo_url: dataUrl }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setColorImages(prev => ({ ...prev, [color]: data.id }))
+      toast.success(`Foto de "${color}" guardada`)
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setUploadingColor(null)
+      if (colorFileRefs.current[color]) colorFileRefs.current[color]!.value = ''
+    }
+  }
+
+  const handleDeleteColorPhoto = async (color: string) => {
+    const imgId = colorImages[color]
+    if (!imgId) return
+    setDeletingColor(color)
+    try {
+      await fetch(`/api/products/${productId}/images/${imgId}`, { method: 'DELETE' })
+      setColorImages(prev => { const n = { ...prev }; delete n[color]; return n })
+      toast.success(`Foto de "${color}" eliminada`)
+    } catch {
+      toast.error('Error al eliminar la foto')
+    } finally {
+      setDeletingColor(null)
+    }
+  }
+
+  if (colors.length === 0) return null
+
+  return (
+    <div className="space-y-2 border-t pt-4">
+      <div className="flex items-center gap-1.5">
+        <Label className="text-xs font-semibold text-gray-600">Fotos por color</Label>
+        <span className="text-[10px] text-gray-400">· En la Tienda cambia la imagen al elegir el color</span>
+      </div>
+      <div className="grid grid-cols-1 gap-2">
+        {colors.map(color => {
+          const imgId      = colorImages[color]
+          const isUploading = uploadingColor === color
+          const isDeleting  = deletingColor  === color
+          const previewSrc  = imgId ? `/api/images/product-images/${imgId}` : null
+          return (
+            <div key={color} className="flex items-center gap-3 p-2.5 rounded-xl border border-gray-100 bg-gray-50">
+              {/* Miniatura */}
+              <div className="w-14 h-14 rounded-lg overflow-hidden border border-gray-200 bg-white flex items-center justify-center shrink-0">
+                {isUploading
+                  ? <Loader2 className="h-5 w-5 text-violet-400 animate-spin" />
+                  : previewSrc
+                  ? <img src={previewSrc} alt={color} className="w-full h-full object-cover" />
+                  : <Upload className="h-5 w-5 text-gray-300" />}
+              </div>
+
+              {/* Color + acciones */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-700 truncate">{color}</p>
+                <p className="text-[10px] text-gray-400">{previewSrc ? 'Foto cargada' : 'Sin foto'}</p>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Button variant="outline" size="sm"
+                  className="h-7 text-xs gap-1 px-2"
+                  disabled={isUploading || isDeleting}
+                  onClick={() => colorFileRefs.current[color]?.click()}>
+                  <Upload className="h-3 w-3" />
+                  {previewSrc ? 'Cambiar' : 'Subir'}
+                </Button>
+                {previewSrc && (
+                  <Button variant="ghost" size="sm"
+                    className="h-7 w-7 p-0 text-red-400 hover:text-red-600 hover:bg-red-50"
+                    disabled={isDeleting}
+                    onClick={() => handleDeleteColorPhoto(color)}>
+                    {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                  </Button>
+                )}
+              </div>
+
+              <input
+                type="file" accept="image/*" className="hidden"
+                ref={el => { colorFileRefs.current[color] = el }}
+                onChange={e => handleColorPhoto(color, e)}
+              />
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Diálogo de edición de producto ────────────────────────────────────────────
 function EditProductDialog({
   product, categories, ageGroups, seasons, genders, onSaved, onClose,
@@ -721,6 +855,7 @@ function EditProductDialog({
   const [name,        setName       ] = useState(product.name)
   const [description, setDescription] = useState(product.description ?? '')
   const [price,       setPrice      ] = useState(String(product.base_price))
+  const [cuotas,      setCuotas     ] = useState(String(product.cuotas ?? 3))
   const [categoryId,  setCategoryId ] = useState(product.category_id  ? String(product.category_id)  : '__none__')
   const [ageGroupId,  setAgeGroupId ] = useState(product.age_group_id ? String(product.age_group_id) : '__none__')
   const [seasonId,    setSeasonId   ] = useState(product.season_id    ? String(product.season_id)    : '__none__')
@@ -736,9 +871,9 @@ function EditProductDialog({
   const handlePhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 5_000_000) { toast.error('Foto máx. 5 MB'); return }
+    if (file.size > 20_000_000) { toast.error('Foto máx. 20 MB'); return }
     setPhotoUploading(true)
-    try { setPhotoUrl(await resizeImage(file, 900)) }
+    try { setPhotoUrl(await resizeImage(file, 1200)) }
     catch { toast.error('Error al procesar la imagen') }
     finally { setPhotoUploading(false); if (fileRef.current) fileRef.current.value = '' }
   }
@@ -751,6 +886,7 @@ function EditProductDialog({
         name: name.trim(),
         description: description.trim() || null,
         base_price: parseFloat(price) || 0,
+        cuotas: parseInt(cuotas) || 0,
         category_id:  categoryId  !== '__none__' ? parseInt(categoryId)  : null,
         age_group_id: ageGroupId  !== '__none__' ? parseInt(ageGroupId)  : null,
         season_id:    seasonId    !== '__none__' ? parseInt(seasonId)    : null,
@@ -853,7 +989,7 @@ function EditProductDialog({
                   </Button>
                 )}
               </div>
-              <p className="text-[11px] text-gray-400">JPG/PNG · max 5 MB · se redimensiona a 900×900</p>
+              <p className="text-[11px] text-gray-400">JPG/PNG · max 20 MB · se redimensiona a 1200×1200</p>
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoFile} />
             </div>
           </div>
@@ -894,11 +1030,19 @@ function EditProductDialog({
             )}
           </div>
 
-          {/* Precio */}
-          <div className="space-y-1.5">
-            <Label>Precio de lista ($)</Label>
-            <Input type="number" min={0} step="0.01"
-              value={price} onChange={e => setPrice(e.target.value)} />
+          {/* Precio + Cuotas */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Precio de lista ($)</Label>
+              <Input type="number" min={0} step="0.01"
+                value={price} onChange={e => setPrice(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Cuotas sin interés</Label>
+              <Input type="number" min={0} max={24} step="1"
+                placeholder="0 = sin cuotas"
+                value={cuotas} onChange={e => setCuotas(e.target.value)} />
+            </div>
           </div>
 
           {/* Clasificación */}
@@ -937,6 +1081,9 @@ function EditProductDialog({
             </span>
             <p className="text-[11px] text-gray-400">Usá el toggle Redes en la lista para activar.</p>
           </div>
+
+          {/* ── Fotos por color ─────────────────────────────────────────────── */}
+          <PhotosByColorSection productId={product.id} />
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

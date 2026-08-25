@@ -1,16 +1,22 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import {
   MessageCircle, ArrowLeft, AlertTriangle,
   Banknote, CreditCard, Truck, Store as StoreIcon,
+  Sparkles, TrendingUp, ShoppingCart, Check,
 } from "lucide-react"
 import type { Product, StoreData, SuggestionProduct } from '../_types'
 import { colorToCss, fmt, sortSizes, totalStock } from '../_utils'
+import { useCart } from '../_context/cart-context'
 
-const SUGGESTION_LABEL: Record<SuggestionProduct['reason'], string> = {
-  complementary: 'Para combinar 🎯',
-  trending:      'Lo más vendido 🔥',
+const SUGGESTION_ICON: Record<SuggestionProduct['reason'], React.ReactNode> = {
+  complementary: <Sparkles className="h-3.5 w-3.5 text-violet-500" />,
+  trending:      <TrendingUp className="h-3.5 w-3.5 text-orange-500" />,
+}
+const SUGGESTION_TEXT: Record<SuggestionProduct['reason'], string> = {
+  complementary: 'Para combinar',
+  trending:      'Lo más vendido',
 }
 
 export default function ProductModal({
@@ -21,13 +27,17 @@ export default function ProductModal({
   allProducts: Product[]
   onClose:     () => void
 }) {
-  const colors = [...new Set(product.variants.map(v => v.color))]
+  // Solo colores con al menos un talle en stock
+  const colors = [...new Set(product.variants.filter(v => v.in_stock).map(v => v.color))]
   const [selColor,  setSelColor ] = useState<string>(colors[0] ?? '')
   const [selSize,   setSelSize  ] = useState<string>('')
   const [imgKey,    setImgKey   ] = useState(0)
-  const [localidad, setLocalidad] = useState('')
-  const [cp,        setCp       ] = useState('')
+  const [localidad,   setLocalidad  ] = useState('')
+  const [cp,          setCp         ] = useState('')
   const [suggestions, setSuggestions] = useState<SuggestionProduct[]>([])
+  const [added,       setAdded      ] = useState(false)
+
+  const { addItem, items: cartItems, openCart } = useCart()
 
   const variantsForColor = product.variants.filter(v => v.color === selColor)
   const sizes        = sortSizes([...new Set(variantsForColor.map(v => v.size))])
@@ -36,8 +46,12 @@ export default function ProductModal({
   const isUltimas    = stockTotal > 0 && stockTotal <= 3
   const singleSize   = sizes.length === 1 && sizes[0] === 'X'
 
-  const variantImg = variantsForColor[0]?.specific_image_url
-  const imgSrc     = variantImg ?? (product.has_image ? `/api/images/products/${product.id}` : null)
+  const variantImg  = variantsForColor[0]?.specific_image_url
+  const colorImgId  = product.images_by_color[selColor]
+  // Prioridad: foto de color → specific_image_url de variante → foto principal
+  const imgSrc = colorImgId != null
+    ? `/api/images/product-images/${colorImgId}`
+    : variantImg ?? (product.has_image ? `/api/images/products/${product.id}` : null)
 
   // Auto-seleccionar talle único
   useEffect(() => {
@@ -89,9 +103,36 @@ export default function ProductModal({
   const canBuy = product.variants.some(v => v.in_stock) &&
     (singleSize || Boolean(selSize && inStockSizes.has(selSize)))
 
-  const sugLabel = suggestions.length > 0
-    ? SUGGESTION_LABEL[suggestions[0].reason]
-    : 'Para combinar 🎯'
+  // Variante seleccionada (por color + talle)
+  const selectedVariant = variantsForColor.find(v =>
+    singleSize ? v.in_stock : v.size === selSize && v.in_stock
+  )
+
+  // Si el variant ya está en el carrito
+  const alreadyInCart = selectedVariant
+    ? cartItems.some(i => i.variantId === selectedVariant.id)
+    : false
+
+  const effectivePrice = product.promo_price ?? product.price
+
+  const handleAddToCart = () => {
+    if (!selectedVariant || !canBuy) return
+    if (alreadyInCart) { onClose(); openCart(); return }
+    addItem({
+      variantId:        selectedVariant.id,
+      productId:        product.id,
+      productName:      product.name,
+      variantSku:       selectedVariant.sku,
+      color:            selColor,
+      size:             selectedVariant.size,
+      specificImageUrl: selectedVariant.specific_image_url,
+      hasImage:         product.has_image,
+      price:            effectivePrice,
+      cuotas:           product.cuotas,
+    })
+    setAdded(true)
+    setTimeout(() => setAdded(false), 2000)
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex">
@@ -139,7 +180,34 @@ export default function ProductModal({
             {/* Nombre + precio */}
             <div>
               <h1 className="text-xl font-bold text-gray-900 leading-tight">{product.name}</h1>
-              <p className="text-3xl font-bold text-violet-700 mt-1">{fmt(product.price)}</p>
+
+              {product.today_promo && product.promo_price != null ? (
+                <div className="mt-1 space-y-1.5">
+                  <div className="flex items-baseline gap-2.5">
+                    <span className="text-3xl font-bold text-violet-700">{fmt(product.promo_price)}</span>
+                    <span className="text-lg text-gray-400 line-through">{fmt(product.price)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 text-white shadow-sm w-fit">
+                    <span className="text-[10px] font-black uppercase tracking-widest opacity-80">SOLO x HOY</span>
+                    <span className="text-[11px] font-bold leading-tight">{product.today_promo}</span>
+                  </div>
+                  <p className="text-sm font-semibold text-violet-600">
+                    Queda en {fmt(product.promo_price)}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-3xl font-bold text-violet-700 mt-1">{fmt(product.price)}</p>
+              )}
+
+              {product.cuotas > 0 && (
+                <p className="text-sm text-gray-500 mt-1.5">
+                  mismo precio en {product.cuotas} cuotas de{' '}
+                  <span className="font-semibold text-gray-700">
+                    {fmt(Math.round((product.promo_price ?? product.price) / product.cuotas))}
+                  </span>
+                </p>
+              )}
+
               {product.description && (
                 <p className="text-sm text-gray-500 mt-2 leading-relaxed">{product.description}</p>
               )}
@@ -213,13 +281,18 @@ export default function ProductModal({
                     <p className="text-xs text-gray-500">Precio de lista</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
-                  <CreditCard className="h-5 w-5 text-blue-600 shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">Tarjetas de crédito</p>
-                    <p className="text-xs font-semibold text-blue-600">3 cuotas sin interés</p>
+                {product.cuotas > 0 && (
+                  <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+                    <CreditCard className="h-5 w-5 text-blue-600 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">Tarjetas de crédito</p>
+                      <p className="text-xs font-semibold text-blue-600">
+                        {product.cuotas} cuota{product.cuotas !== 1 ? 's' : ''} sin interés de{' '}
+                        {fmt(Math.round((product.promo_price ?? product.price) / product.cuotas))}
+                      </p>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
 
@@ -269,7 +342,10 @@ export default function ProductModal({
               <>
                 <div className="border-t border-gray-100" />
                 <div className="space-y-3">
-                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{sugLabel}</p>
+                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
+                    {SUGGESTION_ICON[suggestions[0].reason]}
+                    {SUGGESTION_TEXT[suggestions[0].reason]}
+                  </p>
                   <div className="flex gap-3 overflow-x-auto pb-2 -mx-5 px-5 scrollbar-none">
                     {suggestions.map(sug => {
                       const sugImg = sug.specific_image_url ?? (sug.has_image ? `/api/images/products/${sug.id}` : null)
@@ -308,21 +384,37 @@ export default function ProductModal({
         </div>
 
         {/* CTA fijo */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-sm border-t">
-          {waBase ? (
-            <a href={waBase} target="_blank" rel="noopener noreferrer"
-              className={`flex items-center justify-center gap-2 w-full py-3.5 rounded-xl text-base font-bold transition-colors
-                ${canBuy
-                  ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg shadow-green-200'
-                  : 'bg-gray-100 text-gray-400 pointer-events-none'}`}>
-              <MessageCircle className="h-5 w-5" />
-              {canBuy ? 'Consultar por WhatsApp' : (!product.variants.some(v => v.in_stock) ? 'Sin stock' : 'Elegí un talle')}
-            </a>
+        <div className="absolute bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-sm border-t space-y-2">
+
+          {/* Botón primario: Agregar al carrito */}
+          {product.variants.some(v => v.in_stock) ? (
+            <button onClick={handleAddToCart}
+              disabled={!canBuy && !alreadyInCart}
+              className={`flex items-center justify-center gap-2 w-full py-3.5 rounded-xl text-base font-bold transition-all
+                ${alreadyInCart
+                  ? 'bg-green-100 text-green-700 border border-green-200'
+                  : canBuy
+                    ? 'bg-violet-600 hover:bg-violet-700 text-white shadow-lg shadow-violet-200'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
+              {alreadyInCart
+                ? <><Check className="h-5 w-5" /> En el carrito — ver</>
+                : canBuy
+                  ? <><ShoppingCart className="h-5 w-5" />{added ? '¡Agregado!' : 'Agregar al carrito'}</>
+                  : <><ShoppingCart className="h-5 w-5" />Elegí un talle</>}
+            </button>
           ) : (
-            <div className={`flex items-center justify-center gap-2 w-full py-3.5 rounded-xl text-base font-bold
-              ${product.variants.some(v => v.in_stock) ? 'bg-violet-100 text-violet-700' : 'bg-gray-100 text-gray-400'}`}>
-              {product.variants.some(v => v.in_stock) ? 'Disponible' : 'Sin stock'}
+            <div className="flex items-center justify-center w-full py-3.5 rounded-xl text-base font-bold bg-gray-100 text-gray-400">
+              Sin stock
             </div>
+          )}
+
+          {/* Botón secundario: WhatsApp */}
+          {waBase && product.variants.some(v => v.in_stock) && (
+            <a href={waBase} target="_blank" rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold border border-green-200 text-green-600 hover:bg-green-50 transition-colors">
+              <MessageCircle className="h-4 w-4" />
+              Consultar por WhatsApp
+            </a>
           )}
         </div>
       </div>

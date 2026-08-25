@@ -33,6 +33,7 @@ export async function GET() {
       product_name:       string
       description:        string | null
       price:              number
+      cuotas:             number
       category:           string | null
       category_id:        number | null
       age_group_id:       number | null
@@ -53,6 +54,7 @@ export async function GET() {
          p.name                                                    AS product_name,
          p.description,
          p.base_price::float                                       AS price,
+         p.cuotas,
          c.name                                                    AS category,
          p.category_id,
          p.age_group_id,
@@ -121,14 +123,22 @@ export async function GET() {
       age_group_id: number | null,
       season_id: number | null,
       gender_id: number | null,
-    ): string | null {
+    ): { summary: string; discount_type: string; value: number } | null {
       const hit = promoRows.find(pr =>
         (pr.category_id  === null || pr.category_id  === category_id)  &&
         (pr.age_group_id === null || pr.age_group_id === age_group_id) &&
         (pr.season_id    === null || pr.season_id    === season_id)    &&
         (pr.gender_id    === null || pr.gender_id    === gender_id)
       )
-      return hit ? discountLabel(hit) : null
+      return hit ? { summary: discountLabel(hit), discount_type: hit.discount_type, value: hit.value } : null
+    }
+
+    // ── Helper: precio con promo aplicada ─────────────────────────────────
+    function calcPromoPrice(price: number, promo: { discount_type: string; value: number }): number {
+      if (promo.discount_type === 'percentage') {
+        return Math.round(price * (1 - promo.value / 100))
+      }
+      return Math.max(0, Math.round(price - promo.value))
     }
 
     // ── Agrupar por producto ──────────────────────────────────────────────
@@ -137,10 +147,12 @@ export async function GET() {
       name:        string
       description: string | null
       price:       number
+      cuotas:      number
       category:    string | null
       age_group:   string | null
       has_image:   boolean
       today_promo: string | null
+      promo_price: number | null
       variants: {
         id: number; sku: string; color: string; size: string
         specific_image_url: string | null; in_stock: boolean; stock_count: number
@@ -149,15 +161,18 @@ export async function GET() {
 
     for (const row of rows) {
       if (!productMap.has(row.product_id)) {
+        const promo = matchPromo(row.category_id, row.age_group_id, row.season_id, row.gender_id)
         productMap.set(row.product_id, {
           id:          row.product_id,
           name:        row.product_name,
           description: row.description,
           price:       row.price,
+          cuotas:      row.cuotas,
           category:    row.category,
           age_group:   row.age_group,
           has_image:   row.has_image,
-          today_promo: matchPromo(row.category_id, row.age_group_id, row.season_id, row.gender_id),
+          today_promo: promo?.summary ?? null,
+          promo_price: promo ? calcPromoPrice(row.price, promo) : null,
           variants:    [],
         })
       }
@@ -172,7 +187,31 @@ export async function GET() {
       })
     }
 
+    // ── Fotos adicionales por color ───────────────────────────────────────────
+    const exportedIds = Array.from(productMap.keys())
+    const colorImgMap = new Map<number, Record<string, number>>() // productId → { color: imgId }
+
+    if (exportedIds.length > 0) {
+      const { rows: colorImgRows } = await pool.query<{
+        product_id: number; color: string | null; id: number
+      }>(
+        `SELECT product_id, color, id
+         FROM product_images
+         WHERE product_id = ANY($1::int[])
+         ORDER BY sort_order, id`,
+        [exportedIds]
+      )
+      for (const r of colorImgRows) {
+        if (r.color === null) continue           // la foto general no va en el mapa de colores
+        if (!colorImgMap.has(r.product_id)) colorImgMap.set(r.product_id, {})
+        colorImgMap.get(r.product_id)![r.color] = r.id
+      }
+    }
+
+    // Solo mostrar productos con al menos una variante en stock
     const products = Array.from(productMap.values())
+      .filter(p => p.variants.some(v => v.in_stock))
+      .map(p => ({ ...p, images_by_color: colorImgMap.get(p.id) ?? {} }))
 
     // ── Categorías únicas ─────────────────────────────────────────────────
     const categories = [...new Set(products.map(p => p.category).filter(Boolean) as string[])].sort()

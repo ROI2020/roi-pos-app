@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react"
 import {
   Plus, Pencil, Trash2, Tag, BarChart3, RefreshCw,
-  Percent, DollarSign, Trophy, Loader2, Eye, Printer,
+  Percent, DollarSign, Trophy, Loader2, Eye, Printer, FileText,
 } from "lucide-react"
 import { toast }     from "sonner"
 import { Button }    from "@/components/ui/button"
@@ -555,7 +555,7 @@ export default function PromotionsPanel() {
     // Cargar logo y nombre del negocio para el flyer
     fetch('/api/settings')
       .then(r => r.ok ? r.json() : {})
-      .then(d => {
+      .then((d: { business_logo?: string; business_name?: string }) => {
         if (d.business_logo) setBusinessLogo(d.business_logo)
         if (d.business_name) setBusinessName(d.business_name)
       })
@@ -706,6 +706,90 @@ export default function PromotionsPanel() {
     win.document.close()
   }
 
+  // ── Exportar lista a PDF ──────────────────────────────────────────────────
+  function exportListToPdf() {
+    const today  = new Date().toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' })
+    const activas = promotions.filter(p => p.active).length
+
+    const rows = promotions.map(p => {
+      const discColor = p.discount_type === 'percentage' ? '#6d28d9' : '#15803d'
+      const filters = [p.category_name, p.age_group_name, p.season_name, p.gender_name].filter(Boolean).join(' · ') || 'Todos'
+      const vigencia = (p.start_date || p.end_date)
+        ? `${formatDate(p.start_date)} → ${formatDate(p.end_date)}`
+        : 'Sin límite'
+      const rouletteTag = p.roulette_only
+        ? '<span style="font-size:9px;font-weight:700;background:#fef3c7;color:#b45309;padding:1px 6px;border-radius:99px;white-space:nowrap">🎡 Solo Ruleta</span>'
+        : ''
+      return `
+        <tr style="${!p.active ? 'opacity:0.45;' : ''}">
+          <td>
+            <div style="font-weight:600;color:#111">${p.name || '—'}</div>
+            ${p.summary ? `<div style="font-size:11px;color:#6b7280;margin-top:1px">${p.summary}</div>` : ''}
+            ${rouletteTag ? `<div style="margin-top:3px">${rouletteTag}</div>` : ''}
+          </td>
+          <td style="white-space:nowrap">
+            <span style="font-weight:700;color:${discColor}">${discountLabel(p)}</span>
+          </td>
+          <td style="font-size:11px;color:#6b7280">${daysLabel(p.days_of_week)}</td>
+          <td style="font-size:11px;color:#6b7280;white-space:nowrap">${vigencia}</td>
+          <td style="font-size:11px;color:#6b7280">${filters}</td>
+          <td style="text-align:center;font-family:monospace;font-size:11px">${p.roulette_weight}</td>
+          <td style="text-align:center">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${p.active ? '#16a34a' : '#d1d5db'}"></span>
+          </td>
+        </tr>`
+    }).join('')
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Listado de Promociones</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'DM Sans',ui-sans-serif,sans-serif; font-size:12px; color:#111; background:#fff; padding:32px 24px; }
+  @page { size:A4 landscape; margin:20mm 16mm; }
+  @media print { body { padding:0; } }
+  h1 { font-size:20px; font-weight:700; color:#1f2937; margin-bottom:2px; }
+  .meta { font-size:11px; color:#9ca3af; margin-bottom:20px; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; padding:8px 10px; font-size:10px; font-weight:700; text-transform:uppercase;
+       letter-spacing:.05em; color:#6b7280; background:#f9fafb; border-bottom:2px solid #e5e7eb; }
+  td { padding:8px 10px; border-bottom:1px solid #f3f4f6; vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  .footer { margin-top:20px; font-size:10px; color:#d1d5db; text-align:right; }
+</style>
+</head>
+<body>
+<h1>Promociones</h1>
+<p class="meta">${businessName ? businessName + ' · ' : ''}${activas} activa${activas !== 1 ? 's' : ''} de ${promotions.length} · Generado el ${today}</p>
+<table>
+  <thead>
+    <tr>
+      <th>Nombre / Resumen</th>
+      <th>Descuento</th>
+      <th>Días</th>
+      <th>Vigencia</th>
+      <th>Aplica a</th>
+      <th style="text-align:center">Peso</th>
+      <th style="text-align:center">Activa</th>
+    </tr>
+  </thead>
+  <tbody>${rows}</tbody>
+</table>
+<p class="footer">ROIPOS · ${today}</p>
+<script>window.onload = function() { window.print() }</script>
+</body>
+</html>`
+
+    const win = window.open('', '_blank', 'width=1100,height=700,left=80,top=80')
+    if (!win) { toast.error('Popup bloqueado — habilitá las ventanas emergentes'); return }
+    win.document.open()
+    win.document.write(html)
+    win.document.close()
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
@@ -735,24 +819,34 @@ export default function PromotionsPanel() {
               <Button size="sm" variant="outline" onClick={loadPromotions} disabled={loading}>
                 <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
               </Button>
+              <Button
+                size="sm" variant="outline"
+                onClick={exportListToPdf}
+                disabled={loading || promotions.length === 0}
+                title="Exportar lista a PDF"
+              >
+                <FileText className="h-3.5 w-3.5 sm:mr-1" />
+                <span className="hidden sm:inline">Exportar PDF</span>
+              </Button>
               <Button size="sm" onClick={openCreate}>
                 <Plus className="h-3.5 w-3.5 mr-1" />Nueva promo
               </Button>
             </div>
           </div>
 
-          <div className="border rounded-lg overflow-hidden bg-white shadow-sm">
-            <table className="w-full text-sm">
+          {/* ── Tabla desktop (sm+) ─────────────────────────────────────────── */}
+          <div className="hidden sm:block border rounded-lg bg-white shadow-sm overflow-x-auto">
+            <table className="text-sm" style={{ minWidth: '740px', width: '100%' }}>
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="text-left px-4 py-2.5 font-medium text-gray-600">Nombre / Resumen</th>
                   <th className="text-left px-3 py-2.5 font-medium text-gray-600">Descuento</th>
-                  <th className="text-left px-3 py-2.5 font-medium text-gray-600">Días</th>
-                  <th className="text-left px-3 py-2.5 font-medium text-gray-600">Vigencia</th>
+                  <th className="text-left px-3 py-2.5 font-medium text-gray-600 whitespace-nowrap">Días</th>
+                  <th className="text-left px-3 py-2.5 font-medium text-gray-600 whitespace-nowrap">Vigencia</th>
                   <th className="text-left px-3 py-2.5 font-medium text-gray-600">Filtros</th>
-                  <th className="text-center px-3 py-2.5 font-medium text-gray-600">Peso</th>
+                  <th className="text-center px-3 py-2.5 font-medium text-gray-600 whitespace-nowrap">Peso 🎡</th>
                   <th className="text-center px-3 py-2.5 font-medium text-gray-600">Activa</th>
-                  <th className="px-3 py-2.5" />
+                  <th className="sticky right-0 bg-gray-50 px-3 py-2.5 border-l border-gray-200" />
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -762,21 +856,22 @@ export default function PromotionsPanel() {
                   </td></tr>
                 )}
                 {!loading && promotions.length === 0 && (
-                  <tr><td colSpan={8} className="text-center py-10 text-gray-400">
-                    No hay promociones
-                  </td></tr>
+                  <tr><td colSpan={8} className="text-center py-10 text-gray-400">No hay promociones</td></tr>
                 )}
                 {promotions.map(p => (
-                  <tr key={p.id} className={`hover:bg-gray-50 transition-colors ${!p.active ? 'opacity-50' : ''}`}>
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-gray-800">{p.name || '—'}</p>
-                      {p.summary && <p className="text-xs text-gray-500">{p.summary}</p>}
+                  <tr key={p.id} className={`hover:bg-gray-50/60 transition-colors ${!p.active ? 'opacity-50' : ''}`}>
+                    <td className="px-4 py-3 max-w-[200px]">
+                      <p className="font-medium text-gray-800 truncate">{p.name || '—'}</p>
+                      {p.summary && <p className="text-xs text-gray-500 truncate">{p.summary}</p>}
+                      {p.roulette_only && (
+                        <span className="inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                          🎡 Solo Ruleta
+                        </span>
+                      )}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 whitespace-nowrap">
                       <Badge variant="secondary" className={
-                        p.discount_type === 'percentage'
-                          ? 'bg-violet-100 text-violet-700'
-                          : 'bg-green-100 text-green-700'
+                        p.discount_type === 'percentage' ? 'bg-violet-100 text-violet-700' : 'bg-green-100 text-green-700'
                       }>
                         {p.discount_type === 'percentage'
                           ? <Percent className="h-2.5 w-2.5 mr-1" />
@@ -784,8 +879,8 @@ export default function PromotionsPanel() {
                         {discountLabel(p)}
                       </Badge>
                     </td>
-                    <td className="px-3 py-3 text-xs text-gray-500">{daysLabel(p.days_of_week)}</td>
-                    <td className="px-3 py-3 text-xs text-gray-500">
+                    <td className="px-3 py-3 text-xs text-gray-500 whitespace-nowrap">{daysLabel(p.days_of_week)}</td>
+                    <td className="px-3 py-3 text-xs text-gray-500 whitespace-nowrap">
                       {p.start_date || p.end_date
                         ? `${formatDate(p.start_date)} → ${formatDate(p.end_date)}`
                         : 'Sin límite'}
@@ -797,43 +892,25 @@ export default function PromotionsPanel() {
                         {p.season_name    && <Badge variant="outline" className="text-[10px]">{p.season_name}</Badge>}
                         {p.gender_name    && <Badge variant="outline" className="text-[10px]">{p.gender_name}</Badge>}
                         {!p.category_id && !p.age_group_id && !p.season_id && !p.gender_id && (
-                          <span className="text-[10px] text-gray-400">Todos los productos</span>
+                          <span className="text-[10px] text-gray-400">Todos</span>
                         )}
                       </div>
                     </td>
                     <td className="px-3 py-3 text-center">
-                      <div className="flex flex-col items-center gap-1">
-                        <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded">
-                          {p.roulette_weight}
-                        </span>
-                        {p.roulette_only && (
-                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">
-                            🎡 Solo Ruleta
-                          </span>
-                        )}
-                      </div>
+                      <span className="text-xs font-mono bg-gray-100 px-1.5 py-0.5 rounded">{p.roulette_weight}</span>
                     </td>
                     <td className="px-3 py-3 text-center">
                       <Switch checked={p.active} onCheckedChange={() => toggleActive(p)} />
                     </td>
-                    <td className="px-3 py-3">
-                      <div className="flex gap-1 justify-end">
-                        <Button
-                          size="sm" variant="ghost"
-                          className="h-7 px-2 text-violet-400 hover:text-violet-700 hover:bg-violet-50"
-                          title="Ver flyer"
-                          onClick={() => setFlyerPromo(p)}
-                        >
+                    <td className="px-2 py-3 sticky right-0 bg-white border-l border-gray-100 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.06)]">
+                      <div className="flex gap-0.5">
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-violet-400 hover:text-violet-700 hover:bg-violet-50" title="Ver flyer" onClick={() => setFlyerPromo(p)}>
                           <Eye className="h-3.5 w-3.5" />
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => openEdit(p)}>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openEdit(p)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        <Button
-                          size="sm" variant="ghost"
-                          className="h-7 px-2 text-red-400 hover:text-red-600 hover:bg-red-50"
-                          onClick={() => setDeleteTarget(p)}
-                        >
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600 hover:bg-red-50" onClick={() => setDeleteTarget(p)}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -842,6 +919,83 @@ export default function PromotionsPanel() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* ── Cards mobile (< sm) ──────────────────────────────────────────── */}
+          <div className="sm:hidden space-y-2">
+            {loading && (
+              <div className="flex justify-center py-10 text-gray-400">
+                <Loader2 className="h-5 w-5 animate-spin" />
+              </div>
+            )}
+            {!loading && promotions.length === 0 && (
+              <p className="text-center py-10 text-sm text-gray-400">No hay promociones</p>
+            )}
+            {promotions.map(p => (
+              <div
+                key={p.id}
+                className={`bg-white border rounded-xl p-3 shadow-sm transition-opacity ${!p.active ? 'opacity-50' : ''}`}
+              >
+                {/* Fila 1: nombre + switch */}
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <p className="text-sm font-semibold text-gray-800">{p.name || p.summary || '—'}</p>
+                      {p.roulette_only && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">
+                          🎡 Solo Ruleta
+                        </span>
+                      )}
+                    </div>
+                    {p.name && p.summary && (
+                      <p className="text-xs text-gray-400 mt-0.5 truncate">{p.summary}</p>
+                    )}
+                  </div>
+                  <Switch checked={p.active} onCheckedChange={() => toggleActive(p)} className="shrink-0 mt-0.5" />
+                </div>
+
+                {/* Fila 2: descuento + días */}
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <Badge variant="secondary" className={
+                    p.discount_type === 'percentage' ? 'bg-violet-100 text-violet-700' : 'bg-green-100 text-green-700'
+                  }>
+                    {p.discount_type === 'percentage'
+                      ? <Percent className="h-2.5 w-2.5 mr-1" />
+                      : <DollarSign className="h-2.5 w-2.5 mr-1" />}
+                    {discountLabel(p)}
+                  </Badge>
+                  <span className="text-xs text-gray-400">{daysLabel(p.days_of_week)}</span>
+                  {(p.start_date || p.end_date) && (
+                    <span className="text-xs text-gray-400">
+                      {formatDate(p.start_date)} → {formatDate(p.end_date)}
+                    </span>
+                  )}
+                </div>
+
+                {/* Fila 3: filtros */}
+                {(p.category_name || p.age_group_name || p.season_name || p.gender_name) && (
+                  <div className="flex flex-wrap gap-1 mb-2.5">
+                    {p.category_name  && <Badge variant="outline" className="text-[10px]">{p.category_name}</Badge>}
+                    {p.age_group_name && <Badge variant="outline" className="text-[10px]">{p.age_group_name}</Badge>}
+                    {p.season_name    && <Badge variant="outline" className="text-[10px]">{p.season_name}</Badge>}
+                    {p.gender_name    && <Badge variant="outline" className="text-[10px]">{p.gender_name}</Badge>}
+                  </div>
+                )}
+
+                {/* Fila 4: acciones */}
+                <div className="flex items-center justify-end gap-1 pt-2 border-t border-gray-100">
+                  <Button size="sm" variant="ghost" className="h-8 px-2 text-violet-400 hover:text-violet-700 hover:bg-violet-50" onClick={() => setFlyerPromo(p)}>
+                    <Eye className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => openEdit(p)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-8 px-2 text-red-400 hover:text-red-600 hover:bg-red-50" onClick={() => setDeleteTarget(p)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ))}
           </div>
         </TabsContent>
 

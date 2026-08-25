@@ -18,7 +18,8 @@ import { fetchEnabledPaymentMethods, type PayMethod } from "@/lib/payment-method
 import { CameraScanner }   from "@/components/camera-scanner"
 import { ExchangeDialog }  from "@/components/exchange-dialog"
 import { ReceiptDialog, type ReceiptData, type ReceiptSettings } from "@/components/receipt-dialog"
-import { TodaySalesDialog } from "@/components/today-sales-dialog"
+import { TodaySalesDialog  } from "@/components/today-sales-dialog"
+import { PromosDayDialog  } from "@/components/promos-day-dialog"
 import { usePlanCan } from "@/components/PlanGate"
 import { toast } from "sonner"
 import { Button }   from "@/components/ui/button"
@@ -609,6 +610,7 @@ export default function PosTerminal() {
   const [showCloseSession, setShowCloseSession ] = useState(false)
   const [showWelcome,      setShowWelcome      ] = useState(false)
   const [cameraOpen,       setCameraOpen       ] = useState(false)
+  const [promosDayOpen,    setPromosDayOpen    ] = useState(false)
   const [showExpense,      setShowExpense      ] = useState(false)
   const [showExchange,     setShowExchange     ] = useState(false)
   const canExpenses = usePlanCan('expenses.view')
@@ -1290,6 +1292,17 @@ export default function PosTerminal() {
               >
                 <Camera className="h-5 w-5" />
               </Button>
+
+              {/* Promos del día */}
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-11 w-11 shrink-0 text-violet-600 hover:bg-violet-50 hover:border-violet-300"
+                title="Promos del día"
+                onClick={() => setPromosDayOpen(true)}
+              >
+                <Tag className="h-5 w-5" />
+              </Button>
             </div>
 
             {/* Scanner por cámara */}
@@ -1756,6 +1769,10 @@ export default function PosTerminal() {
           cuitEmisor={cuitEmisor || undefined}
         />
       )}
+      <PromosDayDialog
+        open={promosDayOpen}
+        onClose={() => setPromosDayOpen(false)}
+      />
       {showWithdrawal && session && (
         <WithdrawalDialog
           session={session}

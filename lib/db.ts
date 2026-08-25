@@ -17,6 +17,12 @@ declare global {
   var _pgPool: Pool | undefined
 }
 
+// La zona horaria de Argentina se fija a través de la opción de conexión
+// de PostgreSQL: options='-c timezone=...'
+// Esto evita correr un SET timezone; separado, que en pg@8 genera un
+// DeprecationWarning si se llama sin await dentro del handler 'connect'.
+const TZ_OPTION = "-c timezone=America/Argentina/Buenos_Aires"
+
 const pool =
   globalThis._pgPool ??
   (process.env.DB_HOST
@@ -26,23 +32,18 @@ const pool =
         database: process.env.DB_NAME     ?? 'postgres',
         user:     process.env.DB_USER,
         password: process.env.DB_PASSWORD,
+        options:  TZ_OPTION,
         ssl: { rejectUnauthorized: false },
       })
     : new Pool({
         connectionString: process.env.DATABASE_URL,
+        options:          TZ_OPTION,
         ssl:
           process.env.NODE_ENV === 'production'
             ? { rejectUnauthorized: false }
             : false,
       })
   )
-
-// Fijar zona horaria Argentina en cada nueva conexión del pool.
-// Garantiza que NOW(), CURRENT_TIMESTAMP y los cast ::date usen
-// la hora local de Buenos Aires (UTC-3, sin DST).
-pool.on('connect', client => {
-  client.query("SET timezone = 'America/Argentina/Buenos_Aires'")
-})
 
 if (process.env.NODE_ENV !== 'production') {
   globalThis._pgPool = pool

@@ -4,11 +4,13 @@ import { useState, useEffect, useMemo } from "react"
 import dynamic from "next/dynamic"
 import {
   ShoppingBag, MapPin, Phone, MessageCircle,
-  Search, SlidersHorizontal, X,
+  Search, SlidersHorizontal, X, ShoppingCart,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Product, StoreData, CatalogData } from './_types'
 import { colorToCss, fmt, sortSizes, totalStock } from './_utils'
+import { useCart } from './_context/cart-context'
+import CartDrawer from './_components/cart-drawer'
 
 // El modal se carga solo cuando el usuario abre un producto (chunk separado)
 const ProductModal = dynamic(() => import('./_components/product-modal'), { ssr: false })
@@ -19,7 +21,7 @@ const ProductModal = dynamic(() => import('./_components/product-modal'), { ssr:
 function TodayPromoBadge({ summary }: { summary: string }) {
   return (
     <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 text-white shadow-sm">
-      <span className="text-[10px] font-black uppercase tracking-widest opacity-80">HOY</span>
+      <span className="text-[10px] font-black uppercase tracking-widest opacity-80">SOLO x HOY</span>
       <span className="text-[11px] font-bold leading-tight">{summary}</span>
     </div>
   )
@@ -33,7 +35,8 @@ function ProductCard({ product, waNumber, onSelect }: {
   waNumber: string | null
   onSelect: () => void
 }) {
-  const colors = [...new Set(product.variants.map(v => v.color))]
+  // Solo colores con al menos un talle en stock
+  const colors = [...new Set(product.variants.filter(v => v.in_stock).map(v => v.color))]
   const [selColor,      setSelColor     ] = useState<string>(colors[0] ?? '')
   const [imgKey,        setImgKey       ] = useState(0)
   const [descExpanded,  setDescExpanded ] = useState(false)
@@ -44,8 +47,12 @@ function ProductCard({ product, waNumber, onSelect }: {
   const anyInStock   = product.variants.some(v => v.in_stock)
   const isUltimas    = anyInStock && totalStock(product) <= 3
 
-  const variantImg = variantsForColor[0]?.specific_image_url
-  const imgSrc     = variantImg ?? (product.has_image ? `/api/images/products/${product.id}` : null)
+  const variantImg    = variantsForColor[0]?.specific_image_url
+  const colorImgId   = product.images_by_color[selColor]
+  // Prioridad: foto de color del catálogo → specific_image_url de variante → foto principal del producto
+  const imgSrc = colorImgId != null
+    ? `/api/images/product-images/${colorImgId}`
+    : variantImg ?? (product.has_image ? `/api/images/products/${product.id}` : null)
   const longDesc   = (product.description?.length ?? 0) > 80
 
   const waHref = waNumber
@@ -114,8 +121,25 @@ function ProductCard({ product, waNumber, onSelect }: {
         </div>
 
         <div className="space-y-1.5">
-          <p className="text-xl font-bold text-gray-900 tracking-tight">{fmt(product.price)}</p>
-          {product.today_promo && <TodayPromoBadge summary={product.today_promo} />}
+          {product.today_promo && product.promo_price != null ? (
+            <>
+              <div className="flex items-baseline gap-2">
+                <p className="text-xl font-bold text-violet-700 tracking-tight">{fmt(product.promo_price)}</p>
+                <p className="text-sm text-gray-400 line-through">{fmt(product.price)}</p>
+              </div>
+              <TodayPromoBadge summary={product.today_promo} />
+              <p className="text-xs text-violet-600 font-medium">
+                Queda en {fmt(product.promo_price)}
+              </p>
+            </>
+          ) : (
+            <p className="text-xl font-bold text-gray-900 tracking-tight">{fmt(product.price)}</p>
+          )}
+          {product.cuotas > 0 && (
+            <p className="text-xs text-gray-500">
+              mismo precio en {product.cuotas} cuotas de {fmt(Math.round((product.promo_price ?? product.price) / product.cuotas))}
+            </p>
+          )}
         </div>
 
         {/* Colores */}
@@ -183,6 +207,8 @@ function ProductCard({ product, waNumber, onSelect }: {
 // Página principal
 // ══════════════════════════════════════════════════════════════════════════════
 export default function TiendaPage() {
+  const { itemCount, openCart } = useCart()
+
   const [data,            setData           ] = useState<CatalogData | null>(null)
   const [loading,         setLoading        ] = useState(true)
   const [selCategory,     setSelCategory    ] = useState('__all__')
@@ -237,6 +263,8 @@ export default function TiendaPage() {
   return (
     <div className="min-h-screen bg-gray-50">
 
+      <CartDrawer />
+
       {selectedProduct && data && (
         <ProductModal
           product={selectedProduct}
@@ -248,6 +276,18 @@ export default function TiendaPage() {
 
       {/* Header */}
       <header className="bg-white border-b relative">
+        {/* Botón carrito */}
+        <button onClick={openCart}
+          className="absolute top-3 left-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold transition-colors shadow-sm">
+          <ShoppingCart className="h-3.5 w-3.5" />
+          {itemCount > 0 && (
+            <span className="bg-white text-violet-700 rounded-full px-1.5 py-px text-[10px] font-black leading-none">
+              {itemCount}
+            </span>
+          )}
+          {itemCount === 0 ? 'Carrito' : itemCount === 1 ? '1 item' : `${itemCount} items`}
+        </button>
+
         <a href="/login"
           className="absolute top-3 right-4 text-xs text-gray-400 hover:text-violet-600 transition-colors flex items-center gap-1">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

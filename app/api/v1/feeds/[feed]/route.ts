@@ -103,6 +103,26 @@ export async function GET(
      ORDER BY p.id, pv.id`
   )
 
+  // ── 4b. Fotos adicionales por color para additional_image_link ───────────
+  const productIds = [...new Set(rows.map(r => r.product_id))]
+  const colorImgsByProduct = new Map<number, Map<string, number>>() // productId → color → imgId
+
+  if (productIds.length > 0) {
+    const { rows: colorImgRows } = await pool.query<{
+      product_id: number; color: string; id: number
+    }>(
+      `SELECT product_id, color, id
+       FROM product_images
+       WHERE product_id = ANY($1::int[]) AND color IS NOT NULL
+       ORDER BY sort_order, id`,
+      [productIds]
+    )
+    for (const r of colorImgRows) {
+      if (!colorImgsByProduct.has(r.product_id)) colorImgsByProduct.set(r.product_id, new Map())
+      colorImgsByProduct.get(r.product_id)!.set(r.color, r.id)
+    }
+  }
+
   if (rows.length === 0) {
     // Devolver feed vacío válido
     const emptyXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -131,13 +151,25 @@ export async function GET(
 
     const description = row.description || row.product_name
 
+    // Foto del color de esta variante (si existe en product_images)
+    const colorImgId = colorImgsByProduct.get(row.product_id)?.get(row.color)
+    const colorImgUrl = colorImgId != null
+      ? `${baseUrl}/api/images/product-images/${colorImgId}`
+      : null
+
+    // Google Merchant soporta hasta 10 additional_image_link por ítem
+    // Usamos la foto del color como imagen adicional cuando difiere de la principal
+    const additionalImgTag = colorImgUrl && colorImgUrl !== imageUrl
+      ? `\n      <g:additional_image_link>${esc(colorImgUrl)}</g:additional_image_link>`
+      : ''
+
     return `    <item>
       <g:id>${esc(row.sku)}</g:id>
       <g:item_group_id>${row.product_id}</g:item_group_id>
       <g:title>${cdata(title)}</g:title>
       <g:description>${cdata(description)}</g:description>
       <g:link>${esc(storeLink)}</g:link>
-      <g:image_link>${esc(imageUrl)}</g:image_link>
+      <g:image_link>${esc(colorImgUrl ?? imageUrl)}</g:image_link>${additionalImgTag}
       <g:availability>${availability}</g:availability>
       <g:price>${row.price.toFixed(2)} ARS</g:price>
       <g:brand>${cdata(businessName)}</g:brand>

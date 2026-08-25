@@ -3,7 +3,7 @@ import pool from '@/lib/db'
 import { requireBusinessId } from '@/lib/get-business-id'
 
 const ALLOWED = [
-  'name', 'description', 'base_price',
+  'name', 'description', 'base_price', 'cuotas',
   'category_id', 'age_group_id', 'season_id', 'gender_id',
   'photo_url',
   'exportable_whatsapp', 'exportable_instagram',
@@ -43,7 +43,7 @@ export async function PATCH(
        SET ${setClauses}, updated_at = NOW()
        WHERE id = $${idParamIdx} AND business_id = $${bizParamIdx}
        RETURNING
-         id, name, description, base_price::float, photo_url,
+         id, name, description, base_price::float, cuotas, photo_url,
          exportable_whatsapp, exportable_instagram,
          exportable_facebook, exportable_web,
          category_id, age_group_id, season_id, gender_id`,

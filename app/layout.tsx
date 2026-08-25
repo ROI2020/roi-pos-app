@@ -22,6 +22,18 @@ export const metadata: Metadata = {
     icon: '/favicon.png',
     apple: '/roipos-logo-180x180.png',
   },
+  // Permite que Google use imágenes de alta resolución (>1024px) al rastrear el sitio.
+  // Requerido por Google Merchant Center para reconocer imágenes de calidad.
+  // Genera: <meta name="googlebot" content="index, follow, max-image-preview:large">
+  robots: {
+    index:  true,
+    follow: true,
+    googleBot: {
+      index:                true,
+      follow:               true,
+      'max-image-preview':  'large',
+    },
+  },
 }
 
 export default async function RootLayout({

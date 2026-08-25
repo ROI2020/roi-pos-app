@@ -81,6 +81,7 @@ export async function GET(req: Request) {
       p.name,
       p.description,
       p.base_price::float,
+      p.cuotas,
       p.photo_url,
       p.exportable_whatsapp,
       p.exportable_instagram,

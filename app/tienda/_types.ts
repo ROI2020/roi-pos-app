@@ -4,9 +4,11 @@ export interface Variant {
 }
 export interface Product {
   id: number; name: string; description: string | null
-  price: number; category: string | null; age_group: string | null
-  has_image: boolean; today_promo: string | null
+  price: number; cuotas: number; category: string | null; age_group: string | null
+  has_image: boolean; today_promo: string | null; promo_price: number | null
   variants: Variant[]
+  /** Mapa color → product_images.id para cargar /api/images/product-images/[id] */
+  images_by_color: Record<string, number>
 }
 export interface StoreData {
   name: string | null; logo: string | null

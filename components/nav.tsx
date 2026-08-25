@@ -20,9 +20,10 @@ import { usePlan } from "@/contexts/PlanContext"
 import { toast } from "sonner"
 
 const MAIN_LINKS = [
-  { href: "/",            label: "Compras", Icon: ShoppingBag    },
-  { href: "/venta",       label: "Ventas",  Icon: ShoppingCart   },
-  { href: "/movimientos", label: "Movimientos",   Icon: ArrowLeftRight },
+  { href: "/",            label: "Compras",   Icon: ShoppingBag    },
+  { href: "/venta",       label: "Ventas",    Icon: ShoppingCart   },
+  { href: "/pedidos",     label: "Pedidos",   Icon: Store          },
+  { href: "/movimientos", label: "Movimientos", Icon: ArrowLeftRight },
 ]
 
 const INVENTORY_LINKS = [
@@ -71,16 +72,17 @@ const ALL_SECONDARY = [
 export default function Nav() {
   const path    = usePathname()
   const router  = useRouter()
-  const [businessName, setBusinessName] = useState<string | null>(null)
-  const [businessLogo, setBusinessLogo] = useState<string | null>(null)
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [session, setSessionState] = useState<UserSession | null>(null)
+  const [businessName,   setBusinessName  ] = useState<string | null>(null)
+  const [businessLogo,   setBusinessLogo  ] = useState<string | null>(null)
+  const [drawerOpen,     setDrawerOpen    ] = useState(false)
+  const [session,        setSessionState  ] = useState<UserSession | null>(null)
+  const [pendingOrders,  setPendingOrders ] = useState(0)
 
   // Todos los hooks ANTES de cualquier return condicional
   useEffect(() => { setSessionState(getSession()) }, [])
 
   useEffect(() => {
-    if (path === '/tienda' || path === '/login') return
+    if (path === '/tienda' || path?.startsWith('/tienda/') || path === '/login') return
     fetch('/api/settings')
       .then(r => r.json())
       .then((d: Record<string, string | null>) => {
@@ -90,9 +92,23 @@ export default function Nav() {
       .catch(() => {})
   }, [path])
 
+  // Badge de pedidos online pendientes — polling cada 60s
+  useEffect(() => {
+    if (path === '/tienda' || path?.startsWith('/tienda/') || path === '/login') return
+    const fetchCount = () => {
+      fetch('/api/orders/online/count-pending')
+        .then(r => r.ok ? r.json() : { count: 0 })
+        .then((d: { count: number }) => setPendingOrders(d.count))
+        .catch(() => {})
+    }
+    fetchCount()
+    const iv = setInterval(fetchCount, 60_000)
+    return () => clearInterval(iv)
+  }, [path])
+
   const { can, plan, isLoaded } = usePlan()
 
-  if (path === '/tienda' || path === '/login') return null
+  if (path === '/tienda' || path?.startsWith('/tienda/') || path === '/login') return null
 
   const isAdmin       = session?.role === 'administrador' || session?.role === 'roisol_admin'
   const isRoisolAdmin = session?.role === 'roisol_admin'
@@ -168,6 +184,18 @@ export default function Nav() {
               className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors
                 ${path === '/' ? "bg-violet-100 text-violet-700" : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"}`}>
               <ShoppingBag className="h-4 w-4" />Compras
+            </Link>
+
+            {/* Pedidos online con badge */}
+            <Link href="/pedidos"
+              className={`relative flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+                ${path === '/pedidos' ? "bg-violet-100 text-violet-700" : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"}`}>
+              <Store className="h-4 w-4" />Pedidos
+              {pendingOrders > 0 && (
+                <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+                  {pendingOrders > 99 ? '99+' : pendingOrders}
+                </span>
+              )}
             </Link>
 
             <Link href="/movimientos"
@@ -405,6 +433,18 @@ export default function Nav() {
               ${path === '/' ? "text-violet-700" : "text-gray-400"}`}>
             <ShoppingBag className={`h-5 w-5 ${path === '/' ? "text-violet-600" : ""}`} />
             Compras
+          </Link>
+          {/* Pedidos mobile con badge */}
+          <Link href="/pedidos"
+            className={`relative flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-medium transition-colors
+              ${path === '/pedidos' ? "text-violet-700" : "text-gray-400"}`}>
+            <Store className={`h-5 w-5 ${path === '/pedidos' ? "text-violet-600" : ""}`} />
+            Pedidos
+            {pendingOrders > 0 && (
+              <span className="absolute top-1 right-1/4 flex items-center justify-center min-w-[14px] h-3.5 px-1 rounded-full bg-red-500 text-white text-[9px] font-black leading-none">
+                {pendingOrders > 9 ? '9+' : pendingOrders}
+              </span>
+            )}
           </Link>
           <Link href="/movimientos"
             className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-medium transition-colors
