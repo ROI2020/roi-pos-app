@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/labels/variants
@@ -19,6 +20,10 @@ import pool from '@/lib/db'
  *   product_name, base_price, category_name, branch_name.
  */
 export async function GET(req: Request) {
+  const bizResult = await requireBusinessId()
+  if (bizResult instanceof NextResponse) return bizResult
+  const { businessId } = bizResult
+
   const { searchParams } = new URL(req.url)
   const q          = searchParams.get('q')?.trim() ?? ''
   const unprinted  = searchParams.get('unprinted')  === 'true'
@@ -29,9 +34,10 @@ export async function GET(req: Request) {
   const genderId   = searchParams.get('gender_id')
   const color      = searchParams.get('color')
 
-  const conditions: string[] = []
-  const params: (string | number)[] = []
-  let p = 1
+  // Primer parámetro siempre es el business_id — garantiza aislamiento de tenant
+  const conditions: string[] = ['p.business_id = $1']
+  const params: (string | number)[] = [businessId]
+  let p = 2
 
   if (unprinted)   conditions.push('pv.label_printed_at IS NULL')
   if (branchId)  { conditions.push(`bi.branch_id = $${p++}`);               params.push(parseInt(branchId))   }

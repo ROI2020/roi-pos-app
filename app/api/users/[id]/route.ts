@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 const VALID_ROLES = ['vendedor', 'encargado', 'administrador']
 const EDITABLE    = ['name', 'email', 'role', 'active']
@@ -13,7 +14,11 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const blocked = await requireFeature('users.manage')
+  const bizResult = await requireBusinessId()
+  if (bizResult instanceof NextResponse) return bizResult
+  const { businessId } = bizResult
+
+  const blocked = await requireFeature('users.manage', businessId)
   if (blocked) return blocked
 
   try {
@@ -32,9 +37,12 @@ export async function PATCH(
     if (fields.length === 0)
       return NextResponse.json({ error: 'Sin campos válidos para actualizar' }, { status: 400 })
 
-    values.push(parseInt(id))
+    // Filtrar por business_id además de id — evita editar usuarios de otro tenant
+    values.push(parseInt(id), businessId)
     const { rows } = await pool.query(
-      `UPDATE app_users SET ${fields.join(', ')} WHERE id = $${i} RETURNING *`,
+      `UPDATE app_users SET ${fields.join(', ')}
+       WHERE id = $${i} AND business_id = $${i + 1}
+       RETURNING *`,
       values
     )
     if (rows.length === 0)
@@ -57,10 +65,18 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const blocked = await requireFeature('users.manage')
+  const bizResult = await requireBusinessId()
+  if (bizResult instanceof NextResponse) return bizResult
+  const { businessId } = bizResult
+
+  const blocked = await requireFeature('users.manage', businessId)
   if (blocked) return blocked
 
   const { id } = await params
-  await pool.query(`UPDATE app_users SET active = false WHERE id = $1`, [parseInt(id)])
+  // Filtrar por business_id — evita desactivar usuarios de otro tenant
+  await pool.query(
+    `UPDATE app_users SET active = false WHERE id = $1 AND business_id = $2`,
+    [parseInt(id), businessId]
+  )
   return NextResponse.json({ ok: true })
 }

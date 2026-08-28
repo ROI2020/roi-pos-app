@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { getBusinessId } from '@/lib/get-business-id'
 
 export type DisplayMode = 'hidden' | 'locked'
 
@@ -141,11 +142,14 @@ export async function getAllFeatureAccess(
 
 // Verifica una feature y devuelve un NextResponse 403 si no está permitida, o null si sí.
 // Uso en API routes: const blocked = await requireFeature('feature.code'); if (blocked) return blocked
+// businessIdOverride: solo para casos donde el caller ya leyó el businessId del cookie.
+// Sin override, lo lee automáticamente del cookie de sesión.
 export async function requireFeature(
   functionCode: string,
-  businessId = 1
+  businessIdOverride?: number
 ): Promise<NextResponse | null> {
   try {
+    const businessId = businessIdOverride ?? (await getBusinessId()) ?? 1
     const planInfo = await getBusinessPlanInfo(businessId)
     const access   = await checkFeature(functionCode, planInfo.planLevel)
     if (access.allowed) return null
