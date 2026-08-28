@@ -1,13 +1,20 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
 
-// GET /api/suppliers  →  lista todos los proveedores
+// GET /api/suppliers  →  lista proveedores del negocio activo
 export async function GET() {
+  const bizResult = await requireBusinessId()
+  if (bizResult instanceof NextResponse) return bizResult
+  const { businessId } = bizResult
+
   try {
     const { rows } = await pool.query(
       `SELECT id, company_name, cuit, phone
        FROM suppliers
-       ORDER BY company_name`
+       WHERE business_id = $1
+       ORDER BY company_name`,
+      [businessId]
     )
     return NextResponse.json(rows)
   } catch (err) {
@@ -19,9 +26,13 @@ export async function GET() {
   }
 }
 
-// POST /api/suppliers  →  crea un nuevo proveedor
+// POST /api/suppliers  →  crea un nuevo proveedor para el negocio activo
 // Body: { company_name, cuit?, phone? }
 export async function POST(request: Request) {
+  const bizResult = await requireBusinessId()
+  if (bizResult instanceof NextResponse) return bizResult
+  const { businessId } = bizResult
+
   try {
     const { company_name, cuit, phone } = await request.json()
 
@@ -33,16 +44,15 @@ export async function POST(request: Request) {
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO suppliers (company_name, cuit, phone)
-       VALUES ($1, $2, $3)
+      `INSERT INTO suppliers (company_name, cuit, phone, business_id)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, company_name, cuit, phone`,
-      [company_name.trim(), cuit?.trim() || null, phone?.trim() || null]
+      [company_name.trim(), cuit?.trim() || null, phone?.trim() || null, businessId]
     )
 
     return NextResponse.json(rows[0], { status: 201 })
   } catch (err: unknown) {
     console.error('[POST /api/suppliers]', err)
-    // Duplicate CUIT (unique constraint violation)
     if ((err as { code?: string }).code === '23505') {
       return NextResponse.json(
         { error: 'Ya existe un proveedor con ese CUIT' },

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
 
 /**
  * GET /api/inventory/variants
@@ -13,6 +14,10 @@ import pool from '@/lib/db'
  * Devuelve máximo 201 filas — si el cliente recibe 201 significa "hay más".
  */
 export async function GET(req: Request) {
+  const bizResult = await requireBusinessId()
+  if (bizResult instanceof NextResponse) return bizResult
+  const { businessId } = bizResult
+
   const { searchParams } = new URL(req.url)
   const mode            = searchParams.get('mode') ?? 'asign'
   const currentBranchId = searchParams.get('current_branch_id')
@@ -29,10 +34,10 @@ export async function GET(req: Request) {
     )
   }
 
-  // Condiciones dinámicas (empiezan después de las cláusulas de modo)
-  const conditions: string[] = []
-  const params: (string | number)[] = []
-  let p = 1
+  // Primer parámetro siempre es business_id — garantiza aislamiento de tenant
+  const conditions: string[] = ['p.business_id = $1']
+  const params: (string | number)[] = [businessId]
+  let p = 2
 
   // Modo: asign → sin sucursal Y sin vender; reassign → en la sucursal indicada
   let inventoryJoin: string
