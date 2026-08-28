@@ -1,4 +1,5 @@
 import type { Product } from './_types'
+export { createFmt } from '@/lib/currency'
 
 export const COLOR_CSS: Record<string, string> = {
   negro: '#111827', 'negro brillante': '#000', blanco: '#f9fafb', 'blanco roto': '#fef9ef',
@@ -19,6 +20,11 @@ export function colorToCss(name: string): string | null {
   return COLOR_CSS[k] ?? null
 }
 
+/**
+ * Formatter de moneda ARS para compatibilidad con imports existentes.
+ * En la tienda pública usá createFmt(store.currency, store.locale)
+ * para respetar la moneda/locale del negocio.
+ */
 export const fmt = (n: number) =>
   new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n)
 

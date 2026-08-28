@@ -47,12 +47,14 @@ export async function insertTransaction(
     type:       'sale' | 'purchase' | 'exchange' | 'expense' | 'transfer'
     typeId:     number
     amount:     number
+    currency?:  string   // ISO 4217 — default 'ARS' para negocios ARG existentes
   }
 ) {
+  const currency = params.currency ?? 'ARS'
   await client.query(
     `INSERT INTO transactions (business_id, branch_id, fop_id, type, type_id, currency, amount)
-     VALUES ($1,$2,$3,$4,$5,'ARS',$6)`,
-    [params.businessId, params.branchId, params.fopId, params.type, params.typeId, params.amount]
+     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [params.businessId, params.branchId, params.fopId, params.type, params.typeId, currency, params.amount]
   )
 }
 
@@ -68,6 +70,7 @@ export async function insertSaleTransactions(
     branchId:   number
     saleId:     number
     amountByMethod: Record<string, number>
+    currency?:  string   // ISO 4217 — default 'ARS' para negocios ARG existentes
   }
 ) {
   for (const [method, amount] of Object.entries(params.amountByMethod)) {
@@ -81,6 +84,7 @@ export async function insertSaleTransactions(
       type:       'sale',
       typeId:     params.saleId,
       amount,
+      currency:   params.currency,
     })
   }
 }

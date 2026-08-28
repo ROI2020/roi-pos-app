@@ -33,7 +33,7 @@ interface Account {
   branch_id: number | null; branch_name: string; fops: Fop[]
 }
 
-type Tab = 'negocio' | 'usuarios' | 'sucursales' | 'cuentas' | 'catalogo' | 'ia' | 'gastos'
+type Tab = 'negocio' | 'usuarios' | 'sucursales' | 'cuentas' | 'catalogo' | 'ia' | 'gastos' | 'pagos' | 'dropshipping'
 
 interface ExpenseType {
   id: number
@@ -1852,16 +1852,520 @@ function GastosTab() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// Pestaña: Pasarela de pago
+// ══════════════════════════════════════════════════════════════════════════════
+interface PaymentConfig {
+  payment_gateway:          string
+  currency:                 string
+  locale:                   string
+  mp_public_key:            string | null
+  paypal_client_id:         string | null
+  paypal_mode:              string
+  mp_access_token_set:      boolean
+  paypal_client_secret_set: boolean
+}
+
+function PagosTab() {
+  const [cfg,     setCfg    ] = useState<PaymentConfig | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving,  setSaving ] = useState(false)
+
+  // Formulario
+  const [gateway,             setGateway            ] = useState('mercadopago')
+  const [currency,            setCurrency           ] = useState('ARS')
+  const [locale,              setLocale             ] = useState('es-AR')
+  const [mpPublicKey,         setMpPublicKey        ] = useState('')
+  const [mpAccessToken,       setMpAccessToken      ] = useState('')     // vacío = no cambiar
+  const [paypalClientId,      setPaypalClientId     ] = useState('')
+  const [paypalClientSecret,  setPaypalClientSecret ] = useState('')     // vacío = no cambiar
+  const [paypalMode,          setPaypalMode         ] = useState('sandbox')
+
+  // Visibilidad de campos secretos
+  const [showMpToken,  setShowMpToken ] = useState(false)
+  const [showPpSecret, setShowPpSecret] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/settings/payment')
+      .then(r => r.json())
+      .then((d: PaymentConfig) => {
+        setCfg(d)
+        setGateway(d.payment_gateway)
+        setCurrency(d.currency)
+        setLocale(d.locale)
+        setMpPublicKey(d.mp_public_key ?? '')
+        setPaypalClientId(d.paypal_client_id ?? '')
+        setPaypalMode(d.paypal_mode ?? 'sandbox')
+      })
+      .catch(() => toast.error('Error al cargar configuración de pagos'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const res = await fetch('/api/settings/payment', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payment_gateway:      gateway,
+          currency:             currency.trim().toUpperCase(),
+          locale:               locale.trim(),
+          mp_public_key:        mpPublicKey.trim()        || null,
+          mp_access_token:      mpAccessToken.trim()      || null,    // null = mantener
+          paypal_client_id:     paypalClientId.trim()     || null,
+          paypal_client_secret: paypalClientSecret.trim() || null,   // null = mantener
+          paypal_mode:          paypalMode,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      // Actualizar estado del "secreto configurado"
+      setCfg(prev => prev ? {
+        ...prev,
+        payment_gateway:          gateway,
+        currency,
+        locale,
+        mp_public_key:            mpPublicKey.trim() || null,
+        paypal_client_id:         paypalClientId.trim() || null,
+        paypal_mode:              paypalMode,
+        mp_access_token_set:      prev.mp_access_token_set      || !!mpAccessToken.trim(),
+        paypal_client_secret_set: prev.paypal_client_secret_set || !!paypalClientSecret.trim(),
+      } : prev)
+      setMpAccessToken('')      // limpiar campos secretos tras guardar
+      setPaypalClientSecret('')
+      toast.success('Configuración de pago guardada')
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return (
+    <div className="flex items-center gap-2 text-gray-400 py-8">
+      <Loader2 className="h-5 w-5 animate-spin" /> Cargando…
+    </div>
+  )
+
+  return (
+    <div className="space-y-7 max-w-lg">
+
+      {/* ── Gateway ── */}
+      <div className="space-y-3">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pasarela de pago</p>
+
+        {[
+          { value: 'mercadopago', label: 'MercadoPago', desc: 'Para negocios en Argentina (ARS)', flag: '🇦🇷' },
+          { value: 'paypal',      label: 'PayPal',       desc: 'Para negocios en USA (USD)',        flag: '🇺🇸' },
+        ].map(g => (
+          <button key={g.value} onClick={() => setGateway(g.value)}
+            className={`w-full flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all
+              ${gateway === g.value ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-gray-300'}`}>
+            <span className="text-2xl">{g.flag}</span>
+            <div>
+              <p className={`text-sm font-semibold ${gateway === g.value ? 'text-violet-700' : 'text-gray-800'}`}>
+                {g.label}
+              </p>
+              <p className="text-xs text-gray-500">{g.desc}</p>
+            </div>
+            {gateway === g.value && (
+              <CheckCircle2 className="h-5 w-5 text-violet-500 ml-auto shrink-0" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Moneda y locale ── */}
+      <div className="space-y-3 pt-2 border-t border-gray-100">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Moneda e idioma de la tienda</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>Moneda</Label>
+            <Select value={currency} onValueChange={setCurrency}>
+              <SelectTrigger className="text-sm font-mono">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ARS">ARS — Peso argentino</SelectItem>
+                <SelectItem value="USD">USD — Dólar estadounidense</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Idioma / Locale</Label>
+            <Select value={locale} onValueChange={setLocale}>
+              <SelectTrigger className="text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="es-AR">🇦🇷 es-AR</SelectItem>
+                <SelectItem value="en-US">🇺🇸 en-US</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <p className="text-xs text-gray-400">
+          El locale determina el idioma de la tienda y las opciones de entrega disponibles.
+          <strong> Cambiar requiere redesplegar</strong> para que el middleware tome el nuevo valor.
+        </p>
+      </div>
+
+      {/* ── MercadoPago credentials ── */}
+      {gateway === 'mercadopago' && (
+        <div className="space-y-4 pt-2 border-t border-gray-100">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Credenciales MercadoPago</p>
+
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-2">
+              Public Key
+              <span className="text-[10px] font-normal text-gray-400">(pública)</span>
+            </Label>
+            <Input
+              value={mpPublicKey}
+              onChange={e => setMpPublicKey(e.target.value)}
+              placeholder="APP_USR-xxxxxxxx-..."
+              className="text-sm font-mono"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-2">
+              Access Token
+              <span className="text-[10px] font-normal text-gray-400">(secreto)</span>
+              {cfg?.mp_access_token_set && (
+                <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">
+                  ● Configurado
+                </span>
+              )}
+            </Label>
+            <div className="relative">
+              <Input
+                type={showMpToken ? 'text' : 'password'}
+                value={mpAccessToken}
+                onChange={e => setMpAccessToken(e.target.value)}
+                placeholder={cfg?.mp_access_token_set ? '●●●●●●●● (dejar vacío = mantener)' : 'APP_USR-xxxxxxxx-...'}
+                className="text-sm font-mono pr-10"
+              />
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                onClick={() => setShowMpToken(v => !v)}
+              >
+                {showMpToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            <p className="text-xs text-gray-400">
+              Dejá vacío para mantener el token existente. Solo completá si querés reemplazarlo.
+            </p>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 text-xs text-blue-700">
+            Credenciales disponibles en{' '}
+            <a href="https://www.mercadopago.com.ar/developers/panel/app" target="_blank" rel="noopener noreferrer"
+              className="underline font-medium">
+              MercadoPago Developers → Tu aplicación → Credenciales de producción
+            </a>.
+          </div>
+        </div>
+      )}
+
+      {/* ── PayPal credentials ── */}
+      {gateway === 'paypal' && (
+        <div className="space-y-4 pt-2 border-t border-gray-100">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Credenciales PayPal</p>
+
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-2">
+              Client ID
+              <span className="text-[10px] font-normal text-gray-400">(público)</span>
+            </Label>
+            <Input
+              value={paypalClientId}
+              onChange={e => setPaypalClientId(e.target.value)}
+              placeholder="AXxx..."
+              className="text-sm font-mono"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-2">
+              Client Secret
+              <span className="text-[10px] font-normal text-gray-400">(secreto)</span>
+              {cfg?.paypal_client_secret_set && (
+                <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">
+                  ● Configurado
+                </span>
+              )}
+            </Label>
+            <div className="relative">
+              <Input
+                type={showPpSecret ? 'text' : 'password'}
+                value={paypalClientSecret}
+                onChange={e => setPaypalClientSecret(e.target.value)}
+                placeholder={cfg?.paypal_client_secret_set ? '●●●●●●●● (dejar vacío = mantener)' : 'EHxx...'}
+                className="text-sm font-mono pr-10"
+              />
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                onClick={() => setShowPpSecret(v => !v)}
+              >
+                {showPpSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            <p className="text-xs text-gray-400">
+              Dejá vacío para mantener el secreto existente.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Entorno</Label>
+            <Select value={paypalMode} onValueChange={setPaypalMode}>
+              <SelectTrigger className="text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sandbox">Sandbox — pruebas</SelectItem>
+                <SelectItem value="live">Live — producción</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 text-xs text-blue-700">
+            Credenciales en{' '}
+            <a href="https://developer.paypal.com/developer/applications" target="_blank" rel="noopener noreferrer"
+              className="underline font-medium">
+              PayPal Developer → My Apps & Credentials
+            </a>.
+            En Sandbox usá las credenciales de la app de prueba; en Live, las de la app de producción.
+          </div>
+        </div>
+      )}
+
+      <Button onClick={handleSave} disabled={saving} className="gap-2">
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+        Guardar configuración de pago
+      </Button>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Pestaña: Dropshipping CJ
+// ══════════════════════════════════════════════════════════════════════════════
+interface CJSettings {
+  cj_enabled:      string
+  cj_api_email:    string | null
+  cj_auto_fulfill: string
+  cj_api_key_set:  boolean
+}
+
+function CJTab() {
+  const [cfg,     setCfg    ] = useState<CJSettings | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving,  setSaving ] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+
+  const [enabled,     setEnabled    ] = useState(false)
+  const [autoFulfill, setAutoFulfill] = useState(false)
+  const [apiEmail,    setApiEmail   ] = useState('')
+  const [apiKey,      setApiKey     ] = useState('')
+  const [showKey,     setShowKey    ] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/settings/cj')
+      .then(r => r.json())
+      .then((d: CJSettings) => {
+        setCfg(d)
+        setEnabled(d.cj_enabled === 'true')
+        setAutoFulfill(d.cj_auto_fulfill === 'true')
+        setApiEmail(d.cj_api_email ?? '')
+      })
+      .catch(() => toast.error('Error al cargar configuración CJ'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const res = await fetch('/api/settings/cj', {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cj_enabled:      enabled      ? 'true' : 'false',
+          cj_auto_fulfill: autoFulfill  ? 'true' : 'false',
+          cj_api_email:    apiEmail.trim()  || null,
+          cj_api_key:      apiKey.trim()    || null,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      setCfg(prev => prev ? {
+        ...prev,
+        cj_enabled:      enabled      ? 'true' : 'false',
+        cj_auto_fulfill: autoFulfill  ? 'true' : 'false',
+        cj_api_email:    apiEmail.trim()  || null,
+        cj_api_key_set:  prev.cj_api_key_set || !!apiKey.trim(),
+      } : prev)
+      setApiKey('')
+      toast.success('Configuración CJ guardada')
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSync = async () => {
+    setSyncing(true)
+    try {
+      const res  = await fetch('/api/admin/cj/sync', { method: 'POST' })
+      const data = await res.json() as { updated: number; total: number; errors: unknown[] }
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Error')
+      toast.success(`Sync completado: ${data.updated}/${data.total} productos actualizados`)
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  if (loading) return (
+    <div className="flex items-center gap-2 text-gray-400 py-8">
+      <Loader2 className="h-5 w-5 animate-spin" /> Cargando…
+    </div>
+  )
+
+  return (
+    <div className="space-y-7 max-w-lg">
+
+      {/* ── Habilitado ── */}
+      <div className="flex items-center justify-between p-4 border rounded-xl">
+        <div>
+          <p className="text-sm font-semibold text-gray-800">Dropshipping CJ habilitado</p>
+          <p className="text-xs text-gray-500">Activa la integración para este negocio</p>
+        </div>
+        <Switch checked={enabled} onCheckedChange={setEnabled} />
+      </div>
+
+      {enabled && (
+        <>
+          {/* ── Auto-fulfill ── */}
+          <div className="flex items-center justify-between p-4 border rounded-xl bg-amber-50 border-amber-200">
+            <div>
+              <p className="text-sm font-semibold text-amber-800">Auto-fulfillment</p>
+              <p className="text-xs text-amber-700">
+                Enviar a CJ automáticamente cuando el pago es confirmado
+              </p>
+            </div>
+            <Switch
+              checked={autoFulfill}
+              onCheckedChange={setAutoFulfill}
+              className="data-[state=checked]:bg-amber-500"
+            />
+          </div>
+
+          {/* ── Credenciales ── */}
+          <div className="space-y-4 pt-2 border-t border-gray-100">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              Credenciales CJ API
+            </p>
+
+            <div className="space-y-1.5">
+              <Label>Email de la cuenta CJ</Label>
+              <Input
+                type="email"
+                value={apiEmail}
+                onChange={e => setApiEmail(e.target.value)}
+                placeholder="tu@email.com"
+                className="text-sm"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-2">
+                API Key
+                <span className="text-[10px] font-normal text-gray-400">(secreto)</span>
+                {cfg?.cj_api_key_set && (
+                  <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">
+                    ● Configurado
+                  </span>
+                )}
+              </Label>
+              <div className="relative">
+                <Input
+                  type={showKey ? 'text' : 'password'}
+                  value={apiKey}
+                  onChange={e => setApiKey(e.target.value)}
+                  placeholder={cfg?.cj_api_key_set ? '●●●●●●●● (dejar vacío = mantener)' : 'API Key de CJ Developer Portal'}
+                  className="text-sm font-mono pr-10"
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  onClick={() => setShowKey(v => !v)}
+                >
+                  {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-gray-400">
+                Disponible en{' '}
+                <a
+                  href="https://developers.cjdropshipping.com"
+                  target="_blank" rel="noopener noreferrer"
+                  className="underline text-violet-600"
+                >
+                  developers.cjdropshipping.com
+                </a>
+                {' '}→ API Management
+              </p>
+            </div>
+          </div>
+
+          {/* ── Acciones ── */}
+          <div className="pt-2 border-t border-gray-100 space-y-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Acciones</p>
+            <div className="flex flex-wrap gap-3">
+              <Button
+                variant="outline"
+                onClick={handleSync}
+                disabled={syncing || !cfg?.cj_api_key_set}
+                className="gap-2"
+              >
+                {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                Sync precios y stock
+              </Button>
+              <a
+                href="/cj-import"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium transition-colors"
+              >
+                <Globe className="h-4 w-4" />
+                Importar productos
+              </a>
+            </div>
+          </div>
+        </>
+      )}
+
+      <Button onClick={handleSave} disabled={saving} className="gap-2">
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+        Guardar configuración CJ
+      </Button>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Componente principal
 // ══════════════════════════════════════════════════════════════════════════════
 const TABS: { value: Tab; label: string; Icon: React.ElementType }[] = [
-  { value: 'negocio',    label: 'Negocio',    Icon: Building2 },
-  { value: 'usuarios',   label: 'Usuarios',   Icon: Users     },
+  { value: 'negocio',    label: 'Negocio',    Icon: Building2  },
+  { value: 'usuarios',   label: 'Usuarios',   Icon: Users      },
   { value: 'sucursales', label: 'Sucursales', Icon: Warehouse  },
   { value: 'cuentas',    label: 'Cuentas',    Icon: Wallet     },
-  { value: 'catalogo',   label: 'Catálogo',   Icon: Rss       },
-  { value: 'ia',         label: 'IA',          Icon: Sparkles  },
-  { value: 'gastos',     label: 'Gastos',      Icon: Receipt   },
+  { value: 'catalogo',   label: 'Catálogo',   Icon: Rss        },
+  { value: 'pagos',        label: 'Pagos',        Icon: CreditCard },
+  { value: 'dropshipping', label: 'Dropshipping', Icon: Globe      },
+  { value: 'ia',           label: 'IA',            Icon: Sparkles   },
+  { value: 'gastos',       label: 'Gastos',        Icon: Receipt    },
 ]
 
 export default function SettingsPanel() {
@@ -1909,8 +2413,10 @@ export default function SettingsPanel() {
             {tab === 'sucursales' && <SucursalesTab />}
             {tab === 'cuentas'    && <CuentasTab />}
             {tab === 'catalogo'   && <CatalogoTab />}
-            {tab === 'ia'         && <IATab />}
-            {tab === 'gastos'     && <GastosTab />}
+            {tab === 'pagos'        && <PagosTab />}
+            {tab === 'dropshipping' && <CJTab />}
+            {tab === 'ia'           && <IATab />}
+            {tab === 'gastos'       && <GastosTab />}
           </div>
         </div>
       </div>

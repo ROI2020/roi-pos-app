@@ -2,12 +2,17 @@
 
 import { useEffect } from "react"
 import { X, ShoppingCart, Trash2, ArrowRight, Package } from "lucide-react"
-import { useCart } from "../_context/cart-context"
-import { fmt } from "../_utils"
+import { useTranslations } from 'next-intl'
+import { useCart }        from "../_context/cart-context"
+import { useCurrency }    from "../_context/currency-context"
+import { useStoreHref }   from "../_context/store-path-context"
 import Link from "next/link"
 
 export default function CartDrawer() {
   const { items, total, isOpen, closeCart, removeItem } = useCart()
+  const { fmt }     = useCurrency()
+  const t           = useTranslations('Cart')
+  const checkoutHref = useStoreHref('/checkout')
 
   // Lock scroll cuando el drawer está abierto
   useEffect(() => {
@@ -30,10 +35,10 @@ export default function CartDrawer() {
           <div className="flex items-center gap-2">
             <ShoppingCart className="h-5 w-5 text-violet-600" />
             <h2 className="font-semibold text-gray-900">
-              Carrito
+              {t('title')}
               {items.length > 0 && (
                 <span className="ml-2 text-xs font-medium bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">
-                  {items.length} {items.length === 1 ? 'item' : 'items'}
+                  {t('itemCount', { count: items.length })}
                 </span>
               )}
             </h2>
@@ -48,10 +53,10 @@ export default function CartDrawer() {
           {items.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-300 px-6">
               <Package className="h-14 w-14" />
-              <p className="text-base text-gray-400 text-center">Tu carrito está vacío</p>
+              <p className="text-base text-gray-400 text-center">{t('empty')}</p>
               <button onClick={closeCart}
                 className="text-sm text-violet-500 hover:text-violet-700 font-medium transition-colors">
-                Seguir comprando
+                {t('keepShopping')}
               </button>
             </div>
           ) : (
@@ -81,12 +86,12 @@ export default function CartDrawer() {
                       {item.productName}
                     </p>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      {item.color !== 'Varios' && `${item.color} · `}T.{item.size}
+                      {item.color !== 'Varios' && `${item.color} · `}{t('size', { size: item.size })}
                     </p>
                     <p className="text-sm font-bold text-violet-700 mt-1">{fmt(item.price)}</p>
                     {item.cuotas > 0 && (
                       <p className="text-[11px] text-gray-400">
-                        {item.cuotas} cuotas de {fmt(Math.round(item.price / item.cuotas))}
+                        {t('installments', { cuotas: item.cuotas, price: fmt(Math.round(item.price / item.cuotas)) })}
                       </p>
                     )}
                   </div>
@@ -106,13 +111,13 @@ export default function CartDrawer() {
         {items.length > 0 && (
           <div className="border-t px-5 py-4 space-y-3 bg-white">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-600">Subtotal</span>
+              <span className="text-sm text-gray-600">{t('subtotal')}</span>
               <span className="text-lg font-bold text-gray-900">{fmt(total)}</span>
             </div>
-            <p className="text-xs text-gray-400">Costo de envío se calcula en el checkout</p>
-            <Link href="/tienda/checkout" onClick={closeCart}
+            <p className="text-xs text-gray-400">{t('shippingNote')}</p>
+            <Link href={checkoutHref} onClick={closeCart}
               className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm transition-colors shadow-lg shadow-violet-200">
-              Ir al checkout
+              {t('goToCheckout')}
               <ArrowRight className="h-4 w-4" />
             </Link>
           </div>

@@ -2,14 +2,16 @@
 
 import { useState, useEffect, useMemo } from "react"
 import dynamic from "next/dynamic"
+import { useTranslations } from 'next-intl'
 import {
   ShoppingBag, MapPin, Phone, MessageCircle,
   Search, SlidersHorizontal, X, ShoppingCart,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Product, StoreData, CatalogData } from './_types'
-import { colorToCss, fmt, sortSizes, totalStock } from './_utils'
-import { useCart } from './_context/cart-context'
+import { colorToCss, sortSizes, totalStock } from './_utils'
+import { useCart }     from './_context/cart-context'
+import { useCurrency } from './_context/currency-context'
 import CartDrawer from './_components/cart-drawer'
 
 // El modal se carga solo cuando el usuario abre un producto (chunk separado)
@@ -18,10 +20,10 @@ const ProductModal = dynamic(() => import('./_components/product-modal'), { ssr:
 // ══════════════════════════════════════════════════════════════════════════════
 // Badge de promo del día
 // ══════════════════════════════════════════════════════════════════════════════
-function TodayPromoBadge({ summary }: { summary: string }) {
+function TodayPromoBadge({ summary, label }: { summary: string; label: string }) {
   return (
     <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 text-white shadow-sm">
-      <span className="text-[10px] font-black uppercase tracking-widest opacity-80">SOLO x HOY</span>
+      <span className="text-[10px] font-black uppercase tracking-widest opacity-80">{label}</span>
       <span className="text-[11px] font-bold leading-tight">{summary}</span>
     </div>
   )
@@ -35,6 +37,9 @@ function ProductCard({ product, waNumber, onSelect }: {
   waNumber: string | null
   onSelect: () => void
 }) {
+  const { fmt } = useCurrency()
+  const t = useTranslations('ProductCard')
+
   // Solo colores con al menos un talle en stock
   const colors = [...new Set(product.variants.filter(v => v.in_stock).map(v => v.color))]
   const [selColor,      setSelColor     ] = useState<string>(colors[0] ?? '')
@@ -47,17 +52,20 @@ function ProductCard({ product, waNumber, onSelect }: {
   const anyInStock   = product.variants.some(v => v.in_stock)
   const isUltimas    = anyInStock && totalStock(product) <= 3
 
-  const variantImg    = variantsForColor[0]?.specific_image_url
+  const variantImg   = variantsForColor[0]?.specific_image_url
   const colorImgId   = product.images_by_color[selColor]
   // Prioridad: foto de color del catálogo → specific_image_url de variante → foto principal del producto
   const imgSrc = colorImgId != null
     ? `/api/images/product-images/${colorImgId}`
     : variantImg ?? (product.has_image ? `/api/images/products/${product.id}` : null)
-  const longDesc   = (product.description?.length ?? 0) > 80
+  const longDesc = (product.description?.length ?? 0) > 80
 
+  const colorPart = selColor && selColor !== 'Varios'
+    ? t('whatsappColorPart', { color: selColor })
+    : ''
   const waHref = waNumber
     ? `https://wa.me/${waNumber}?text=${encodeURIComponent(
-        `Hola! Me interesa: *${product.name}*${selColor && selColor !== 'Varios' ? ` — Color: ${selColor}` : ''} — Precio: ${fmt(product.price)}`
+        t('whatsappMessage', { name: product.name, colorPart, price: fmt(product.price) })
       )}`
     : null
 
@@ -79,12 +87,12 @@ function ProductCard({ product, waNumber, onSelect }: {
         )}
         {anyInStock && isUltimas && (
           <span className="absolute top-2.5 left-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500 text-white shadow-sm animate-pulse">
-            ¡Últimas!
+            {t('lastItems')}
           </span>
         )}
         {!anyInStock && (
           <span className="absolute top-2.5 left-2.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-400 text-white shadow-sm">
-            Sin stock
+            {t('outOfStock')}
           </span>
         )}
         {product.category && (
@@ -94,7 +102,7 @@ function ProductCard({ product, waNumber, onSelect }: {
         )}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200 flex items-end justify-center pb-3">
           <span className="opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-semibold bg-black/60 px-3 py-1 rounded-full">
-            Ver detalles
+            {t('viewDetails')}
           </span>
         </div>
       </div>
@@ -113,7 +121,7 @@ function ProductCard({ product, waNumber, onSelect }: {
               {longDesc && (
                 <button className="text-[11px] text-violet-500 hover:text-violet-700 font-medium mt-0.5"
                   onClick={e => { e.stopPropagation(); setDescExpanded(v => !v) }}>
-                  {descExpanded ? 'Ver menos' : 'Ver más'}
+                  {descExpanded ? t('showLess') : t('showMore')}
                 </button>
               )}
             </div>
@@ -127,9 +135,9 @@ function ProductCard({ product, waNumber, onSelect }: {
                 <p className="text-xl font-bold text-violet-700 tracking-tight">{fmt(product.promo_price)}</p>
                 <p className="text-sm text-gray-400 line-through">{fmt(product.price)}</p>
               </div>
-              <TodayPromoBadge summary={product.today_promo} />
+              <TodayPromoBadge summary={product.today_promo} label={t('todayOnly')} />
               <p className="text-xs text-violet-600 font-medium">
-                Queda en {fmt(product.promo_price)}
+                {t('promoPrice', { price: fmt(product.promo_price) })}
               </p>
             </>
           ) : (
@@ -137,7 +145,10 @@ function ProductCard({ product, waNumber, onSelect }: {
           )}
           {product.cuotas > 0 && (
             <p className="text-xs text-gray-500">
-              mismo precio en {product.cuotas} cuotas de {fmt(Math.round((product.promo_price ?? product.price) / product.cuotas))}
+              {t('installments', {
+                cuotas: product.cuotas,
+                price:  fmt(Math.round((product.promo_price ?? product.price) / product.cuotas)),
+              })}
             </p>
           )}
         </div>
@@ -146,7 +157,7 @@ function ProductCard({ product, waNumber, onSelect }: {
         {colors.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {colors.map(color => {
-              const css = colorToCss(color)
+              const css      = colorToCss(color)
               const isVarios = color.toLowerCase() === 'varios'
               const isSel    = selColor === color
               const hasStock = product.variants.some(v => v.color === color && v.in_stock)
@@ -167,7 +178,7 @@ function ProductCard({ product, waNumber, onSelect }: {
           </div>
         )}
         {selColor && selColor.toLowerCase() !== 'varios' && (
-          <p className="text-xs text-gray-500 -mt-0.5">Color: <span className="font-medium text-gray-700">{selColor}</span></p>
+          <p className="text-xs text-gray-500 -mt-0.5">{t('colorLabel', { color: selColor })}</p>
         )}
 
         {/* Talles */}
@@ -179,7 +190,7 @@ function ProductCard({ product, waNumber, onSelect }: {
                 <span key={size}
                   className={`text-[10px] font-medium px-1.5 py-0.5 rounded border
                     ${inStock ? 'border-gray-300 text-gray-700 bg-white' : 'border-gray-200 text-gray-300 line-through bg-gray-50'}`}>
-                  T.{size}
+                  {t('sizeTag', { size })}
                 </span>
               )
             })}
@@ -189,7 +200,7 @@ function ProductCard({ product, waNumber, onSelect }: {
         <div className="mt-auto pt-1 flex gap-2">
           <button onClick={onSelect}
             className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold border border-violet-200 text-violet-600 hover:bg-violet-50 transition-colors">
-            Ver detalles
+            {t('viewDetails')}
           </button>
           {waHref && anyInStock && (
             <a href={waHref} target="_blank" rel="noopener noreferrer"
@@ -208,6 +219,7 @@ function ProductCard({ product, waNumber, onSelect }: {
 // ══════════════════════════════════════════════════════════════════════════════
 export default function TiendaPage() {
   const { itemCount, openCart } = useCart()
+  const t = useTranslations('Store')
 
   const [data,            setData           ] = useState<CatalogData | null>(null)
   const [loading,         setLoading        ] = useState(true)
@@ -285,7 +297,7 @@ export default function TiendaPage() {
               {itemCount}
             </span>
           )}
-          {itemCount === 0 ? 'Carrito' : itemCount === 1 ? '1 item' : `${itemCount} items`}
+          {t('cartButton')}
         </button>
 
         <a href="/login"
@@ -348,7 +360,7 @@ export default function TiendaPage() {
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-            <input type="search" placeholder="Buscar productos…" value={search}
+            <input type="search" placeholder={t('searchPlaceholderEllipsis')} value={search}
               onChange={e => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-violet-300" />
             {search && (
@@ -358,7 +370,7 @@ export default function TiendaPage() {
             )}
           </div>
           <div className="hidden sm:flex items-center gap-1.5 overflow-x-auto scrollbar-none flex-1">
-            {[{ label: 'Todo', val: '__all__' }, ...(data?.categories ?? []).map(c => ({ label: c, val: c }))].map(({ label, val }) => (
+            {[{ label: t('allCategoriesFilter'), val: '__all__' }, ...(data?.categories ?? []).map(c => ({ label: c, val: c }))].map(({ label, val }) => (
               <button key={val} onClick={() => setSelCategory(val)}
                 className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-colors shrink-0
                   ${selCategory === val ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
@@ -370,7 +382,7 @@ export default function TiendaPage() {
             <button onClick={() => setInStockOnly(v => !v)}
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors
                 ${inStockOnly ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-              En stock
+              {t('inStockOnly')}
             </button>
             <button className="sm:hidden flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600"
               onClick={() => setFiltersOpen(v => !v)}>
@@ -381,8 +393,8 @@ export default function TiendaPage() {
 
         {(data?.age_groups ?? []).length > 0 && (
           <div className="max-w-7xl mx-auto px-4 pb-2.5 flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0 mr-1">Edad:</span>
-            {[{ label: 'Todos', val: '__all__' }, ...(data?.age_groups ?? []).map(ag => ({ label: ag, val: ag }))].map(({ label, val }) => (
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0 mr-1">{t('ageLabel')}</span>
+            {[{ label: t('allAgeGroupsFilter'), val: '__all__' }, ...(data?.age_groups ?? []).map(ag => ({ label: ag, val: ag }))].map(({ label, val }) => (
               <button key={val} onClick={() => setSelAgeGroup(val)}
                 className={`whitespace-nowrap px-3 py-1 rounded-full text-xs font-medium transition-colors shrink-0
                   ${selAgeGroup === val ? 'bg-pink-500 text-white' : 'bg-pink-50 text-pink-700 hover:bg-pink-100'}`}>
@@ -394,7 +406,7 @@ export default function TiendaPage() {
 
         {filtersOpen && (
           <div className="sm:hidden px-4 pb-3 flex flex-wrap gap-1.5">
-            {[{ label: 'Todo', val: '__all__' }, ...(data?.categories ?? []).map(c => ({ label: c, val: c }))].map(({ label, val }) => (
+            {[{ label: t('allCategoriesFilter'), val: '__all__' }, ...(data?.categories ?? []).map(c => ({ label: c, val: c }))].map(({ label, val }) => (
               <button key={val} onClick={() => { setSelCategory(val); setFiltersOpen(false) }}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors
                   ${selCategory === val ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
@@ -407,11 +419,10 @@ export default function TiendaPage() {
 
       {/* Grid */}
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {!loading && (
+        {!loading && filtered.length > 0 && (
           <p className="text-sm text-gray-400 mb-5">
-            {filtered.length === 0 ? 'No hay productos que coincidan'
-              : `${filtered.length} producto${filtered.length !== 1 ? 's' : ''}`}
-            {selCategory !== '__all__' && ` en ${selCategory}`}
+            {t('productCount', { count: filtered.length })}
+            {selCategory !== '__all__' && ` ${t('inCategory', { category: selCategory })}`}
             {selAgeGroup !== '__all__' && ` · ${selAgeGroup}`}
             {search && ` · "${search}"`}
           </p>
@@ -447,11 +458,15 @@ export default function TiendaPage() {
         {!loading && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-gray-300 gap-3">
             <ShoppingBag className="h-14 w-14" />
-            <p className="text-base text-gray-400">No hay productos disponibles</p>
+            <p className="text-base text-gray-400">
+              {(selCategory !== '__all__' || selAgeGroup !== '__all__' || inStockOnly || search)
+                ? t('noProducts')
+                : t('noProductsAvailable')}
+            </p>
             {(selCategory !== '__all__' || selAgeGroup !== '__all__' || inStockOnly || search) && (
               <button className="text-sm text-violet-500 hover:text-violet-700"
                 onClick={() => { setSelCategory('__all__'); setSelAgeGroup('__all__'); setInStockOnly(false); setSearch('') }}>
-                Limpiar filtros
+                {t('clearFilters')}
               </button>
             )}
           </div>

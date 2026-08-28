@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { resolveBusinessFromHost } from '@/lib/tenant-api'
+import { getPublicSettingsByKeys } from '@/lib/settings'
 
 /**
  * GET /api/catalog
  *
  * Endpoint público — sin autenticación.
+ * Resuelve el negocio desde el dominio (header Host) para aislar
+ * productos, settings y promos por business_id.
+ *
  * Devuelve los productos marcados con exportable_web = true,
  * con sus variantes agrupadas y disponibilidad de stock.
  *
@@ -13,19 +18,20 @@ import pool from '@/lib/db'
  *  - age_groups únicos que tienen productos en el catálogo (para filtro en Tienda)
  *  - today_promo por producto: promo vigente HOY (no roulette_only) que aplica al producto
  */
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    // ── Info pública del negocio ──────────────────────────────────────────
-    const { rows: settingRows } = await pool.query<{ key: string; value: string | null }>(
-      `SELECT key, value FROM settings
-       WHERE key IN (
-         'business_name','business_logo',
-         'receipt_address','receipt_phone','whatsapp_report_number',
-         'catalog_banner','catalog_banner_text','catalog_envio_info',
-         'catalog_phone'
-       )`
-    )
-    const s = Object.fromEntries(settingRows.map(r => [r.key, r.value]))
+    // ── Resolver negocio desde el dominio ────────────────────────────────────
+    const host = req.headers.get('host') ?? ''
+    const businessId = await resolveBusinessFromHost(host)
+
+    // ── Info pública del negocio (solo is_secret=false) ──────────────────────
+    const s = await getPublicSettingsByKeys(businessId, [
+      'business_name', 'business_logo',
+      'receipt_address', 'receipt_phone', 'whatsapp_report_number',
+      'catalog_banner', 'catalog_banner_text', 'catalog_envio_info',
+      'catalog_phone',
+      'currency', 'locale',   // para formateo de precios en la tienda
+    ])
 
     // ── Variantes con stock ───────────────────────────────────────────────
     const { rows } = await pool.query<{
@@ -81,7 +87,9 @@ export async function GET() {
        LEFT JOIN age_groups  ag ON ag.id = p.age_group_id
        JOIN product_variants pv ON pv.product_id = p.id
        WHERE p.exportable_web = true
-       ORDER BY p.id, pv.color, pv.size`
+         AND p.business_id = $1
+       ORDER BY p.id, pv.color, pv.size`,
+      [businessId]
     )
 
     // ── Promos vigentes HOY (no roulette_only, no POS-only) ──────────────
@@ -101,12 +109,13 @@ export async function GET() {
       `SELECT id, summary, discount_type, value::float AS value,
               category_id, age_group_id, season_id, gender_id
        FROM promotions
-       WHERE active = true
+       WHERE business_id = $1
+         AND active = true
          AND roulette_only = false
          AND (start_date IS NULL OR start_date <= CURRENT_DATE)
          AND (end_date   IS NULL OR end_date   >= CURRENT_DATE)
-         AND days_of_week LIKE $1`,
-      [`%${dayDigit}%`]
+         AND days_of_week LIKE $2`,
+      [businessId, `%${dayDigit}%`]
     )
 
     // ── Helper: label del descuento ───────────────────────────────────────
@@ -231,6 +240,8 @@ export async function GET() {
         has_banner:    !!s.catalog_banner,
         banner_text:   s.catalog_banner_text     ?? null,
         shipping_info: s.catalog_envio_info      ?? null,
+        currency:      s.currency               ?? 'ARS',
+        locale:        s.locale                 ?? 'es-AR',
       },
       categories,
       age_groups,

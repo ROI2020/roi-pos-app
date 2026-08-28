@@ -1,13 +1,16 @@
 import { Pool, types } from 'pg'
 
-// pg interpreta las columnas "timestamp without time zone" (oid 1114) como
-// si fueran UTC, sin importar el SET timezone de la sesión. Como guardamos
-// hora local de Argentina en esas columnas, eso hace que el frontend (que sí
-// resta el offset real) muestre la hora 3 horas antes de la real (ej: caja
-// abierta 10:29 se ve como 7:29). Devolvemos el string tal cual (con "T" en
-// vez de espacio) para que el navegador lo interprete como hora local, sin
-// reconversión.
-types.setTypeParser(1114, (val: string) => val.replace(' ', 'T'))
+// Las columnas "timestamp without time zone" (OID 1114) en Supabase se
+// almacenan con la hora UTC (CURRENT_TIMESTAMP usa UTC porque PgBouncer
+// en transaction-mode no propaga startup params como timezone de sesión).
+//
+// pg las devuelve como strings sin indicador de zona, p.ej.:
+//   "2026-08-28 13:48:53.115"
+//
+// Agregamos 'Z' para que JavaScript las interprete como UTC y las convierta
+// automáticamente a la hora local del navegador:
+//   new Date("2026-08-28T13:48:53.115Z") → 10:48 en un browser con UTC-3 (AR)
+types.setTypeParser(1114, (val: string) => val.replace(' ', 'T') + 'Z')
 
 // Singleton: una sola instancia del pool durante toda la vida del servidor.
 // En desarrollo Next.js recarga módulos en hot-reload, por eso lo guardamos
@@ -16,12 +19,6 @@ declare global {
   // eslint-disable-next-line no-var
   var _pgPool: Pool | undefined
 }
-
-// La zona horaria de Argentina se fija a través de la opción de conexión
-// de PostgreSQL: options='-c timezone=...'
-// Esto evita correr un SET timezone; separado, que en pg@8 genera un
-// DeprecationWarning si se llama sin await dentro del handler 'connect'.
-const TZ_OPTION = "-c timezone=America/Argentina/Buenos_Aires"
 
 const pool =
   globalThis._pgPool ??
@@ -32,12 +29,10 @@ const pool =
         database: process.env.DB_NAME     ?? 'postgres',
         user:     process.env.DB_USER,
         password: process.env.DB_PASSWORD,
-        options:  TZ_OPTION,
         ssl: { rejectUnauthorized: false },
       })
     : new Pool({
         connectionString: process.env.DATABASE_URL,
-        options:          TZ_OPTION,
         ssl:
           process.env.NODE_ENV === 'production'
             ? { rejectUnauthorized: false }

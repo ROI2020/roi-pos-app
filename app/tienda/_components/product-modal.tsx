@@ -1,22 +1,20 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
+import { useTranslations } from 'next-intl'
 import {
   MessageCircle, ArrowLeft, AlertTriangle,
   Banknote, CreditCard, Truck, Store as StoreIcon,
-  Sparkles, TrendingUp, ShoppingCart, Check,
+  ShoppingCart, Check,
 } from "lucide-react"
 import type { Product, StoreData, SuggestionProduct } from '../_types'
-import { colorToCss, fmt, sortSizes, totalStock } from '../_utils'
-import { useCart } from '../_context/cart-context'
+import { colorToCss, sortSizes, totalStock } from '../_utils'
+import { useCart }     from '../_context/cart-context'
+import { useCurrency } from '../_context/currency-context'
 
 const SUGGESTION_ICON: Record<SuggestionProduct['reason'], React.ReactNode> = {
-  complementary: <Sparkles className="h-3.5 w-3.5 text-violet-500" />,
-  trending:      <TrendingUp className="h-3.5 w-3.5 text-orange-500" />,
-}
-const SUGGESTION_TEXT: Record<SuggestionProduct['reason'], string> = {
-  complementary: 'Para combinar',
-  trending:      'Lo más vendido',
+  complementary: <span className="text-violet-500">✦</span>,
+  trending:      <span className="text-orange-500">↑</span>,
 }
 
 export default function ProductModal({
@@ -27,11 +25,14 @@ export default function ProductModal({
   allProducts: Product[]
   onClose:     () => void
 }) {
+  const { fmt } = useCurrency()
+  const t = useTranslations('ProductModal')
+
   // Solo colores con al menos un talle en stock
   const colors = [...new Set(product.variants.filter(v => v.in_stock).map(v => v.color))]
-  const [selColor,  setSelColor ] = useState<string>(colors[0] ?? '')
-  const [selSize,   setSelSize  ] = useState<string>('')
-  const [imgKey,    setImgKey   ] = useState(0)
+  const [selColor,    setSelColor   ] = useState<string>(colors[0] ?? '')
+  const [selSize,     setSelSize    ] = useState<string>('')
+  const [imgKey,      setImgKey     ] = useState(0)
   const [localidad,   setLocalidad  ] = useState('')
   const [cp,          setCp         ] = useState('')
   const [suggestions, setSuggestions] = useState<SuggestionProduct[]>([])
@@ -84,12 +85,16 @@ export default function ProductModal({
   const handleColorChange = (color: string) => { setSelColor(color); setImgKey(k => k + 1) }
 
   const buildWaMsg = (includeEnvio = false) => {
-    let msg = `Hola! Me interesa: *${product.name}*`
-    if (selColor && selColor.toLowerCase() !== 'varios') msg += `\nColor: ${selColor}`
-    if (selSize && selSize !== 'X') msg += `\nTalle: ${selSize}`
-    msg += `\nPrecio: ${fmt(product.price)}`
-    if (includeEnvio && localidad)
-      msg += `\n\n¿Cuánto saldría el envío a ${localidad}${cp ? `, CP ${cp}` : ''}?`
+    let msg = t('greeting', { name: product.name })
+    if (selColor && selColor.toLowerCase() !== 'varios')
+      msg += `\n${t('colorLine', { color: selColor })}`
+    if (selSize && selSize !== 'X')
+      msg += `\n${t('sizeLine', { size: selSize })}`
+    msg += `\n${t('priceLine', { price: fmt(product.price) })}`
+    if (includeEnvio && localidad) {
+      const city = cp ? `${localidad}, ${cp}` : localidad
+      msg += `\n\n${t('shippingQuery', { city })}`
+    }
     return msg
   }
 
@@ -134,6 +139,12 @@ export default function ProductModal({
     setTimeout(() => setAdded(false), 2000)
   }
 
+  // Texto de sugerencias según reason (usa t para i18n)
+  const suggestionText: Record<SuggestionProduct['reason'], string> = {
+    complementary: t('complementary'),
+    trending:      t('trending'),
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
@@ -143,7 +154,7 @@ export default function ProductModal({
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 py-3 border-b bg-white/95 backdrop-blur-sm shrink-0 z-10">
           <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors">
-            <ArrowLeft className="h-4 w-4" /> Volver
+            <ArrowLeft className="h-4 w-4" /> {t('back')}
           </button>
           {product.category && (
             <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-violet-100 text-violet-700">
@@ -169,7 +180,7 @@ export default function ProductModal({
             {isUltimas && (
               <div className="absolute top-3 left-3">
                 <span className="flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-orange-500 text-white shadow animate-pulse">
-                  <AlertTriangle className="h-3 w-3" /> ¡Últimas unidades!
+                  <AlertTriangle className="h-3 w-3" /> {t('lastUnits')}
                 </span>
               </div>
             )}
@@ -188,11 +199,11 @@ export default function ProductModal({
                     <span className="text-lg text-gray-400 line-through">{fmt(product.price)}</span>
                   </div>
                   <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 text-white shadow-sm w-fit">
-                    <span className="text-[10px] font-black uppercase tracking-widest opacity-80">SOLO x HOY</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest opacity-80">{t('todayOnly')}</span>
                     <span className="text-[11px] font-bold leading-tight">{product.today_promo}</span>
                   </div>
                   <p className="text-sm font-semibold text-violet-600">
-                    Queda en {fmt(product.promo_price)}
+                    {t('promoPrice', { price: fmt(product.promo_price) })}
                   </p>
                 </div>
               ) : (
@@ -201,10 +212,10 @@ export default function ProductModal({
 
               {product.cuotas > 0 && (
                 <p className="text-sm text-gray-500 mt-1.5">
-                  mismo precio en {product.cuotas} cuotas de{' '}
-                  <span className="font-semibold text-gray-700">
-                    {fmt(Math.round((product.promo_price ?? product.price) / product.cuotas))}
-                  </span>
+                  {t('installments', {
+                    cuotas: product.cuotas,
+                    price:  fmt(Math.round((product.promo_price ?? product.price) / product.cuotas)),
+                  })}
                 </p>
               )}
 
@@ -217,16 +228,16 @@ export default function ProductModal({
             {colors.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                  Color
+                  {t('color')}
                   {selColor && selColor.toLowerCase() !== 'varios' && (
                     <span className="ml-2 font-medium text-violet-600 normal-case">{selColor}</span>
                   )}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {colors.map(color => {
-                    const css     = colorToCss(color)
+                    const css      = colorToCss(color)
                     const isVarios = color.toLowerCase() === 'varios'
-                    const isSel   = selColor === color
+                    const isSel    = selColor === color
                     const hasStock = product.variants.some(v => v.color === color && v.in_stock)
                     return (
                       <button key={color} title={color} onClick={() => handleColorChange(color)}
@@ -249,7 +260,7 @@ export default function ProductModal({
             {!singleSize && sizes.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                  Talle {selSize && <span className="ml-2 font-medium text-violet-600 normal-case">{selSize}</span>}
+                  {t('sizeLabel')} {selSize && <span className="ml-2 font-medium text-violet-600 normal-case">{selSize}</span>}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {sizes.map(size => {
@@ -264,7 +275,7 @@ export default function ProductModal({
                     )
                   })}
                 </div>
-                {!selSize && <p className="text-xs text-amber-600">Seleccioná un talle para continuar</p>}
+                {!selSize && <p className="text-xs text-amber-600">{t('selectSizeHint')}</p>}
               </div>
             )}
 
@@ -272,23 +283,25 @@ export default function ProductModal({
 
             {/* Medios de pago */}
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Medios de pago</p>
+              <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">{t('paymentMethods')}</p>
               <div className="space-y-2">
                 <div className="flex items-center gap-3 bg-green-50 border border-green-100 rounded-xl px-4 py-3">
                   <Banknote className="h-5 w-5 text-green-600 shrink-0" />
                   <div>
-                    <p className="text-sm font-medium text-gray-800">Efectivo / Transferencia</p>
-                    <p className="text-xs text-gray-500">Precio de lista</p>
+                    <p className="text-sm font-medium text-gray-800">{t('cashTransfer')}</p>
+                    <p className="text-xs text-gray-500">{t('listPrice')}</p>
                   </div>
                 </div>
                 {product.cuotas > 0 && (
                   <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
                     <CreditCard className="h-5 w-5 text-blue-600 shrink-0" />
                     <div>
-                      <p className="text-sm font-medium text-gray-800">Tarjetas de crédito</p>
+                      <p className="text-sm font-medium text-gray-800">{t('creditCards')}</p>
                       <p className="text-xs font-semibold text-blue-600">
-                        {product.cuotas} cuota{product.cuotas !== 1 ? 's' : ''} sin interés de{' '}
-                        {fmt(Math.round((product.promo_price ?? product.price) / product.cuotas))}
+                        {t('installmentsNoInterest', {
+                          cuotas: product.cuotas,
+                          price:  fmt(Math.round((product.promo_price ?? product.price) / product.cuotas)),
+                        })}
                       </p>
                     </div>
                   </div>
@@ -300,7 +313,7 @@ export default function ProductModal({
 
             {/* Envíos */}
             <div className="space-y-3">
-              <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Envío y retiro</p>
+              <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">{t('shippingSection')}</p>
               {store.shipping_info ? (
                 <div className="space-y-1.5">
                   {store.shipping_info.split('\n').filter(l => l.trim()).map((line, i) => (
@@ -313,26 +326,26 @@ export default function ProductModal({
               ) : (
                 <div className="flex items-center gap-2 text-sm text-gray-500">
                   <StoreIcon className="h-4 w-4 shrink-0" />
-                  <span>Consultá opciones de envío y retiro por WhatsApp</span>
+                  <span>{t('shippingContact')}</span>
                 </div>
               )}
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
-                <p className="text-sm font-medium text-gray-700">Calculá el costo de envío</p>
+                <p className="text-sm font-medium text-gray-700">{t('calculateShipping')}</p>
                 <div className="flex gap-2">
-                  <input type="text" placeholder="Ciudad / Localidad" value={localidad}
+                  <input type="text" placeholder={t('cityPlaceholder')} value={localidad}
                     onChange={e => setLocalidad(e.target.value)}
                     className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white" />
-                  <input type="text" placeholder="CP" value={cp}
+                  <input type="text" placeholder={t('zipPlaceholder')} value={cp}
                     onChange={e => setCp(e.target.value)}
                     className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white" />
                 </div>
                 {waEnvio ? (
                   <a href={waEnvio} target="_blank" rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold bg-green-500 hover:bg-green-600 text-white transition-colors">
-                    <MessageCircle className="h-4 w-4" /> Consultar costo por WhatsApp
+                    <MessageCircle className="h-4 w-4" /> {t('whatsappShippingBtn')}
                   </a>
                 ) : (
-                  <p className="text-xs text-gray-400 text-center">Ingresá tu localidad para consultar el costo</p>
+                  <p className="text-xs text-gray-400 text-center">{t('enterCity')}</p>
                 )}
               </div>
             </div>
@@ -344,7 +357,7 @@ export default function ProductModal({
                 <div className="space-y-3">
                   <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
                     {SUGGESTION_ICON[suggestions[0].reason]}
-                    {SUGGESTION_TEXT[suggestions[0].reason]}
+                    {suggestionText[suggestions[0].reason]}
                   </p>
                   <div className="flex gap-3 overflow-x-auto pb-2 -mx-5 px-5 scrollbar-none">
                     {suggestions.map(sug => {
@@ -371,7 +384,7 @@ export default function ProductModal({
                             {sug.category && <p className="text-[9px] text-violet-500 font-medium uppercase tracking-wide mb-0.5 truncate">{sug.category}</p>}
                             <p className="text-xs font-medium text-gray-800 line-clamp-2 leading-tight">{sug.name}</p>
                             <p className="text-xs font-bold text-violet-700 mt-1">{fmt(sug.price)}</p>
-                            {sug.stock_total === 0 && <p className="text-[10px] text-gray-400">Sin stock</p>}
+                            {sug.stock_total === 0 && <p className="text-[10px] text-gray-400">{t('outOfStock')}</p>}
                           </div>
                         </button>
                       )
@@ -397,14 +410,14 @@ export default function ProductModal({
                     ? 'bg-violet-600 hover:bg-violet-700 text-white shadow-lg shadow-violet-200'
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
               {alreadyInCart
-                ? <><Check className="h-5 w-5" /> En el carrito — ver</>
+                ? <><Check className="h-5 w-5" /> {t('viewCart')}</>
                 : canBuy
-                  ? <><ShoppingCart className="h-5 w-5" />{added ? '¡Agregado!' : 'Agregar al carrito'}</>
-                  : <><ShoppingCart className="h-5 w-5" />Elegí un talle</>}
+                  ? <><ShoppingCart className="h-5 w-5" />{added ? t('added') : t('addToCart')}</>
+                  : <><ShoppingCart className="h-5 w-5" />{t('selectSize')}</>}
             </button>
           ) : (
             <div className="flex items-center justify-center w-full py-3.5 rounded-xl text-base font-bold bg-gray-100 text-gray-400">
-              Sin stock
+              {t('outOfStock')}
             </div>
           )}
 
@@ -413,7 +426,7 @@ export default function ProductModal({
             <a href={waBase} target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold border border-green-200 text-green-600 hover:bg-green-50 transition-colors">
               <MessageCircle className="h-4 w-4" />
-              Consultar por WhatsApp
+              {t('whatsapp')}
             </a>
           )}
         </div>

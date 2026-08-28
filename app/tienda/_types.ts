@@ -14,6 +14,10 @@ export interface StoreData {
   name: string | null; logo: string | null
   address: string | null; phone: string | null; whatsapp: string | null
   has_banner: boolean; banner_text: string | null; shipping_info: string | null
+  /** ISO 4217: 'ARS', 'USD', etc. — para formatear precios. Default 'ARS'. */
+  currency: string
+  /** BCP 47: 'es-AR', 'en-US', etc. — para Intl.NumberFormat. Default 'es-AR'. */
+  locale: string
 }
 export interface CatalogData {
   store: StoreData; categories: string[]; age_groups: string[]; products: Product[]

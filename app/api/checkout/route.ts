@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { createCheckoutPreference, type MPPreferenceItem } from '@/lib/mp'
+import { resolveBusinessFromHost } from '@/lib/tenant-api'
+import { getPublicSettingsByKeys } from '@/lib/settings'
 
 /**
  * POST /api/checkout
  *
  * Endpoint público — sin autenticación.
+ * Resuelve el negocio desde el dominio para aislar datos y pasarela de pago.
+ *
  * Valida stock, crea online_order con status='awaiting_payment',
  * crea la Preference de MercadoPago y devuelve el init_point.
  * El stock se descuenta al confirmar en el admin (una vez pagado).
@@ -37,6 +41,17 @@ import { createCheckoutPreference, type MPPreferenceItem } from '@/lib/mp'
  */
 export async function POST(req: Request) {
   try {
+    // ── Resolver negocio desde el dominio ─────────────────────────────────────
+    const host = req.headers.get('host') ?? ''
+    const businessId = await resolveBusinessFromHost(host)
+
+    // ── Leer configuración del negocio ────────────────────────────────────────
+    const bSettings = await getPublicSettingsByKeys(businessId, [
+      'payment_gateway', 'currency',
+    ])
+    const paymentGateway = bSettings.payment_gateway ?? 'mercadopago'
+    const currency       = bSettings.currency        ?? 'ARS'
+
     const body = await req.json() as {
       items: {
         variantId:   number
@@ -80,12 +95,16 @@ export async function POST(req: Request) {
 
     const variantIds = body.items.map(i => i.variantId)
 
-    // ── Verificar stock (checkout optimista) ───────────────────────────────
+    // ── Verificar stock + que las variantes pertenecen al negocio ─────────────
+    // Join con products para garantizar que no se cruzan variantes de otro negocio.
     const { rows: stockRows } = await pool.query<{ product_variant_id: number }>(
-      `SELECT DISTINCT product_variant_id
-       FROM branch_inventory
-       WHERE product_variant_id = ANY($1::int4[])`,
-      [variantIds]
+      `SELECT DISTINCT bi.product_variant_id
+       FROM branch_inventory bi
+       JOIN product_variants pv ON pv.id = bi.product_variant_id
+       JOIN products p          ON p.id  = pv.product_id
+       WHERE bi.product_variant_id = ANY($1::int4[])
+         AND p.business_id = $2`,
+      [variantIds, businessId]
     )
     const inStock = new Set(stockRows.map(r => r.product_variant_id))
     const outOfStock = variantIds.filter(id => !inStock.has(id))
@@ -103,8 +122,13 @@ export async function POST(req: Request) {
     let shippingCost = 0
     if (body.shippingRateId) {
       const { rows: rateRows } = await pool.query<{ price: number }>(
-        `SELECT price::float FROM shipping_rates WHERE id = $1 AND active = true`,
-        [body.shippingRateId]
+        `SELECT sr.price::float
+         FROM shipping_rates sr
+         JOIN correo_config cc ON cc.id = sr.correo_config_id
+         WHERE sr.id = $1
+           AND sr.active = true
+           AND cc.business_id = $2`,
+        [body.shippingRateId, businessId]
       )
       shippingCost = rateRows[0]?.price ?? 0
     }
@@ -117,15 +141,15 @@ export async function POST(req: Request) {
     try {
       await client.query('BEGIN')
 
-      // Buscar o crear customer
+      // Buscar o crear customer del negocio
       const phone = body.buyerPhone.trim()
       const { rows: custRows } = await client.query<{ id: number }>(
         `INSERT INTO customers (name, phone, business_id)
-         VALUES ($1, $2, 1)
+         VALUES ($1, $2, $3)
          ON CONFLICT (phone, business_id)
          DO UPDATE SET name = EXCLUDED.name
          RETURNING id`,
-        [body.buyerName.trim(), phone]
+        [body.buyerName.trim(), phone, businessId]
       )
       const customerId = custRows[0].id
 
@@ -157,9 +181,10 @@ export async function POST(req: Request) {
            (business_id, customer_id, buyer_name, buyer_phone, buyer_email,
             delivery_type, shipping_address_id, agency_id, shipping_rate_id,
             subtotal, shipping_cost, total, notes, status)
-         VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'awaiting_payment')
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'awaiting_payment')
          RETURNING id`,
         [
+          businessId,
           customerId,
           body.buyerName.trim(),
           phone,
@@ -194,26 +219,36 @@ export async function POST(req: Request) {
       client.release()
     }
 
-    // ── Crear Preference de MercadoPago ───────────────────────────────────
-    // (fuera de la TX de DB — si falla MP, el pedido queda en awaiting_payment
-    //  y se puede reintentar; o bien se limpia por un job de expiración)
+    // ── Crear Preference según la pasarela del negocio ────────────────────
+    // (fuera de la TX de DB — si falla el gateway, el pedido queda en
+    //  awaiting_payment y puede reintentarse o limpiarse por un job)
+    if (paymentGateway !== 'mercadopago') {
+      // TODO Fase 4: PayPal Smart Buttons y otros gateways
+      return NextResponse.json(
+        { error: `Pasarela '${paymentGateway}' no implementada aún` },
+        { status: 501 }
+      )
+    }
+
     const mpItems: MPPreferenceItem[] = body.items.map(item => ({
       id:          String(item.variantId),
       title:       `${item.productName} (${item.color}, T.${item.size})`,
       quantity:    1,
       unit_price:  item.unitPrice,
-      currency_id: 'ARS' as const,
+      currency_id: currency,
     }))
 
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3001'
 
     const { preferenceId, initPoint } = await createCheckoutPreference({
+      businessId,
       orderId,
       items:        mpItems,
       shippingCost,
       payerEmail:   body.buyerEmail?.trim() ?? null,
       payerName:    body.buyerName.trim(),
       baseUrl,
+      currency,
     })
 
     // Guardar el preferenceId en el pedido

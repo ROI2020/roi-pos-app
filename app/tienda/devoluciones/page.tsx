@@ -1,9 +1,13 @@
+import { headers } from 'next/headers'
+
 export const metadata = {
   title: 'Política de devoluciones — MALEMA STORE',
   description: 'Conocé nuestra política de devoluciones y garantías.',
 }
 
-export default function DevolucionesPage() {
+export default async function DevolucionesPage() {
+  const h          = await headers()
+  const storeBase  = h.get('x-store-base') ?? '/tienda'
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-2xl mx-auto px-4 py-12">
@@ -98,7 +102,7 @@ export default function DevolucionesPage() {
         </div>
 
         <div className="text-center mt-6">
-          <a href="/tienda" className="text-sm text-gray-400 hover:text-violet-600 transition-colors">
+          <a href={storeBase} className="text-sm text-gray-400 hover:text-violet-600 transition-colors">
             ← Volver a la tienda
           </a>
         </div>

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 // APIs, assets y el panel ROISOL de proveedor interno se omiten del middleware.
-// /roisol YA NO está aquí — ahora se protege por rol dentro del middleware.
 const SKIP_PATHS = [
   '/api/',
   '/_next',
@@ -9,7 +8,8 @@ const SKIP_PATHS = [
   '/icon',
 ]
 
-const PUBLIC_PAGES = ['/tienda', '/login', '/sin-acceso']
+// Páginas públicas que no requieren sesión (no incluye /tienda — se maneja explícitamente)
+const PUBLIC_PAGES = ['/login', '/sin-acceso']
 
 // Rutas exclusivas de Factura Rápida (plan 10)
 const FR_ROUTES = ['/setup', '/emitir', '/historial']
@@ -22,6 +22,12 @@ interface SessionCookie {
   product?: string
 }
 
+interface TenantInfo {
+  business_id: number
+  business_name: string
+  store_path: string   // '/store' (en) | '/tienda' (es)
+}
+
 function parseSession(raw: string | undefined): SessionCookie | null {
   if (!raw) return null
   try {
@@ -31,10 +37,65 @@ function parseSession(raw: string | undefined): SessionCookie | null {
   }
 }
 
+// ── Cache dominio → store_path (por worker; se reinicia con cada deploy) ──────
+// Evita llamar al API en cada request de la raíz pública.
+const DOMAIN_STORE_PATH = new Map<string, string>()
+
+async function resolveStorePath(
+  origin: string,
+  host:   string,
+  key:    string,
+): Promise<string> {
+  if (DOMAIN_STORE_PATH.has(host)) return DOMAIN_STORE_PATH.get(host)!
+  try {
+    const res = await fetch(
+      `${origin}/api/tenant/resolve?domain=${encodeURIComponent(host)}`,
+      { headers: { 'x-internal-key': key } },
+    )
+    if (res.ok) {
+      const data = await res.json() as TenantInfo
+      const path = data.store_path ?? '/tienda'
+      DOMAIN_STORE_PATH.set(host, path)
+      return path
+    }
+  } catch { /* red caída — fallback */ }
+  return '/tienda'
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
+  const host = req.headers.get('host')?.replace(/^www\./, '').split(':')[0] ?? ''
 
-  // Saltar assets y APIs
+  // ── 1. Rewrite /store/* → /tienda/* ─────────────────────────────────────────
+  // El browser ve /store/*, Next.js sirve desde app/tienda/*.
+  // El header x-store-base permite al layout saber el path público.
+  if (pathname.startsWith('/store')) {
+    // Evitar doble-procesamiento si ya pasó por aquí
+    if (req.headers.get('x-store-rewritten') === '1') {
+      return NextResponse.next()
+    }
+    const rewritten = req.nextUrl.clone()
+    rewritten.pathname = '/tienda' + pathname.slice('/store'.length) || '/'
+    const rh = new Headers(req.headers)
+    rh.set('x-store-base',     '/store')
+    rh.set('x-store-rewritten', '1')
+    return NextResponse.rewrite(rewritten, { request: { headers: rh } })
+  }
+
+  // ── 2. Inyectar x-store-base en /tienda/* ───────────────────────────────────
+  // Si el header ya está seteado (vino de un rewrite /store→/tienda), lo respeta.
+  if (pathname.startsWith('/tienda')) {
+    const alreadySet = req.headers.get('x-store-base')
+    if (alreadySet) {
+      // Llegó desde un rewrite /store → pasar sin tocar headers
+      return NextResponse.next()
+    }
+    const rh = new Headers(req.headers)
+    rh.set('x-store-base', '/tienda')
+    return NextResponse.next({ request: { headers: rh } })
+  }
+
+  // ── 3. Saltar assets y APIs ──────────────────────────────────────────────────
   if (
     SKIP_PATHS.some(p => pathname.startsWith(p)) ||
     pathname.includes('.') ||
@@ -43,36 +104,40 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
-  const host = req.headers.get('host')?.replace(/^www\./, '') ?? ''
   const session = parseSession(req.cookies.get('roipos_session')?.value)
 
-  // Sin sesión: la raíz pública va a la tienda; el resto al login
+  // ── 4. Sin sesión ────────────────────────────────────────────────────────────
   if (!session) {
-    if (pathname === '/') return NextResponse.redirect(new URL('/tienda', req.url))
+    if (pathname === '/') {
+      // Redirigir a la tienda pública del dominio (en → /store, es → /tienda)
+      const storePath = await resolveStorePath(
+        req.nextUrl.origin,
+        host,
+        process.env.INTERNAL_API_KEY ?? '',
+      )
+      return NextResponse.redirect(new URL(storePath, req.url))
+    }
     return NextResponse.redirect(new URL('/login', req.url))
   }
 
   const isFacturaRapida = session.product === 'roifar'
   const isRoisolAdmin   = session.role === 'roisol_admin'
 
-  // ── Protección de /roisol — solo roisol_admin ────────────────
+  // ── 5. Protección de /roisol — solo roisol_admin ─────────────────────────────
   if (pathname.startsWith('/roisol')) {
     if (!isRoisolAdmin) {
       return NextResponse.redirect(new URL('/', req.url))
     }
-    // roisol_admin en /roisol: pasar sin más restricciones
     const rqh = new Headers(req.headers)
     rqh.set('x-is-factura-rapida', 'false')
     return NextResponse.next({ request: { headers: rqh } })
   }
 
-  // ── Detección de tenant ──────────────────────────────────────
+  // ── 6. Detección de tenant ───────────────────────────────────────────────────
   let businessId: number | null = null
   let businessName = ''
 
   if (host.includes('localhost') || host.includes('127.0.0.1') || isFacturaRapida) {
-    // En localhost y para usuarios ROIFAR el tenant viene de la sesión
-    // (ROIFAR no tiene dominio propio en business_domains)
     businessId   = session.business_id ?? parseInt(process.env.DEV_BUSINESS_ID ?? '0', 10)
     businessName = isFacturaRapida ? 'ROIFAR' : 'DEV'
   } else {
@@ -84,7 +149,7 @@ export async function middleware(req: NextRequest) {
         }
       )
       if (res.ok) {
-        const data = await res.json() as { business_id: number; business_name: string }
+        const data = await res.json() as TenantInfo
         businessId   = data.business_id
         businessName = data.business_name
       }
@@ -109,22 +174,19 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // ── Restricciones por plan ───────────────────────────────────
+  // ── 7. Restricciones por plan ────────────────────────────────────────────────
   if (!isRoisolAdmin) {
     const onFRRoute = FR_ROUTES.some(r => pathname.startsWith(r))
 
     if (isFacturaRapida) {
-      // Usuarios FR solo acceden a rutas FR
       if (!onFRRoute) {
         return NextResponse.redirect(new URL('/setup', req.url))
       }
     } else {
-      // Usuarios ROIPOS no acceden a rutas FR
       if (onFRRoute) {
         return NextResponse.redirect(new URL('/', req.url))
       }
 
-      // Vendedor/encargado: solo /venta y /productos
       if (session.role !== 'administrador') {
         const allowed = ['/venta', '/productos']
         if (!allowed.some(p => pathname.startsWith(p))) {
@@ -134,13 +196,11 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // ── Inyectar headers de contexto como request headers ───────
-  // IMPORTANTE: deben ir en request.headers (no response.headers) para que
-  // los Server Components los lean vía headers() de next/headers.
+  // ── 8. Inyectar headers de contexto ─────────────────────────────────────────
   const requestHeaders = new Headers(req.headers)
   requestHeaders.set('x-is-factura-rapida', String(isFacturaRapida))
   if (businessId !== null) {
-    requestHeaders.set('x-business-id', String(businessId))
+    requestHeaders.set('x-business-id',   String(businessId))
     requestHeaders.set('x-business-name', businessName)
   }
   return NextResponse.next({ request: { headers: requestHeaders } })

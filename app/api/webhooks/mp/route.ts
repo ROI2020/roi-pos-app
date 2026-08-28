@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { mpPayment } from '@/lib/mp'
+import { attemptCJFulfillment } from '@/lib/cj-fulfillment'
 
 /**
  * POST /api/webhooks/mp
@@ -48,6 +49,11 @@ export async function POST(req: Request) {
     }
 
     // ── Consultar estado del pago en MP ────────────────────────────────────
+    // mpPayment puede ser null si MP_ACCESS_TOKEN no está configurado en el entorno
+    if (!mpPayment) {
+      console.error('[webhook/mp] MP_ACCESS_TOKEN no configurado — no se puede procesar el webhook')
+      return NextResponse.json({ ok: true }, { status: 200 })
+    }
     const mpPay = await mpPayment.get({ id: Number(paymentId) })
 
     const status = mpPay.status               // 'approved' | 'pending' | 'rejected' | ...
@@ -76,6 +82,11 @@ export async function POST(req: Request) {
         [paymentId, orderId]
       )
       console.log(`[webhook/mp] Pedido #${orderId} — pago aprobado (MP id: ${paymentId})`)
+
+      // Auto-fulfillment CJ si está habilitado para el negocio
+      attemptCJFulfillment(orderId).catch(e =>
+        console.error('[webhook/mp] CJ fulfillment error:', e)
+      )
 
     } else if (status === 'rejected' || status === 'cancelled') {
       // Pago rechazado o cancelado — se puede registrar pero no cambiar estado
