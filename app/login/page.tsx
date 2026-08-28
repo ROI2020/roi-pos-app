@@ -12,8 +12,8 @@ const ERRORES_DOMINIO: Record<string, { titulo: string; mensaje: string; codigo:
     codigo: 'ERR_DOMAIN_404',
   },
   negocio_incorrecto: {
-    titulo: 'Acceso incorrecto',
-    mensaje: 'Tu cuenta no corresponde a este negocio.',
+    titulo: 'Sesión de otro negocio',
+    mensaje: 'Tenías una sesión activa de otro negocio. La limpiamos automáticamente — iniciá sesión de nuevo con tu cuenta de Google.',
     codigo: 'ERR_TENANT_MISMATCH',
   },
 }
@@ -58,6 +58,15 @@ export default function LoginPage() {
   const [error,   setError  ] = useState<string | null>(null)
 
   useEffect(() => {
+    // Si el middleware detectó que la sesión activa no pertenece a este negocio,
+    // limpiarla para que el usuario pueda loguearse de nuevo con el tenant correcto.
+    // Sin esto entraría en loop: sesión stale → redirect a landing → mismatch → login → ...
+    const errorParam = new URLSearchParams(window.location.search).get('error')
+    if (errorParam === 'negocio_incorrecto') {
+      clearSession()
+      return
+    }
+
     const s = getSession()
     if (!s) return
     // If the cookie is gone (e.g. user cleared cookies but not localStorage),
