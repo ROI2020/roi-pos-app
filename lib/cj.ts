@@ -127,20 +127,45 @@ export interface CJProductDetail extends CJProductSummary {
   productImages:      string[]
 }
 
+export interface SearchCJOptions {
+  keyword:      string
+  page?:        number
+  pageSize?:    number
+  /** 'US' → solo productos en almacén USA (envío más rápido/barato a USA).
+   *  'CN' → almacén China. Omitir = todos los almacenes. */
+  countryCode?: string
+  /** true → solo productos con stock (listedNum > 0) */
+  hasInventory?: boolean
+  /** Precio mínimo CJ (USD) */
+  minPrice?:    number
+  /** Precio máximo CJ (USD) */
+  maxPrice?:    number
+}
+
 /**
- * Busca productos en el catálogo de CJ.
+ * Busca productos en el catálogo de CJ con filtros opcionales.
  */
 export async function searchCJProducts(
-  token:    string,
-  keyword:  string,
+  token:   string,
+  options: SearchCJOptions | string,  // string para compat. con el uso anterior
   page    = 1,
   pageSize = 20,
 ): Promise<{ list: CJProductSummary[]; total: number }> {
+  // Compat: el código antiguo pasa keyword como string
+  const opts: SearchCJOptions = typeof options === 'string'
+    ? { keyword: options, page, pageSize }
+    : { page, pageSize, ...options }
+
   const params = new URLSearchParams({
-    productName: keyword,
-    pageNum:     String(page),
-    pageSize:    String(pageSize),
+    productName: opts.keyword,
+    pageNum:     String(opts.page     ?? 1),
+    pageSize:    String(opts.pageSize ?? 20),
   })
+  if (opts.countryCode)        params.set('countryCode', opts.countryCode)
+  if (opts.hasInventory)       params.set('hasInventory', '1')
+  if (opts.minPrice != null)   params.set('minPrice', String(opts.minPrice))
+  if (opts.maxPrice != null)   params.set('maxPrice', String(opts.maxPrice))
+
   return cjFetch<{ list: CJProductSummary[]; total: number }>(
     token, `/product/list?${params}`
   )
@@ -346,4 +371,88 @@ export async function getCJProductStock(
     })
   }
   return map
+}
+
+// ── Freight / Costos de envío ─────────────────────────────────────────────────
+
+export interface CJFreightOption {
+  /** Nombre del método de envío (ej: "CJPacket Ordinary", "USPS") */
+  logisticName:     string
+  /** Código del método (para usar en createOrder) */
+  logisticChannel?: string
+  /** Costo total en USD */
+  freight:          number
+  /** Si el envío es gratuito */
+  isFree:           boolean
+  /** Días estimados de entrega */
+  minDeliveryDays?: number
+  maxDeliveryDays?: number
+  /** Peso cobrado en gramos */
+  chargeWeight?:    number
+}
+
+/**
+ * Calcula los costos de envío disponibles para un producto.
+ *
+ * CJ v2: POST /logistic/freightCalculate
+ * Parámetros:
+ *   vid              → ID de variante (para obtener peso exacto)
+ *   quantity         → cantidad
+ *   startCountryCode → almacén origen ('US' o 'CN')
+ *   endCountryCode   → destino ('US', 'AR', etc.)
+ *   toPostalCode     → código postal destino (opcional, mejora precisión)
+ *
+ * Retorna lista de métodos de envío disponibles con precios.
+ * Si el endpoint falla (plan sin acceso), retorna array vacío.
+ */
+export async function getCJFreight(
+  token:  string,
+  params: {
+    vid:              string
+    quantity:         number
+    startCountryCode: string   // almacén origen: 'US' o 'CN'
+    endCountryCode:   string   // destino: 'US', 'AR', etc.
+    toPostalCode?:    string
+  },
+): Promise<CJFreightOption[]> {
+  type RawFreight = {
+    logisticName:     string
+    logisticChannel?: string
+    freight:          string | number
+    isFreeFreight?:   boolean
+    isFree?:          boolean
+    minDeliveryDays?: number | string
+    maxDeliveryDays?: number | string
+    chargeWeight?:    number | string
+  }
+
+  try {
+    const list = await cjFetch<RawFreight[]>(token, '/logistic/freightCalculate', {
+      method: 'POST',
+      body:   JSON.stringify({
+        vid:              params.vid,
+        quantity:         params.quantity,
+        startCountryCode: params.startCountryCode,
+        endCountryCode:   params.endCountryCode,
+        ...(params.toPostalCode ? { toPostalCode: params.toPostalCode } : {}),
+      }),
+    })
+
+    return (list ?? []).map(r => {
+      const freight = parseFloat(String(r.freight)) || 0
+      return {
+        logisticName:    r.logisticName,
+        logisticChannel: r.logisticChannel,
+        freight,
+        isFree:          r.isFreeFreight ?? r.isFree ?? freight === 0,
+        minDeliveryDays: r.minDeliveryDays != null ? Number(r.minDeliveryDays) : undefined,
+        maxDeliveryDays: r.maxDeliveryDays != null ? Number(r.maxDeliveryDays) : undefined,
+        chargeWeight:    r.chargeWeight   != null ? Number(r.chargeWeight)    : undefined,
+      }
+    }).sort((a, b) => a.freight - b.freight)   // ordenar: gratis primero, luego por precio
+
+  } catch {
+    // Endpoint no disponible en este plan / "Interface not found" → array vacío
+    return []
+  }
 }

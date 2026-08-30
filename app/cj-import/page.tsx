@@ -1,7 +1,10 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { Search, Package, Plus, Loader2, ChevronLeft, ChevronRight, ExternalLink, CheckCircle2 } from "lucide-react"
+import {
+  Search, Package, Plus, Loader2, ChevronLeft, ChevronRight,
+  ExternalLink, CheckCircle2, Truck, Filter,
+} from "lucide-react"
 import { toast } from "sonner"
 import { Button }   from "@/components/ui/button"
 import { Input }    from "@/components/ui/input"
@@ -10,6 +13,9 @@ import { Badge }    from "@/components/ui/badge"
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -38,26 +44,44 @@ interface CJProductDetail extends CJProduct {
   productImages:      string[]
 }
 
+interface CJFreightOption {
+  logisticName:     string
+  logisticChannel?: string
+  freight:          number
+  isFree:           boolean
+  minDeliveryDays?: number
+  maxDeliveryDays?: number
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const fmt = (price: string) =>
-  `USD $${parseFloat(price || '0').toFixed(2)}`
+const fmt = (price: string | number) =>
+  `USD $${parseFloat(String(price || 0)).toFixed(2)}`
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export default function CJImportPage() {
-  const [query,    setQuery   ] = useState('')
-  const [results,  setResults ] = useState<CJProduct[]>([])
-  const [total,    setTotal   ] = useState(0)
-  const [page,     setPage    ] = useState(1)
-  const [searching,setSearching] = useState(false)
+  const [query,     setQuery    ] = useState('')
+  const [results,   setResults  ] = useState<CJProduct[]>([])
+  const [total,     setTotal    ] = useState(0)
+  const [page,      setPage     ] = useState(1)
+  const [searching, setSearching] = useState(false)
 
-  const [selected, setSelected] = useState<CJProductDetail | null>(null)
+  // Filtros
+  const [warehouse, setWarehouse] = useState<'all' | 'US' | 'CN'>('all')
+  const [inStock,   setInStock  ] = useState(false)
+  const [minPrice,  setMinPrice ] = useState('')
+  const [maxPrice,  setMaxPrice ] = useState('')
+
+  const [selected,      setSelected     ] = useState<CJProductDetail | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
 
-  const [markup,     setMarkup    ] = useState('30')
-  const [importing,  setImporting ] = useState(false)
-  const [imported,   setImported  ] = useState<Set<string>>(new Set())
+  const [freight,        setFreight       ] = useState<CJFreightOption[]>([])
+  const [loadingFreight, setLoadingFreight] = useState(false)
+
+  const [markup,    setMarkup   ] = useState('30')
+  const [importing, setImporting] = useState(false)
+  const [imported,  setImported ] = useState<Set<string>>(new Set())
 
   const pageSize = 20
 
@@ -67,9 +91,17 @@ export default function CJImportPage() {
     if (!query.trim()) return
     setSearching(true)
     try {
-      const res = await fetch(
-        `/api/admin/cj/search?q=${encodeURIComponent(query)}&page=${p}&pageSize=${pageSize}`
-      )
+      const params = new URLSearchParams({
+        q:       query,
+        page:    String(p),
+        pageSize: String(pageSize),
+      })
+      if (warehouse !== 'all')        params.set('warehouse', warehouse)
+      if (inStock)                    params.set('inStock',   '1')
+      if (minPrice.trim())            params.set('minPrice',  minPrice.trim())
+      if (maxPrice.trim())            params.set('maxPrice',  maxPrice.trim())
+
+      const res  = await fetch(`/api/admin/cj/search?${params}`)
       const data = await res.json() as { list: CJProduct[]; total: number } | { error: string }
       if ('error' in data) throw new Error(data.error)
       setResults(data.list ?? [])
@@ -80,17 +112,33 @@ export default function CJImportPage() {
     } finally {
       setSearching(false)
     }
-  }, [query])
+  }, [query, warehouse, inStock, minPrice, maxPrice])
 
-  // ── Ver detalle ───────────────────────────────────────────────────────────
+  // ── Ver detalle + flete ────────────────────────────────────────────────────
 
   const handleOpenDetail = async (pid: string) => {
     setLoadingDetail(true)
+    setFreight([])
     try {
       const res  = await fetch(`/api/admin/cj/product?pid=${pid}`)
       const data = await res.json() as CJProductDetail | { error: string }
       if ('error' in data) throw new Error(data.error)
       setSelected(data)
+
+      // Cargar flete en paralelo (no bloquea la apertura del modal)
+      const firstVid = data.variants?.[0]?.vid
+      if (firstVid) {
+        setLoadingFreight(true)
+        const from = warehouse === 'US' ? 'US' : 'CN'
+        fetch(`/api/admin/cj/freight?vid=${firstVid}&from=${from}&to=US`)
+          .then(r => r.json())
+          .then((opts: CJFreightOption[] | { error: string }) => {
+            if (!Array.isArray(opts)) return
+            setFreight(opts)
+          })
+          .catch(() => {/* silencioso */})
+          .finally(() => setLoadingFreight(false))
+      }
     } catch (err) {
       toast.error(String(err))
     } finally {
@@ -107,10 +155,7 @@ export default function CJImportPage() {
       const res = await fetch('/api/admin/cj/import', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          product:    selected,
-          markup:     parseFloat(markup) || 0,
-        }),
+        body:    JSON.stringify({ product: selected, markup: parseFloat(markup) || 0 }),
       })
       const data = await res.json() as { productId: number } | { error: string }
       if ('error' in data) throw new Error(data.error)
@@ -141,22 +186,93 @@ export default function CJImportPage() {
           </div>
         </div>
 
-        {/* Buscador */}
-        <div className="bg-white rounded-xl border shadow-sm p-4 flex gap-3">
-          <Input
-            placeholder="Ej: wireless earbuds, led ring light, phone case..."
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSearch(1)}
-            className="flex-1"
-          />
-          <Button onClick={() => handleSearch(1)} disabled={searching || !query.trim()}>
-            {searching
-              ? <Loader2 className="h-4 w-4 animate-spin" />
-              : <Search className="h-4 w-4" />
-            }
-            <span className="ml-2 hidden sm:inline">Buscar</span>
-          </Button>
+        {/* Buscador + filtros */}
+        <div className="bg-white rounded-xl border shadow-sm p-4 space-y-3">
+
+          {/* Fila 1: campo + botón */}
+          <div className="flex gap-3">
+            <Input
+              placeholder="Ej: wireless earbuds, led ring light, phone case..."
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSearch(1)}
+              className="flex-1"
+            />
+            <Button onClick={() => handleSearch(1)} disabled={searching || !query.trim()}>
+              {searching
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <Search className="h-4 w-4" />
+              }
+              <span className="ml-2 hidden sm:inline">Buscar</span>
+            </Button>
+          </div>
+
+          {/* Fila 2: filtros */}
+          <div className="flex flex-wrap items-end gap-3 pt-1">
+            <Filter className="h-4 w-4 text-gray-400 mt-auto mb-1.5" />
+
+            {/* Almacén */}
+            <div className="space-y-1">
+              <Label className="text-xs text-gray-500">Almacén</Label>
+              <Select
+                value={warehouse}
+                onValueChange={v => setWarehouse(v as 'all' | 'US' | 'CN')}
+              >
+                <SelectTrigger className="h-8 w-40 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los almacenes</SelectItem>
+                  <SelectItem value="US">🇺🇸 US Warehouse</SelectItem>
+                  <SelectItem value="CN">🇨🇳 China</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Con stock */}
+            <div className="space-y-1">
+              <Label className="text-xs text-gray-500">Disponibilidad</Label>
+              <button
+                type="button"
+                onClick={() => setInStock(v => !v)}
+                className={`h-8 px-3 rounded-md border text-xs font-medium transition-colors ${
+                  inStock
+                    ? 'bg-green-50 border-green-400 text-green-700'
+                    : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                }`}
+              >
+                {inStock ? '✓ Solo con stock' : 'Con o sin stock'}
+              </button>
+            </div>
+
+            {/* Precio mínimo */}
+            <div className="space-y-1">
+              <Label className="text-xs text-gray-500">Precio mín. (USD)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0"
+                value={minPrice}
+                onChange={e => setMinPrice(e.target.value)}
+                className="h-8 w-24 text-xs"
+              />
+            </div>
+
+            {/* Precio máximo */}
+            <div className="space-y-1">
+              <Label className="text-xs text-gray-500">Precio máx. (USD)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="sin límite"
+                value={maxPrice}
+                onChange={e => setMaxPrice(e.target.value)}
+                className="h-8 w-28 text-xs"
+              />
+            </div>
+          </div>
         </div>
 
         {/* Resultados */}
@@ -165,6 +281,16 @@ export default function CJImportPage() {
             <div className="flex items-center justify-between">
               <p className="text-sm text-gray-500">
                 {total.toLocaleString()} resultados para <strong>"{query}"</strong>
+                {warehouse !== 'all' && (
+                  <Badge variant="outline" className="ml-2 text-[10px]">
+                    {warehouse === 'US' ? '🇺🇸 US Warehouse' : '🇨🇳 China'}
+                  </Badge>
+                )}
+                {inStock && (
+                  <Badge variant="outline" className="ml-1 text-[10px] text-green-700 border-green-300">
+                    Con stock
+                  </Badge>
+                )}
               </p>
               {totalPages > 1 && (
                 <div className="flex items-center gap-2">
@@ -305,12 +431,96 @@ export default function CJImportPage() {
                 </div>
               )}
 
+              {/* ── Costos de envío ───────────────────────────────────────────── */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Truck className="h-4 w-4 text-gray-400" />
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Costos de envío a EE.UU.
+                  </p>
+                  {loadingFreight && <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />}
+                </div>
+
+                {!loadingFreight && freight.length === 0 && (
+                  <p className="text-xs text-gray-400 pl-6">
+                    Sin datos de envío disponibles para esta variante.
+                  </p>
+                )}
+
+                {freight.length > 0 && (
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="text-left p-2 text-gray-500">Método</th>
+                          <th className="text-center p-2 text-gray-500">Entrega</th>
+                          <th className="text-right p-2 text-gray-500">Costo (USD)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {freight.map((f, i) => (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="p-2 text-gray-800 font-medium">
+                              {f.logisticName}
+                            </td>
+                            <td className="p-2 text-center text-gray-500">
+                              {f.minDeliveryDays != null && f.maxDeliveryDays != null
+                                ? `${f.minDeliveryDays}–${f.maxDeliveryDays} días`
+                                : f.minDeliveryDays != null
+                                  ? `~${f.minDeliveryDays} días`
+                                  : '—'}
+                            </td>
+                            <td className="p-2 text-right">
+                              {f.isFree ? (
+                                <Badge className="bg-green-100 text-green-700 border-green-300 text-[10px] font-semibold">
+                                  Gratis
+                                </Badge>
+                              ) : (
+                                <span className="font-mono font-semibold text-gray-800">
+                                  ${f.freight.toFixed(2)}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {/* Tip: sumar el costo más barato al precio de venta */}
+                    {(() => {
+                      const cheapest = freight.find(f => !f.isFree)
+                      const hasFreePlan = freight.some(f => f.isFree)
+                      if (!cheapest && !hasFreePlan) return null
+                      const cost = parseFloat(selected.sellPrice)
+                      const markupPct = parseFloat(markup) || 0
+                      const salePrice = cost * (1 + markupPct / 100)
+                      if (hasFreePlan) {
+                        return (
+                          <p className="px-3 py-2 text-[10px] text-green-700 bg-green-50 border-t border-green-100">
+                            💡 Este producto tiene opciones de envío gratuito desde CJ →
+                            podés ofrecerlo con envío gratis a tus clientes.
+                            Precio de venta sugerido: <strong>{fmt(salePrice)}</strong>
+                          </p>
+                        )
+                      }
+                      if (cheapest) {
+                        const withShipping = salePrice + cheapest.freight
+                        return (
+                          <p className="px-3 py-2 text-[10px] text-gray-500 bg-gray-50 border-t">
+                            💡 Para incluir envío gratis en tu precio: costo CJ {fmt(cost)} + envío {fmt(cheapest.freight)} + markup {markupPct}% → precio sugerido <strong>{fmt(withShipping)}</strong>
+                          </p>
+                        )
+                      }
+                    })()}
+                  </div>
+                )}
+              </div>
+
               {/* Markup */}
               <div className="space-y-1.5">
                 <Label className="flex items-center gap-2">
                   Markup sobre precio CJ
                   <span className="text-xs text-gray-400">
-                    → precio de venta: {fmt(String(parseFloat(selected.sellPrice) * (1 + (parseFloat(markup) || 0) / 100)))}
+                    → precio de venta: {fmt(parseFloat(selected.sellPrice) * (1 + (parseFloat(markup) || 0) / 100))}
                   </span>
                 </Label>
                 <div className="flex items-center gap-2">
