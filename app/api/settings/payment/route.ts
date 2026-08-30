@@ -123,7 +123,7 @@ export async function PUT(req: Request) {
       await client.query(
         `INSERT INTO settings (business_id, key, value, is_secret)
          VALUES ($1, $2, $3, false)
-         ON CONFLICT (business_id, key) DO UPDATE
+         ON CONFLICT (key, business_id) DO UPDATE
            SET value = EXCLUDED.value, is_secret = false`,
         [businessId, key, value],
       )
@@ -133,7 +133,7 @@ export async function PUT(req: Request) {
       await client.query(
         `INSERT INTO settings (business_id, key, value, is_secret)
          VALUES ($1, $2, $3, true)
-         ON CONFLICT (business_id, key) DO UPDATE
+         ON CONFLICT (key, business_id) DO UPDATE
            SET value = EXCLUDED.value, is_secret = true`,
         [businessId, key, value],
       )

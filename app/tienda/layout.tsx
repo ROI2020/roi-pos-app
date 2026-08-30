@@ -65,11 +65,16 @@ export default async function TiendaLayout({
   // ── Cargar mensajes del idioma resuelto ────────────────────────────────────
   // next-intl v4: importación dinámica desde /messages/<locale>.json
   // Si el archivo no existe para el locale, caemos en 'es'.
-  let messages: Record<string, unknown>
+  // Si ambos fallan (edge case de bundle) usamos objeto vacío como ultra-fallback.
+  let messages: Record<string, unknown> = {}
   try {
-    messages = (await import(`../../messages/${locale}.json`)).default
+    messages = (await import(`../../messages/${locale}.json`)).default as Record<string, unknown>
   } catch {
-    messages = (await import('../../messages/es.json')).default
+    try {
+      messages = (await import('../../messages/es.json')).default as Record<string, unknown>
+    } catch {
+      // ultra-fallback: messages vacío — los textos mostrarán la clave
+    }
   }
 
   return (

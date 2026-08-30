@@ -1,5 +1,12 @@
 import { readFileSync } from 'fs'
+import createNextIntlPlugin from 'next-intl/plugin'
+
 const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
+
+// next-intl v4 requiere el plugin para conectar i18n/request.ts con Next.js.
+// El plugin no modifica el ruteo — solo habilita el contexto server-side de
+// next-intl necesario para SSR de componentes con useTranslations.
+const withNextIntl = createNextIntlPlugin('./i18n/request.ts')
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -41,4 +48,4 @@ const nextConfig = {
   },
 }
 
-export default nextConfig
+export default withNextIntl(nextConfig)

@@ -148,12 +148,49 @@ export async function searchCJProducts(
 
 /**
  * Obtiene el detalle completo de un producto (con variantes).
+ *
+ * CJ v2 registra el endpoint de distinta manera según plan/versión:
+ *   - POST /product/getProductById  (body: { pid })        → más común en planes recientes
+ *   - GET  /product/getProductById?pid=xxx                 → planes más antiguos
+ *   - GET  /product/query?pid=xxx                          → algunos mercados
+ *
+ * Se intenta en ese orden; "Interface not found" indica que ese path
+ * no existe en este plan → se prueba el siguiente.
  */
 export async function getCJProductDetail(
   token: string,
   pid:   string,
 ): Promise<CJProductDetail> {
-  return cjFetch<CJProductDetail>(token, `/product/getProductById?pid=${pid}`)
+  type Attempt = () => Promise<CJProductDetail>
+
+  const attempts: Attempt[] = [
+    // 1. POST con body — formato preferido en API v2 moderna
+    () => cjFetch<CJProductDetail>(token, '/product/getProductById', {
+      method: 'POST',
+      body:   JSON.stringify({ pid }),
+    }),
+    // 2. GET query param — formato original v2
+    () => cjFetch<CJProductDetail>(token, `/product/getProductById?pid=${pid}`),
+    // 3. Endpoint alternativo documentado en algunos planes
+    () => cjFetch<CJProductDetail>(token, `/product/query?pid=${pid}`),
+  ]
+
+  let lastError = ''
+  for (const attempt of attempts) {
+    try {
+      return await attempt()
+    } catch (err) {
+      lastError = String(err)
+      // Sólo continuar si el error es "endpoint no registrado"
+      if (!lastError.includes('Interface not found')) throw err
+    }
+  }
+
+  throw new Error(
+    `Producto CJ pid=${pid} inaccesible. ` +
+    `Ningún endpoint de detalle respondió correctamente. ` +
+    `Último error: ${lastError}`,
+  )
 }
 
 // ── Órdenes ───────────────────────────────────────────────────────────────────

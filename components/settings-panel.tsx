@@ -2023,6 +2023,7 @@ function PagosTab() {
               value={mpPublicKey}
               onChange={e => setMpPublicKey(e.target.value)}
               placeholder="APP_USR-xxxxxxxx-..."
+              autoComplete="off"
               className="text-sm font-mono"
             />
           </div>
@@ -2043,6 +2044,7 @@ function PagosTab() {
                 value={mpAccessToken}
                 onChange={e => setMpAccessToken(e.target.value)}
                 placeholder={cfg?.mp_access_token_set ? '●●●●●●●● (dejar vacío = mantener)' : 'APP_USR-xxxxxxxx-...'}
+                autoComplete="new-password"
                 className="text-sm font-mono pr-10"
               />
               <button
@@ -2082,6 +2084,7 @@ function PagosTab() {
               value={paypalClientId}
               onChange={e => setPaypalClientId(e.target.value)}
               placeholder="AXxx..."
+              autoComplete="off"
               className="text-sm font-mono"
             />
           </div>
@@ -2102,6 +2105,7 @@ function PagosTab() {
                 value={paypalClientSecret}
                 onChange={e => setPaypalClientSecret(e.target.value)}
                 placeholder={cfg?.paypal_client_secret_set ? '●●●●●●●● (dejar vacío = mantener)' : 'EHxx...'}
+                autoComplete="new-password"
                 className="text-sm font-mono pr-10"
               />
               <button
@@ -2276,6 +2280,7 @@ function CJTab() {
                 value={apiEmail}
                 onChange={e => setApiEmail(e.target.value)}
                 placeholder="tu@email.com"
+                autoComplete="off"
                 className="text-sm"
               />
             </div>
@@ -2296,6 +2301,7 @@ function CJTab() {
                   value={apiKey}
                   onChange={e => setApiKey(e.target.value)}
                   placeholder={cfg?.cj_api_key_set ? '●●●●●●●● (dejar vacío = mantener)' : 'API Key de CJ Developer Portal'}
+                  autoComplete="new-password"
                   className="text-sm font-mono pr-10"
                 />
                 <button

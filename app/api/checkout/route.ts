@@ -96,14 +96,23 @@ export async function POST(req: Request) {
     const variantIds = body.items.map(i => i.variantId)
 
     // ── Verificar stock + que las variantes pertenecen al negocio ─────────────
-    // Join con products para garantizar que no se cruzan variantes de otro negocio.
+    // Para productos físicos: deben tener al menos 1 fila en branch_inventory.
+    // Para productos CJ Dropshipping (cj_pid NOT NULL): stock virtual ilimitado,
+    //   no requieren branch_inventory (CJ gestiona el fulfillment).
     const { rows: stockRows } = await pool.query<{ product_variant_id: number }>(
       `SELECT DISTINCT bi.product_variant_id
        FROM branch_inventory bi
        JOIN product_variants pv ON pv.id = bi.product_variant_id
        JOIN products p          ON p.id  = pv.product_id
        WHERE bi.product_variant_id = ANY($1::int4[])
-         AND p.business_id = $2`,
+         AND p.business_id = $2
+       UNION
+       SELECT DISTINCT pv.id
+       FROM product_variants pv
+       JOIN products p ON p.id = pv.product_id
+       WHERE pv.id = ANY($1::int4[])
+         AND p.business_id = $2
+         AND p.cj_pid IS NOT NULL`,
       [variantIds, businessId]
     )
     const inStock = new Set(stockRows.map(r => r.product_variant_id))

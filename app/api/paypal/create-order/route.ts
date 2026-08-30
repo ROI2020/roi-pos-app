@@ -81,13 +81,22 @@ export async function POST(req: Request) {
     const variantIds = body.items.map(i => i.variantId)
 
     // ── Verificar stock + pertenencia al negocio ───────────────────────────
+    // Físicos: necesitan branch_inventory. CJ dropshipping (cj_pid NOT NULL):
+    // stock virtual, CJ maneja fulfillment → bypass branch_inventory.
     const { rows: stockRows } = await pool.query<{ product_variant_id: number }>(
       `SELECT DISTINCT bi.product_variant_id
        FROM branch_inventory bi
        JOIN product_variants pv ON pv.id = bi.product_variant_id
        JOIN products p          ON p.id  = pv.product_id
        WHERE bi.product_variant_id = ANY($1::int4[])
-         AND p.business_id = $2`,
+         AND p.business_id = $2
+       UNION
+       SELECT DISTINCT pv.id
+       FROM product_variants pv
+       JOIN products p ON p.id = pv.product_id
+       WHERE pv.id = ANY($1::int4[])
+         AND p.business_id = $2
+         AND p.cj_pid IS NOT NULL`,
       [variantIds, businessId],
     )
     const inStock    = new Set(stockRows.map(r => r.product_variant_id))

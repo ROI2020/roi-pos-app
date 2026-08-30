@@ -25,7 +25,7 @@ async function upsertSetting(
   await client.query(
     `INSERT INTO settings (business_id, key, value, is_secret)
      VALUES ($1, $2, $3, $4)
-     ON CONFLICT (business_id, key)
+     ON CONFLICT (key, business_id)
      DO UPDATE SET value = $3, is_secret = $4`,
     [businessId, key, value, isSecret],
   )

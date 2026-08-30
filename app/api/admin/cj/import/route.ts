@@ -85,8 +85,8 @@ export async function POST(req: Request) {
 
       await client.query(
         `INSERT INTO product_variants
-           (product_id, sku, color, size, specific_image_url, cj_vid)
-         VALUES ($1, $2, $3, $4, $5, $6)
+           (product_id, sku, color, size, specific_image_url, cj_vid, quantity)
+         VALUES ($1, $2, $3, $4, $5, $6, 9999)
          ON CONFLICT (sku) DO NOTHING`,
         [
           productId,
@@ -97,6 +97,9 @@ export async function POST(req: Request) {
           variant.vid,
         ],
       )
+      // Nota: branch_inventory usa modelo "1 fila = 1 unidad física".
+      // Para dropshipping CJ, el stock real lo maneja CJ; el checkout
+      // acepta variantes con cj_pid sin branch_inventory (ver checkout/route.ts).
 
       // Precio base del variant (si difiere del padre)
       if (Math.abs(variantFinalPrice - finalPrice) > 0.01) {

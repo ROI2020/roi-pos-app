@@ -34,7 +34,7 @@ export async function GET(req: Request) {
     ])
 
     // ── Variantes con stock ───────────────────────────────────────────────
-    const { rows } = await pool.query<{
+    type CatalogRow = {
       product_id:         number
       product_name:       string
       description:        string | null
@@ -54,8 +54,11 @@ export async function GET(req: Request) {
       specific_image_url: string | null
       in_stock:           boolean
       stock_count:        number
-    }>(
-      `SELECT
+    }
+
+    // Query base (sin CJ) — siempre funciona
+    const BASE_SELECT = `
+       SELECT
          p.id                                                      AS product_id,
          p.name                                                    AS product_name,
          p.description,
@@ -72,7 +75,46 @@ export async function GET(req: Request) {
          pv.sku,
          pv.color,
          pv.size,
-         pv.specific_image_url,
+         pv.specific_image_url`
+
+    const BASE_FROM = `
+       FROM products p
+       LEFT JOIN categories c  ON c.id  = p.category_id
+       LEFT JOIN age_groups  ag ON ag.id = p.age_group_id
+       JOIN product_variants pv ON pv.product_id = p.id
+       WHERE p.exportable_web = true
+         AND p.business_id = $1
+       ORDER BY p.id, pv.color, pv.size`
+
+    // Intentar query con soporte CJ (requiere migration 20260828_cj_dropshipping.sql)
+    let rows: CatalogRow[]
+    try {
+      const result = await pool.query<CatalogRow>(
+        BASE_SELECT + `,
+         -- CJ dropshipping (cj_pid NOT NULL) = stock virtual ilimitado
+         (COALESCE(p.cj_pid, '') <> '' OR EXISTS (
+           SELECT 1 FROM branch_inventory bi
+           WHERE bi.product_variant_id = pv.id
+         ))                                                        AS in_stock,
+         CASE
+           WHEN COALESCE(p.cj_pid, '') <> '' THEN 9999
+           ELSE COALESCE((
+             SELECT COUNT(bi.id)::int
+             FROM branch_inventory bi
+             WHERE bi.product_variant_id = pv.id
+           ), 0)
+         END                                                       AS stock_count` +
+        BASE_FROM,
+        [businessId],
+      )
+      rows = result.rows
+    } catch (err) {
+      // Fallback: si la columna cj_pid no existe todavía (migration pendiente),
+      // usar query clásica solo con branch_inventory
+      if (!String(err).includes('cj_pid')) throw err
+      console.warn('[catalog] cj_pid no existe en DB, usando query sin CJ. Ejecutar migration 20260828_cj_dropshipping.sql')
+      const result = await pool.query<CatalogRow>(
+        BASE_SELECT + `,
          (EXISTS (
            SELECT 1 FROM branch_inventory bi
            WHERE bi.product_variant_id = pv.id
@@ -81,16 +123,12 @@ export async function GET(req: Request) {
            SELECT COUNT(bi.id)::int
            FROM branch_inventory bi
            WHERE bi.product_variant_id = pv.id
-         ), 0)                                                     AS stock_count
-       FROM products p
-       LEFT JOIN categories c  ON c.id  = p.category_id
-       LEFT JOIN age_groups  ag ON ag.id = p.age_group_id
-       JOIN product_variants pv ON pv.product_id = p.id
-       WHERE p.exportable_web = true
-         AND p.business_id = $1
-       ORDER BY p.id, pv.color, pv.size`,
-      [businessId]
-    )
+         ), 0)                                                     AS stock_count` +
+        BASE_FROM,
+        [businessId],
+      )
+      rows = result.rows
+    }
 
     // ── Promos vigentes HOY (no roulette_only, no POS-only) ──────────────
     const dow      = new Date().getDay()
