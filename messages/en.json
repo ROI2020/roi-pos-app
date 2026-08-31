@@ -19,7 +19,7 @@
     "ageGroups": "Age group",
     "cartButton": "Cart",
     "shippingBanner": "Shipping across the US",
-    "footerDisclaimer": "Prices in Argentine pesos. Stock subject to availability."
+    "footerDisclaimer": "Prices in USD. Stock subject to availability."
   },
   "ProductCard": {
     "lastItems": "Last ones!",
