@@ -550,22 +550,17 @@ export async function getCJProductStock(
 // ── Freight / Costos de envío ─────────────────────────────────────────────────
 
 export interface CJFreightOption {
-  /** Nombre del método de envío (ej: "CJPacket Ordinary", "USPS", "Fedex US to US #37") */
+  /** Nombre del método de envío (ej: "Fedex US to US #37", "UPS US to US #60") */
   logisticName:     string
-  /** Código del método (para usar en createOrder) */
-  logisticChannel?: string
-  /** Costo total en USD */
+  /** Costo total en USD. Viene de logisticPrice en la API (no freight). */
   freight:          number
-  /** Si el envío es gratuito */
+  /** Si el envío es gratuito (logisticPrice === 0) */
   isFree:           boolean
-  /** Días estimados de entrega (ej: 3-7 días) */
+  /** Días estimados de entrega — parseado de logisticAging ("3-5" → min=3, max=5) */
   minDeliveryDays?: number
   maxDeliveryDays?: number
-  /** Tiempo de procesamiento / preparación en días (ej: 1-3 días) */
-  minProcessDays?:  number
-  maxProcessDays?:  number
-  /** Peso cobrado en gramos */
-  chargeWeight?:    number
+  /** Rango original de días de entrega como string ("3-5", "7-15", etc.) */
+  logisticAging?:   string
 }
 
 /**
@@ -615,48 +610,45 @@ export async function getCJFreight(
 
   if (list.length === 0) return []
 
-  return list.map(r => {
-    const freight = parseFloat(String(r.freight ?? r.freightCost ?? 0)) || 0
-    const isFree  = r.isFreeFreight ?? r.isFree ?? freight === 0
+  // Campos reales verificados contra la API:
+  //   logisticName  → carrier ("Fedex US to US #37", "UPS US to US #60")
+  //   logisticPrice → costo USD (número, 0 = gratis)
+  //   logisticAging → días de entrega como string ("3-5", "7-15")
+  // Nota: NO hay campo de tiempo de procesamiento en este endpoint.
 
-    // Tiempo de entrega: puede venir como número o como string "3-7"
-    const parseDays = (v: unknown): number | undefined => {
-      if (v == null) return undefined
-      const n = Number(v)
-      return isNaN(n) ? undefined : n
-    }
-    const parseRangeDays = (v: unknown, fallback: unknown): number | undefined => {
-      if (v != null) return parseDays(v)
-      if (typeof fallback === 'string' && fallback.includes('-')) {
-        const parts = fallback.split('-')
-        return parseDays(parts[0])
+  const seen = new Set<string>()   // deduplicar carriers con mismo nombre
+
+  return list
+    .filter(r => {
+      const name = String(r.logisticName ?? '')
+      if (seen.has(name)) return false
+      seen.add(name)
+      return true
+    })
+    .map(r => {
+      const freight = Number(r.logisticPrice ?? r.freight ?? 0) || 0
+      const isFree  = freight === 0
+
+      // logisticAging: "3-5" → min=3, max=5
+      let minDeliveryDays: number | undefined
+      let maxDeliveryDays: number | undefined
+      const aging = String(r.logisticAging ?? r.deliveryDays ?? r.minDeliveryDays ?? '')
+      if (aging.includes('-')) {
+        const [a, b] = aging.split('-').map(Number)
+        if (!isNaN(a)) minDeliveryDays = a
+        if (!isNaN(b)) maxDeliveryDays = b
+      } else if (aging && !isNaN(Number(aging))) {
+        minDeliveryDays = Number(aging)
       }
-      return undefined
-    }
 
-    // Tiempo de procesamiento: processDays, shippingPrepareTime, prepareTime, processingTime, etc.
-    const processRaw = r.processDays ?? r.shippingPrepareTime ?? r.prepareTime
-      ?? r.processingTime ?? r.processTime ?? r.processDay
-    let minProcessDays: number | undefined
-    let maxProcessDays: number | undefined
-    if (typeof processRaw === 'string' && processRaw.includes('-')) {
-      const parts = processRaw.split('-')
-      minProcessDays = parseDays(parts[0])
-      maxProcessDays = parseDays(parts[1])
-    } else if (processRaw != null) {
-      minProcessDays = parseDays(processRaw)
-    }
-
-    return {
-      logisticName:    String(r.logisticName ?? r.channelName ?? ''),
-      logisticChannel: r.logisticChannel ?? r.channelCode ?? undefined,
-      freight,
-      isFree,
-      minDeliveryDays: parseRangeDays(r.minDeliveryDays, r.deliveryDays),
-      maxDeliveryDays: parseRangeDays(r.maxDeliveryDays, undefined),
-      minProcessDays,
-      maxProcessDays,
-      chargeWeight:    r.chargeWeight != null ? Number(r.chargeWeight) : undefined,
-    }
-  }).sort((a, b) => a.freight - b.freight)
+      return {
+        logisticName:    String(r.logisticName ?? ''),
+        freight,
+        isFree,
+        minDeliveryDays,
+        maxDeliveryDays,
+        logisticAging:   aging || undefined,
+      } satisfies CJFreightOption
+    })
+    .sort((a, b) => a.freight - b.freight)
 }

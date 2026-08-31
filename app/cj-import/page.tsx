@@ -48,13 +48,11 @@ interface CJProductDetail extends CJProduct {
 
 interface CJFreightOption {
   logisticName:     string
-  logisticChannel?: string
   freight:          number
   isFree:           boolean
   minDeliveryDays?: number
   maxDeliveryDays?: number
-  minProcessDays?:  number
-  maxProcessDays?:  number
+  logisticAging?:   string   // "3-5", "7-15", etc.
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -513,39 +511,28 @@ export default function CJImportPage() {
                   <div className="space-y-2">
                     {freight.map((f, i) => (
                       <div key={i} className="border rounded-lg overflow-hidden text-xs">
-                        {/* Header: nombre del método */}
+                        {/* Header: nombre del carrier + badge gratis */}
                         <div className="bg-gray-50 px-3 py-2 font-semibold text-gray-700 flex items-center justify-between">
                           <span>{f.logisticName}</span>
-                          {f.isFree ? (
-                            <Badge className="bg-green-100 text-green-700 border-green-300 text-[10px]">
-                              Free Shipping
-                            </Badge>
-                          ) : (
-                            <span className="font-mono font-bold text-gray-800">${f.freight.toFixed(2)}</span>
-                          )}
+                          {f.isFree
+                            ? <Badge className="bg-green-100 text-green-700 border-green-300 text-[10px]">Free Shipping</Badge>
+                            : <span className="font-mono font-bold text-gray-800">${f.freight.toFixed(2)}</span>
+                          }
                         </div>
-                        {/* 3 datos estilo CJ */}
+                        {/* 2 datos: entrega + costo */}
                         <div className="divide-y">
-                          {(f.minProcessDays != null || f.maxProcessDays != null) && (
-                            <div className="px-3 py-2 flex justify-between text-gray-600">
-                              <span>Tiempo estimado de procesamiento</span>
-                              <span className="font-medium text-gray-800">
-                                {f.minProcessDays != null && f.maxProcessDays != null
-                                  ? `${f.minProcessDays}–${f.maxProcessDays} días`
-                                  : `${f.minProcessDays ?? f.maxProcessDays} días`}
-                              </span>
-                            </div>
-                          )}
-                          {(f.minDeliveryDays != null || f.maxDeliveryDays != null) && (
-                            <div className="px-3 py-2 flex justify-between text-gray-600">
-                              <span>Tiempo estimado de entrega</span>
-                              <span className="font-medium text-gray-800">
-                                {f.minDeliveryDays != null && f.maxDeliveryDays != null
+                          <div className="px-3 py-2 flex justify-between text-gray-600">
+                            <span>Tiempo estimado de entrega</span>
+                            <span className="font-medium text-gray-800">
+                              {f.logisticAging
+                                ? `${f.logisticAging} días`
+                                : f.minDeliveryDays != null && f.maxDeliveryDays != null
                                   ? `${f.minDeliveryDays}–${f.maxDeliveryDays} días`
-                                  : `~${f.minDeliveryDays ?? f.maxDeliveryDays} días`}
-                              </span>
-                            </div>
-                          )}
+                                  : f.minDeliveryDays != null
+                                    ? `~${f.minDeliveryDays} días`
+                                    : '—'}
+                            </span>
+                          </div>
                           <div className="px-3 py-2 flex justify-between text-gray-600">
                             <span>Costo de envío</span>
                             <span className={`font-bold ${f.isFree ? 'text-green-600' : 'text-gray-800'}`}>
