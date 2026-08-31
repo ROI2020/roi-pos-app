@@ -58,6 +58,20 @@ interface CJFreightOption {
 const fmt = (price: string | number) =>
   `USD $${parseFloat(String(price || 0)).toFixed(2)}`
 
+/**
+ * Construye la URL canónica de un producto en CJ Dropshipping.
+ * Formato actual: /product/{name-slug}-p-{pid}.html
+ * El formato detail.html?pid= ya no funciona en muchos productos.
+ */
+const cjProductUrl = (productName: string, pid: string) => {
+  const slug = productName
+    .toLowerCase()
+    .replace(/[^a-z0-9.]+/g, '-')   // mantiene puntos (ej: "7.4v"), reemplaza el resto
+    .replace(/-+/g, '-')              // colapsa guiones múltiples
+    .replace(/^-|-$/g, '')            // elimina guiones al inicio/fin
+  return `https://cjdropshipping.com/product/${slug}-p-${pid}.html`
+}
+
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export default function CJImportPage() {
@@ -396,6 +410,10 @@ export default function CJImportPage() {
                   <p className="text-xs text-gray-400">Categoría</p>
                   <p className="font-medium text-gray-800">{selected.categoryName}</p>
                 </div>
+                <div className="bg-gray-50 rounded-lg p-3 col-span-2">
+                  <p className="text-xs text-gray-400 mb-1">Product ID (PID)</p>
+                  <code className="text-xs font-mono text-gray-700 break-all select-all">{selected.pid}</code>
+                </div>
               </div>
 
               {/* Variantes */}
@@ -408,6 +426,7 @@ export default function CJImportPage() {
                         <tr>
                           <th className="text-left p-2 text-gray-500">Color</th>
                           <th className="text-left p-2 text-gray-500">Talle</th>
+                          <th className="text-left p-2 text-gray-500">SKU</th>
                           <th className="text-right p-2 text-gray-500">Precio</th>
                           <th className="text-right p-2 text-gray-500">Stock CJ</th>
                         </tr>
@@ -417,6 +436,12 @@ export default function CJImportPage() {
                           <tr key={v.vid} className="hover:bg-gray-50">
                             <td className="p-2 text-gray-700">{v.variantColor || '—'}</td>
                             <td className="p-2 text-gray-700">{v.variantSize  || '—'}</td>
+                            <td className="p-2">
+                              <div className="font-mono text-gray-600 text-[10px] leading-tight">
+                                <span title="SKU" className="block">{v.variantSku || '—'}</span>
+                                <span title="VID" className="block text-gray-400">{v.vid}</span>
+                              </div>
+                            </td>
                             <td className="p-2 text-right font-mono text-gray-800">
                               {fmt(v.variantSellPrice || selected.sellPrice)}
                             </td>
@@ -547,7 +572,7 @@ export default function CJImportPage() {
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setSelected(null)}>Cancelar</Button>
               <a
-                href={`https://cjdropshipping.com/product/detail.html?pid=${selected.pid}`}
+                href={cjProductUrl(selected.productName, selected.pid)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-sm text-violet-600 hover:text-violet-800 px-3 py-2"
