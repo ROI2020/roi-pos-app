@@ -41,6 +41,11 @@ export default async function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const hdrs = await headers()
   const isFacturaRapida = hdrs.get('x-is-factura-rapida') === 'true'
+  // x-store-base lo setea el middleware en todas las requests /tienda/* y /store/*
+  // Cuando está presente, estamos sirviendo la tienda pública → sin nav de admin
+  const isStore = !!hdrs.get('x-store-base')
+
+  const showAdminShell = !isFacturaRapida && !isStore
 
   return (
     <html lang="es" suppressHydrationWarning>
@@ -52,13 +57,15 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <PlanProvider>
-            {!isFacturaRapida && <Nav />}
+            {showAdminShell && <Nav />}
             {isFacturaRapida
               ? <div>{children}</div>
-              : <main className="pb-20 md:pb-0">{children}</main>
+              : showAdminShell
+                ? <main className="pb-20 md:pb-0">{children}</main>
+                : <>{children}</>
             }
             <Toaster richColors position="top-right" />
-            {!isFacturaRapida && (
+            {showAdminShell && (
               <div className="no-print fixed bottom-3 left-3 z-40 select-none pointer-events-none flex items-center gap-2">
                 <div className="h-10 w-10 rounded-full overflow-hidden shadow-md ring-2 ring-white opacity-80 shrink-0">
                   <img src="/roipos-logo-180x180.png" alt="ROIPOS" className="h-full w-full object-cover" />
