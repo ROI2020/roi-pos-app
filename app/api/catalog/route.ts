@@ -30,6 +30,7 @@ export async function GET(req: Request) {
       'receipt_address', 'receipt_phone', 'whatsapp_report_number',
       'catalog_banner', 'catalog_banner_text', 'catalog_envio_info',
       'catalog_phone', 'catalog_cuotas', 'catalog_footer_text', 'catalog_html_banner',
+      'catalog_info_items',
       'currency', 'locale',   // para formateo de precios en la tienda
     ])
 
@@ -281,6 +282,7 @@ export async function GET(req: Request) {
         shipping_info: s.catalog_envio_info      ?? null,
         cuotas:        parseInt(s.catalog_cuotas ?? '0') || 0,
         footer_text:   s.catalog_footer_text     ?? null,
+        info_items:    s.catalog_info_items      ?? null,
         currency:      s.currency               ?? 'ARS',
         locale:        s.locale                 ?? 'es-AR',
       },

@@ -764,6 +764,7 @@ function CatalogoTab() {
   const [envioInfo,   setEnvioInfo  ] = useState('')
   const [footerText,  setFooterText ] = useState('')
   const [catalogCuotas, setCatalogCuotas] = useState('')
+  const [infoItems,   setInfoItems  ] = useState('')
   const [ga4MeasurementId, setGa4MeasurementId] = useState('')
   const [ga4PropertyId,    setGa4PropertyId   ] = useState('')
   // ── Tema visual ──────────────────────────────────────────────
@@ -792,6 +793,7 @@ function CatalogoTab() {
         setEnvioInfo(d.catalog_envio_info ?? '')
         setFooterText(d.catalog_footer_text ?? '')
         setCatalogCuotas(d.catalog_cuotas ?? '')
+        setInfoItems(d.catalog_info_items ?? '')
         setGa4MeasurementId(d.catalog_ga4_measurement_id ?? '')
         setGa4PropertyId(d.catalog_ga4_property_id ?? '')
         setThemeColorPrimary(d.catalog_color_primary     ?? '#7c3aed')
@@ -839,6 +841,7 @@ function CatalogoTab() {
           catalog_envio_info:          envioInfo.trim() || null,
           catalog_footer_text:         footerText.trim() || null,
           catalog_cuotas:              catalogCuotas.trim() || null,
+          catalog_info_items:          infoItems.trim() || null,
           catalog_ga4_measurement_id:  ga4MeasurementId.trim() || null,
           catalog_ga4_property_id:     ga4PropertyId.trim() || null,
           catalog_color_primary:       themeColorPrimary   || null,
@@ -1046,6 +1049,43 @@ function CatalogoTab() {
           />
           <p className="text-xs text-gray-400">
             Se muestra en el detalle de cada producto. Cada línea = una opción.
+          </p>
+        </div>
+
+        {/* Barra informativa con íconos */}
+        <div className="space-y-1.5">
+          <Label className="flex items-center gap-1.5">
+            <Rss className="h-4 w-4 text-gray-400" />
+            Barra informativa (íconos + texto)
+          </Label>
+          <textarea
+            value={infoItems}
+            onChange={e => setInfoItems(e.target.value)}
+            rows={6}
+            placeholder={'truck|Free Shipping on Most Orders\nshield-check|Safe Checkout via PayPal\nshopping-bag|Buy Now, Pay Later\nmail|24/7 Email Support\ntag|Exclusive Online Deals'}
+            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-violet-300 resize-y"
+          />
+          <p className="text-xs text-gray-400">
+            Una línea por ítem: <code className="bg-gray-100 px-1 rounded">icono|Texto a mostrar</code>.
+            Íconos disponibles: <code className="bg-gray-100 px-1 rounded">truck</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">shield-check</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">credit-card</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">shopping-bag</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">mail</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">tag</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">clock</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">package</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">refresh-cw</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">gift</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">zap</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">lock</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">globe</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">star</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">award</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">heart</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">check-circle</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">phone</code>.
+            Si está vacío, se usa el campo "Texto del banner" como fallback.
           </p>
         </div>
 

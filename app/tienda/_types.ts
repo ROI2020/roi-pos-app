@@ -20,6 +20,8 @@ export interface StoreData {
   cuotas: number
   /** Texto libre del pie de página de la tienda (configurable en settings). */
   footer_text: string | null
+  /** Ítems de la barra informativa bajo el banner (raw "icon|texto" por línea). */
+  info_items: string | null
   /** ISO 4217: 'ARS', 'USD', etc. — para formatear precios. Default 'ARS'. */
   currency: string
   /** BCP 47: 'es-AR', 'en-US', etc. — para Intl.NumberFormat. Default 'es-AR'. */

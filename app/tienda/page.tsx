@@ -13,6 +13,7 @@ import { colorToCss, sortSizes, totalStock } from './_utils'
 import { useCart }     from './_context/cart-context'
 import { useCurrency } from './_context/currency-context'
 import CartDrawer from './_components/cart-drawer'
+import InfoBar, { parseInfoItems } from './_components/info-bar'
 
 // El modal se carga solo cuando el usuario abre un producto (chunk separado)
 const ProductModal = dynamic(() => import('./_components/product-modal'), { ssr: false })
@@ -358,7 +359,10 @@ export default function TiendaPage() {
           <img src="/api/images/banner" alt="Banner" className="w-full h-full object-cover" />
         </div>
       ) : null}
-      {store?.banner_text && (
+      {/* Barra informativa con íconos (catalog_info_items) — reemplaza banner_text */}
+      {store?.info_items
+        ? <InfoBar items={parseInfoItems(store.info_items)} />
+        : store?.banner_text && (
         <div className="store-surface border-b">
           <div className="max-w-7xl mx-auto px-4 py-4 flex flex-wrap justify-center gap-x-6 gap-y-1.5">
             {store.banner_text.split('\n').filter(l => l.trim()).map((line, i) => (
