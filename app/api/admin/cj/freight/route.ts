@@ -24,14 +24,21 @@ export async function GET(req: Request) {
 
     if (raw) {
       // Devuelve la respuesta cruda de CJ para debug
-      const res  = await fetch(`${CJ_BASE}/logistic/freightCalculate`, {
+      // Intenta el formato moderno (products array) y el legacy (vid suelto)
+      const base = { startCountryCode: from, endCountryCode: to, ...(zip ? { toPostalCode: zip } : {}) }
+      const resModern = await fetch(`${CJ_BASE}/logistic/freightCalculate`, {
         method:  'POST',
         headers: { 'CJ-Access-Token': token, 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          vid, quantity: Math.max(1, qty),
-          startCountryCode: from, endCountryCode: to,
-          ...(zip ? { toPostalCode: zip } : {}),
-        }),
+        body:    JSON.stringify({ ...base, products: [{ vid, quantity: Math.max(1, qty) }] }),
+        cache: 'no-store',
+      })
+      const jsonModern = await resModern.json()
+      if (jsonModern.code === 200) return NextResponse.json({ _fmt: 'products[]', ...jsonModern })
+
+      const res = await fetch(`${CJ_BASE}/logistic/freightCalculate`, {
+        method:  'POST',
+        headers: { 'CJ-Access-Token': token, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ ...base, vid, quantity: Math.max(1, qty) }),
         cache: 'no-store',
       })
       return NextResponse.json(await res.json())

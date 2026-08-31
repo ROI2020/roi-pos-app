@@ -53,6 +53,8 @@ interface CJFreightOption {
   isFree:           boolean
   minDeliveryDays?: number
   maxDeliveryDays?: number
+  minProcessDays?:  number
+  maxProcessDays?:  number
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -503,68 +505,71 @@ export default function CJImportPage() {
                 )}
 
                 {freight.length > 0 && (
-                  <div className="border rounded-lg overflow-hidden">
-                    <table className="w-full text-xs">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="text-left p-2 text-gray-500">Método</th>
-                          <th className="text-center p-2 text-gray-500">Entrega</th>
-                          <th className="text-right p-2 text-gray-500">Costo (USD)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {freight.map((f, i) => (
-                          <tr key={i} className="hover:bg-gray-50">
-                            <td className="p-2 text-gray-800 font-medium">
-                              {f.logisticName}
-                            </td>
-                            <td className="p-2 text-center text-gray-500">
-                              {f.minDeliveryDays != null && f.maxDeliveryDays != null
-                                ? `${f.minDeliveryDays}–${f.maxDeliveryDays} días`
-                                : f.minDeliveryDays != null
-                                  ? `~${f.minDeliveryDays} días`
-                                  : '—'}
-                            </td>
-                            <td className="p-2 text-right">
-                              {f.isFree ? (
-                                <Badge className="bg-green-100 text-green-700 border-green-300 text-[10px] font-semibold">
-                                  Gratis
-                                </Badge>
-                              ) : (
-                                <span className="font-mono font-semibold text-gray-800">
-                                  ${f.freight.toFixed(2)}
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {/* Tip: sumar el costo más barato al precio de venta */}
+                  <div className="space-y-2">
+                    {freight.map((f, i) => (
+                      <div key={i} className="border rounded-lg overflow-hidden text-xs">
+                        {/* Header: nombre del método */}
+                        <div className="bg-gray-50 px-3 py-2 font-semibold text-gray-700 flex items-center justify-between">
+                          <span>{f.logisticName}</span>
+                          {f.isFree ? (
+                            <Badge className="bg-green-100 text-green-700 border-green-300 text-[10px]">
+                              Free Shipping
+                            </Badge>
+                          ) : (
+                            <span className="font-mono font-bold text-gray-800">${f.freight.toFixed(2)}</span>
+                          )}
+                        </div>
+                        {/* 3 datos estilo CJ */}
+                        <div className="divide-y">
+                          {(f.minProcessDays != null || f.maxProcessDays != null) && (
+                            <div className="px-3 py-2 flex justify-between text-gray-600">
+                              <span>Tiempo estimado de procesamiento</span>
+                              <span className="font-medium text-gray-800">
+                                {f.minProcessDays != null && f.maxProcessDays != null
+                                  ? `${f.minProcessDays}–${f.maxProcessDays} días`
+                                  : `${f.minProcessDays ?? f.maxProcessDays} días`}
+                              </span>
+                            </div>
+                          )}
+                          {(f.minDeliveryDays != null || f.maxDeliveryDays != null) && (
+                            <div className="px-3 py-2 flex justify-between text-gray-600">
+                              <span>Tiempo estimado de entrega</span>
+                              <span className="font-medium text-gray-800">
+                                {f.minDeliveryDays != null && f.maxDeliveryDays != null
+                                  ? `${f.minDeliveryDays}–${f.maxDeliveryDays} días`
+                                  : `~${f.minDeliveryDays ?? f.maxDeliveryDays} días`}
+                              </span>
+                            </div>
+                          )}
+                          <div className="px-3 py-2 flex justify-between text-gray-600">
+                            <span>Costo de envío</span>
+                            <span className={`font-bold ${f.isFree ? 'text-green-600' : 'text-gray-800'}`}>
+                              {f.isFree ? '$0.00' : `$${f.freight.toFixed(2)}`}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Tip de pricing */}
                     {(() => {
-                      const cheapest = freight.find(f => !f.isFree)
                       const hasFreePlan = freight.some(f => f.isFree)
-                      if (!cheapest && !hasFreePlan) return null
-                      const cost = parseFloat(selected.sellPrice)
-                      const markupPct = parseFloat(markup) || 0
-                      const salePrice = cost * (1 + markupPct / 100)
-                      if (hasFreePlan) {
-                        return (
-                          <p className="px-3 py-2 text-[10px] text-green-700 bg-green-50 border-t border-green-100">
-                            💡 Este producto tiene opciones de envío gratuito desde CJ →
-                            podés ofrecerlo con envío gratis a tus clientes.
-                            Precio de venta sugerido: <strong>{fmt(salePrice)}</strong>
-                          </p>
-                        )
-                      }
-                      if (cheapest) {
-                        const withShipping = salePrice + cheapest.freight
-                        return (
-                          <p className="px-3 py-2 text-[10px] text-gray-500 bg-gray-50 border-t">
-                            💡 Para incluir envío gratis en tu precio: costo CJ {fmt(cost)} + envío {fmt(cheapest.freight)} + markup {markupPct}% → precio sugerido <strong>{fmt(withShipping)}</strong>
-                          </p>
-                        )
-                      }
+                      const cheapest    = freight.find(f => !f.isFree)
+                      const cost        = parseFloat(selected.sellPrice)
+                      const markupPct   = parseFloat(markup) || 0
+                      const salePrice   = cost * (1 + markupPct / 100)
+                      if (hasFreePlan) return (
+                        <p className="text-[10px] text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2">
+                          💡 Envío gratuito desde CJ → podés ofrecerlo con envío gratis a tus clientes.
+                          Precio de venta con {markupPct}% markup: <strong>{fmt(salePrice)}</strong>
+                        </p>
+                      )
+                      if (cheapest) return (
+                        <p className="text-[10px] text-gray-500 bg-gray-50 border rounded-lg px-3 py-2">
+                          💡 Para incluir envío gratis: {fmt(cost)} costo + ${cheapest.freight.toFixed(2)} envío + {markupPct}% markup
+                          {' '}→ precio sugerido <strong>{fmt(cost + cheapest.freight * (1 + markupPct / 100))}</strong>
+                        </p>
+                      )
                     })()}
                   </div>
                 )}
