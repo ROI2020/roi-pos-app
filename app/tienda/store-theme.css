@@ -115,3 +115,18 @@
 .store-focus-ring:focus {
   --tw-ring-color: color-mix(in srgb, var(--store-primary) 40%, transparent);
 }
+
+/* ── Prose: tipografía para páginas de contenido (policy, terms, faq) ── */
+.prose-store                           { color: var(--store-text); line-height: 1.75; }
+.prose-store h2                        { font-size: 1.25rem; font-weight: 700; margin: 2rem 0 0.75rem; color: var(--store-text); }
+.prose-store h3                        { font-size: 1.05rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: var(--store-text); }
+.prose-store p                         { margin: 0 0 1rem; }
+.prose-store ul, .prose-store ol       { margin: 0 0 1rem 1.5rem; }
+.prose-store li                        { margin-bottom: 0.35rem; }
+.prose-store a                         { color: var(--store-primary); text-decoration: underline; }
+.prose-store a:hover                   { opacity: .8; }
+.prose-store strong                    { font-weight: 600; }
+.prose-store hr                        { border-color: var(--store-border); margin: 2rem 0; }
+.prose-store .policy-section           { border-left: 3px solid var(--store-primary); padding-left: 1rem; margin: 1.5rem 0; }
+.prose-store .policy-highlight         { background-color: color-mix(in srgb, var(--store-primary) 8%, transparent);
+                                         border-radius: 0.5rem; padding: 0.75rem 1rem; margin: 1rem 0; }

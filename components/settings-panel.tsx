@@ -6,6 +6,7 @@ import {
   Loader2, Save, Upload, X, CheckCircle2, Star,
   Globe, Copy, RefreshCw, Eye, EyeOff, Rss, BarChart2,
   Wallet, ChevronDown, ChevronRight, CreditCard, Sparkles, Receipt,
+  FileText, ExternalLink,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button }   from "@/components/ui/button"
@@ -33,7 +34,7 @@ interface Account {
   branch_id: number | null; branch_name: string; fops: Fop[]
 }
 
-type Tab = 'negocio' | 'usuarios' | 'sucursales' | 'cuentas' | 'catalogo' | 'ia' | 'gastos' | 'pagos' | 'dropshipping'
+type Tab = 'negocio' | 'usuarios' | 'sucursales' | 'cuentas' | 'catalogo' | 'ia' | 'gastos' | 'pagos' | 'dropshipping' | 'paginas'
 
 interface ExpenseType {
   id: number
@@ -2543,7 +2544,215 @@ const TABS: { value: Tab; label: string; Icon: React.ElementType }[] = [
   { value: 'dropshipping', label: 'Dropshipping', Icon: Globe      },
   { value: 'ia',           label: 'IA',            Icon: Sparkles   },
   { value: 'gastos',       label: 'Gastos',        Icon: Receipt    },
+  { value: 'paginas',      label: 'Páginas',       Icon: FileText   },
 ]
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Pestaña: Páginas de la tienda (Shipping Policy, Terms, FAQ…)
+// ══════════════════════════════════════════════════════════════════════════════
+const SUGGESTED_PAGES = [
+  { slug: 'shipping-policy', title: 'Shipping Policy'              },
+  { slug: 'terms',           title: 'Terms of Service'             },
+  { slug: 'politica-envios', title: 'Política de Envíos'           },
+  { slug: 'terminos',        title: 'Términos y Condiciones'       },
+  { slug: 'devoluciones',    title: 'Política de Devoluciones'     },
+  { slug: 'faq',             title: 'Preguntas Frecuentes'         },
+]
+
+function PaginasTab() {
+  const [pages,       setPages      ] = useState<{ id: number; slug: string; title: string; is_published: boolean; updated_at: string }[]>([])
+  const [selSlug,     setSelSlug    ] = useState<string | null>(null)
+  const [slug,        setSlug       ] = useState('')
+  const [title,       setTitle      ] = useState('')
+  const [content,     setContent    ] = useState('')
+  const [isPublished, setIsPublished] = useState(true)
+  const [saving,      setSaving     ] = useState(false)
+  const [loading,     setLoading    ] = useState(true)
+  const [deleting,    setDeleting   ] = useState(false)
+
+  const loadPages = useCallback(() => {
+    setLoading(true)
+    fetch('/api/admin/store-pages')
+      .then(r => r.json())
+      .then(setPages)
+      .catch(() => toast.error('Error al cargar páginas'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { loadPages() }, [loadPages])
+
+  const selectPage = (s: string) => {
+    const p = pages.find(x => x.slug === s)
+    if (!p) {
+      // nueva página con slug sugerido
+      const sug = SUGGESTED_PAGES.find(x => x.slug === s)
+      setSlug(s); setTitle(sug?.title ?? ''); setContent(''); setIsPublished(true)
+    } else {
+      setSlug(p.slug); setTitle(p.title); setIsPublished(p.is_published)
+      // Cargar contenido completo desde la API pública (incluye content)
+      fetch(`/api/store-pages/${p.slug}`)
+        .then(r => r.ok ? r.json() : { content: '' })
+        .then(d => setContent(d.content ?? ''))
+    }
+    setSelSlug(s)
+  }
+
+  const handleSave = async () => {
+    if (!slug.trim() || !title.trim()) { toast.error('Slug y título son obligatorios'); return }
+    setSaving(true)
+    try {
+      const res = await fetch('/api/admin/store-pages', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: slug.trim(), title: title.trim(), content, is_published: isPublished }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('Página guardada')
+      loadPages()
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!selSlug) return
+    if (!confirm(`¿Eliminar la página "${title}"?`)) return
+    setDeleting(true)
+    try {
+      await fetch(`/api/admin/store-pages?slug=${selSlug}`, { method: 'DELETE' })
+      toast.success('Página eliminada')
+      setSelSlug(null); setSlug(''); setTitle(''); setContent('')
+      loadPages()
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const existingSlugs = new Set(pages.map(p => p.slug))
+  const allSuggested  = SUGGESTED_PAGES.filter(s => !existingSlugs.has(s.slug))
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <FileText className="h-5 w-5 text-gray-400" />
+        <div>
+          <h2 className="font-semibold text-gray-900">Páginas de la tienda</h2>
+          <p className="text-xs text-gray-400">
+            Shipping Policy, Terms of Service, FAQ y páginas personalizadas.
+            URL: <code className="bg-gray-100 px-1 rounded">/tienda/p/[slug]</code>
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Lista de páginas */}
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Páginas existentes</p>
+          {loading && <p className="text-xs text-gray-400">Cargando…</p>}
+          {!loading && pages.length === 0 && (
+            <p className="text-xs text-gray-400">Ninguna todavía. Elegí una sugerida →</p>
+          )}
+          {pages.map(p => (
+            <button key={p.slug} onClick={() => selectPage(p.slug)}
+              className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors
+                ${selSlug === p.slug ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-gray-300'}`}>
+              <p className="font-medium text-gray-800 truncate">{p.title}</p>
+              <p className="text-[10px] text-gray-400 font-mono truncate">/p/{p.slug}</p>
+              {!p.is_published && <span className="text-[9px] text-amber-500 font-semibold">BORRADOR</span>}
+            </button>
+          ))}
+
+          {allSuggested.length > 0 && (
+            <>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">Sugeridas (nuevas)</p>
+              {allSuggested.map(s => (
+                <button key={s.slug} onClick={() => selectPage(s.slug)}
+                  className={`w-full text-left px-3 py-2 rounded-lg border border-dashed text-sm transition-colors
+                    ${selSlug === s.slug ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-violet-200 hover:bg-violet-50/40'}`}>
+                  <p className="font-medium text-gray-600 truncate">+ {s.title}</p>
+                  <p className="text-[10px] text-gray-400 font-mono">/p/{s.slug}</p>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Editor */}
+        <div className="md:col-span-2 space-y-3">
+          {!selSlug ? (
+            <div className="flex items-center justify-center h-48 text-gray-300 text-sm border-2 border-dashed rounded-xl">
+              Seleccioná una página para editar
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Slug (URL)</Label>
+                  <Input value={slug} onChange={e => setSlug(e.target.value)}
+                    className="text-sm font-mono"
+                    placeholder="shipping-policy"
+                    disabled={existingSlugs.has(selSlug)} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Título</Label>
+                  <Input value={title} onChange={e => setTitle(e.target.value)}
+                    className="text-sm" placeholder="Shipping Policy" />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label>Contenido (HTML)</Label>
+                  {existingSlugs.has(selSlug) && (
+                    <a href={`/tienda/p/${selSlug}`} target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-violet-600 flex items-center gap-1 hover:underline">
+                      <ExternalLink className="h-3 w-3" /> Ver página
+                    </a>
+                  )}
+                </div>
+                <textarea
+                  value={content}
+                  onChange={e => setContent(e.target.value)}
+                  rows={18}
+                  className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-violet-300 resize-y"
+                  placeholder="<h2>Shipping</h2><p>...</p>"
+                />
+                <p className="text-xs text-gray-400">
+                  HTML plano. Usá <code className="bg-gray-100 px-1 rounded">&lt;h2&gt;</code> para secciones,
+                  <code className="bg-gray-100 px-1 rounded"> &lt;p&gt;</code> para párrafos,
+                  <code className="bg-gray-100 px-1 rounded"> &lt;ul&gt;&lt;li&gt;</code> para listas.
+                  El estilo lo aplica el tema del negocio automáticamente.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="chk-published" checked={isPublished}
+                  onChange={e => setIsPublished(e.target.checked)}
+                  className="rounded" />
+                <label htmlFor="chk-published" className="text-sm text-gray-700">Publicada (visible en la tienda)</label>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <Button onClick={handleSave} disabled={saving} className="gap-2 flex-1">
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Guardar página
+                </Button>
+                {existingSlugs.has(selSlug) && (
+                  <Button variant="outline" onClick={handleDelete} disabled={deleting}
+                    className="gap-2 text-red-600 border-red-200 hover:bg-red-50">
+                    {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function SettingsPanel() {
   const [tab, setTab] = useState<Tab>('negocio')
@@ -2594,6 +2803,7 @@ export default function SettingsPanel() {
             {tab === 'dropshipping' && <CJTab />}
             {tab === 'ia'           && <IATab />}
             {tab === 'gastos'       && <GastosTab />}
+            {tab === 'paginas'      && <PaginasTab />}
           </div>
         </div>
       </div>
