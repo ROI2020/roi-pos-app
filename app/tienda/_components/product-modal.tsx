@@ -13,7 +13,7 @@ import { useCart }     from '../_context/cart-context'
 import { useCurrency } from '../_context/currency-context'
 
 const SUGGESTION_ICON: Record<SuggestionProduct['reason'], React.ReactNode> = {
-  complementary: <span className="text-violet-500">✦</span>,
+  complementary: <span className="store-text-primary">✦</span>,
   trending:      <span className="text-orange-500">↑</span>,
 }
 
@@ -152,15 +152,15 @@ export default function ProductModal({
     <div className="fixed inset-0 z-50 flex">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
-      <div className="relative ml-auto w-full max-w-lg bg-white flex flex-col h-full overflow-hidden shadow-2xl">
+      <div className="relative ml-auto w-full max-w-lg store-surface flex flex-col h-full overflow-hidden shadow-2xl">
 
         {/* Top bar */}
-        <div className="flex items-center justify-between px-4 py-3 border-b bg-white/95 backdrop-blur-sm shrink-0 z-10">
+        <div className="flex items-center justify-between px-4 py-3 border-b store-surface-blur backdrop-blur-sm shrink-0 z-10">
           <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors">
             <ArrowLeft className="h-4 w-4" /> {t('back')}
           </button>
           {product.category && (
-            <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-violet-100 text-violet-700">
+            <span className="text-xs font-medium px-2.5 py-0.5 rounded-full store-badge-light">
               {product.category}
             </span>
           )}
@@ -174,8 +174,8 @@ export default function ProductModal({
             {imgSrc ? (
               <img key={imgKey} src={imgSrc} alt={product.name} className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-violet-100 to-pink-100">
-                <span className="text-7xl font-bold text-violet-300 select-none">
+              <div className="w-full h-full flex items-center justify-center store-placeholder">
+                <span className="text-7xl font-bold store-placeholder-letter select-none">
                   {product.name.charAt(0).toUpperCase()}
                 </span>
               </div>
@@ -198,19 +198,19 @@ export default function ProductModal({
               {product.today_promo && product.promo_price != null ? (
                 <div className="mt-1 space-y-1.5">
                   <div className="flex items-baseline gap-2.5">
-                    <span className="text-3xl font-bold text-violet-700">{fmt(product.promo_price)}</span>
+                    <span className="text-3xl font-bold store-text-primary">{fmt(product.promo_price)}</span>
                     <span className="text-lg text-gray-400 line-through">{fmt(product.price)}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 text-white shadow-sm w-fit">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl store-badge-gradient shadow-sm w-fit">
                     <span className="text-[10px] font-black uppercase tracking-widest opacity-80">{t('todayOnly')}</span>
                     <span className="text-[11px] font-bold leading-tight">{product.today_promo}</span>
                   </div>
-                  <p className="text-sm font-semibold text-violet-600">
+                  <p className="text-sm font-semibold store-text-primary">
                     {t('promoPrice', { price: fmt(product.promo_price) })}
                   </p>
                 </div>
               ) : (
-                <p className="text-3xl font-bold text-violet-700 mt-1">{fmt(product.price)}</p>
+                <p className="text-3xl font-bold store-text-primary mt-1">{fmt(product.price)}</p>
               )}
 
               {store.cuotas > 0 && (
@@ -233,7 +233,7 @@ export default function ProductModal({
                 <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
                   {t('color')}
                   {selColor && selColor.toLowerCase() !== 'varios' && (
-                    <span className="ml-2 font-medium text-violet-600 normal-case">{selColor}</span>
+                    <span className="ml-2 font-medium store-text-primary normal-case">{selColor}</span>
                   )}
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -245,7 +245,7 @@ export default function ProductModal({
                     return (
                       <button key={color} title={color} onClick={() => handleColorChange(color)}
                         className={`relative w-9 h-9 rounded-full border-[3px] transition-all duration-150 focus:outline-none
-                          ${isSel ? 'border-violet-500 scale-110 shadow-lg' : 'border-gray-200 hover:border-gray-400'}
+                          ${isSel ? 'store-ring scale-110 shadow-lg' : 'border-gray-200 hover:border-gray-400'}
                           ${!hasStock ? 'opacity-40' : ''}`}
                         style={isVarios
                           ? { background: 'linear-gradient(135deg,#f472b6,#818cf8,#34d399)' }
@@ -263,7 +263,7 @@ export default function ProductModal({
             {!singleSize && sizes.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                  {t('sizeLabel')} {selSize && <span className="ml-2 font-medium text-violet-600 normal-case">{selSize}</span>}
+                  {t('sizeLabel')} {selSize && <span className="ml-2 font-medium store-text-primary normal-case">{selSize}</span>}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {sizes.map(size => {
@@ -271,8 +271,8 @@ export default function ProductModal({
                     return (
                       <button key={size} onClick={() => inStock && setSelSize(isSel ? '' : size)} disabled={!inStock}
                         className={`min-w-[44px] px-3 py-2 rounded-lg border-2 text-sm font-semibold transition-all
-                          ${isSel ? 'border-violet-600 bg-violet-600 text-white shadow'
-                            : inStock ? 'border-gray-300 text-gray-700 hover:border-violet-400 bg-white'
+                          ${isSel ? 'store-active store-ring shadow'
+                            : inStock ? 'border-gray-300 text-gray-700 hover:store-ring bg-white'
                             : 'border-gray-100 text-gray-300 bg-gray-50 line-through cursor-not-allowed'}`}
                       >{size}</button>
                     )
@@ -321,7 +321,7 @@ export default function ProductModal({
                 <div className="space-y-1.5">
                   {store.shipping_info.split('\n').filter(l => l.trim()).map((line, i) => (
                     <div key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                      <Truck className="h-4 w-4 text-violet-500 shrink-0 mt-0.5" />
+                      <Truck className="h-4 w-4 store-text-primary shrink-0 mt-0.5" />
                       <span>{line.trim()}</span>
                     </div>
                   ))}
@@ -337,10 +337,10 @@ export default function ProductModal({
                 <div className="flex gap-2">
                   <input type="text" placeholder={t('cityPlaceholder')} value={localidad}
                     onChange={e => setLocalidad(e.target.value)}
-                    className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white" />
+                    className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 store-focus-ring bg-white" />
                   <input type="text" placeholder={t('zipPlaceholder')} value={cp}
                     onChange={e => setCp(e.target.value)}
-                    className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white" />
+                    className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 store-focus-ring bg-white" />
                 </div>
                 {waEnvio ? (
                   <a href={waEnvio} target="_blank" rel="noopener noreferrer"
@@ -373,20 +373,20 @@ export default function ProductModal({
                             onClose()
                             setTimeout(() => document.dispatchEvent(new CustomEvent('open-product', { detail: full })), 50)
                           }}
-                          className="flex-none w-32 rounded-xl overflow-hidden bg-white border border-gray-100 shadow-sm hover:shadow-md transition-shadow text-left"
+                          className="flex-none w-32 rounded-xl overflow-hidden store-surface border border-gray-100 shadow-sm hover:shadow-md transition-shadow text-left"
                         >
                           <div className="aspect-[3/4] bg-gray-100 overflow-hidden">
                             {sugImg
                               ? <img src={sugImg} alt={sug.name} className="w-full h-full object-cover" loading="lazy" />
-                              : <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-violet-50 to-pink-50">
-                                  <span className="text-2xl font-bold text-violet-200">{sug.name.charAt(0).toUpperCase()}</span>
+                              : <div className="w-full h-full flex items-center justify-center store-placeholder">
+                                  <span className="text-2xl font-bold store-placeholder-letter">{sug.name.charAt(0).toUpperCase()}</span>
                                 </div>
                             }
                           </div>
                           <div className="p-2">
-                            {sug.category && <p className="text-[9px] text-violet-500 font-medium uppercase tracking-wide mb-0.5 truncate">{sug.category}</p>}
+                            {sug.category && <p className="text-[9px] store-text-primary font-medium uppercase tracking-wide mb-0.5 truncate">{sug.category}</p>}
                             <p className="text-xs font-medium text-gray-800 line-clamp-2 leading-tight">{sug.name}</p>
-                            <p className="text-xs font-bold text-violet-700 mt-1">{fmt(sug.price)}</p>
+                            <p className="text-xs font-bold store-text-primary mt-1">{fmt(sug.price)}</p>
                             {sug.stock_total === 0 && <p className="text-[10px] text-gray-400">{t('outOfStock')}</p>}
                           </div>
                         </button>
@@ -400,7 +400,7 @@ export default function ProductModal({
         </div>
 
         {/* CTA fijo */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-sm border-t space-y-2">
+        <div className="absolute bottom-0 left-0 right-0 p-4 store-surface-blur backdrop-blur-sm border-t space-y-2">
 
           {/* Botón primario: Agregar al carrito */}
           {product.variants.some(v => v.in_stock) ? (
@@ -410,7 +410,7 @@ export default function ProductModal({
                 ${alreadyInCart
                   ? 'bg-green-100 text-green-700 border border-green-200'
                   : canBuy
-                    ? 'bg-violet-600 hover:bg-violet-700 text-white shadow-lg shadow-violet-200'
+                    ? 'store-btn-primary shadow-lg'
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
               {alreadyInCart
                 ? <><Check className="h-5 w-5" /> {t('viewCart')}</>

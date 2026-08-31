@@ -1,0 +1,112 @@
+/**
+ * store-theme.css — Sistema de temas por negocio
+ *
+ * Las CSS custom properties las inyecta tienda/layout.tsx en un <style>:root{...}
+ * antes de este CSS, con valores por negocio desde la DB (settings).
+ * Defaults = paleta Malema (violet/pink/white).
+ *
+ * Clases disponibles:
+ *   .store-page            página principal (bg + text + font)
+ *   .store-surface         tarjetas / panels / header / footer
+ *   .store-text-primary    color primario (precios, acentos, links)
+ *   .store-text-secondary  color secundario
+ *   .store-text-muted      texto secundario / subtítulos
+ *   .store-btn-primary     botón principal relleno
+ *   .store-btn-outline     botón con borde (WA, ver más)
+ *   .store-active          chip/filtro activo — color primario
+ *   .store-active-secondary  chip activo — color secundario
+ *   .store-ring            borde de selección (color seleccionado, talle)
+ *   .store-badge-gradient  badge degradé primary→secondary
+ *   .store-placeholder     fondo placeholder imagen sin foto
+ *   .store-placeholder-letter  inicial del producto en placeholder
+ */
+
+/* ── Defaults (Malema) — se sobreescriben por negocio ────────── */
+:root {
+  --store-primary:   #7c3aed;
+  --store-secondary: #ec4899;
+  --store-bg:        #f9fafb;
+  --store-surface:   #ffffff;
+  --store-text:      #111827;
+  --store-muted:     #6b7280;
+  --store-border:    #e5e7eb;
+  --store-font:      system-ui, -apple-system, sans-serif;
+}
+
+/* ── Página ───────────────────────────────────────────────────── */
+.store-page {
+  background-color: var(--store-bg);
+  color:            var(--store-text);
+  font-family:      var(--store-font);
+}
+
+/* ── Superficies (tarjetas, header, footer, drawer, modal) ────── */
+.store-surface { background-color: var(--store-surface); }
+
+/* ── Texto ────────────────────────────────────────────────────── */
+.store-text-primary   { color: var(--store-primary);   }
+.store-text-secondary { color: var(--store-secondary); }
+.store-text-muted     { color: var(--store-muted);     }
+
+/* ── Botón primario ───────────────────────────────────────────── */
+.store-btn-primary {
+  background-color: var(--store-primary);
+  color: #fff;
+  transition: opacity 0.15s;
+}
+.store-btn-primary:hover    { opacity: .88; }
+.store-btn-primary:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ── Botón outline ───────────────────────────────────────────── */
+.store-btn-outline {
+  border-color: var(--store-primary);
+  color:        var(--store-primary);
+  transition: background-color 0.15s;
+}
+.store-btn-outline:hover {
+  background-color: color-mix(in srgb, var(--store-primary) 8%, transparent);
+}
+
+/* ── Chips / filtros activos ─────────────────────────────────── */
+.store-active           { background-color: var(--store-primary);   color: #fff; }
+.store-active-secondary { background-color: var(--store-secondary); color: #fff; }
+
+/* ── Borde de selección (color, talle seleccionado) ─────────── */
+.store-ring { border-color: var(--store-primary) !important; }
+
+/* ── Badge degradé (promo, logo placeholder, CTA) ───────────── */
+.store-badge-gradient {
+  background: linear-gradient(135deg, var(--store-primary), var(--store-secondary));
+  color: #fff;
+}
+
+/* ── Placeholder imagen sin foto ────────────────────────────── */
+.store-placeholder {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--store-primary)   20%, #fff),
+    color-mix(in srgb, var(--store-secondary) 20%, #fff)
+  );
+}
+.store-placeholder-letter {
+  color: color-mix(in srgb, var(--store-primary) 45%, #fff);
+}
+
+/* ── Barra de filtros (sticky, semi-transparente) ────────────── */
+.store-surface-blur {
+  background-color: color-mix(in srgb, var(--store-surface) 92%, transparent);
+}
+
+/* ── Badge suave (categoría, etiqueta secundaria) ────────────── */
+.store-badge-light {
+  background-color: color-mix(in srgb, var(--store-primary) 12%, transparent);
+  color: var(--store-primary);
+}
+
+/* ── Hover color primario (links, nombres de productos) ─────── */
+.store-hover-primary:hover { color: var(--store-primary); }
+
+/* ── Focus ring con color primario (inputs de búsqueda) ─────── */
+.store-focus-ring:focus {
+  --tw-ring-color: color-mix(in srgb, var(--store-primary) 40%, transparent);
+}

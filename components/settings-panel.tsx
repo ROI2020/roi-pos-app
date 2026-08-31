@@ -766,6 +766,15 @@ function CatalogoTab() {
   const [catalogCuotas, setCatalogCuotas] = useState('')
   const [ga4MeasurementId, setGa4MeasurementId] = useState('')
   const [ga4PropertyId,    setGa4PropertyId   ] = useState('')
+  // ── Tema visual ──────────────────────────────────────────────
+  const [themeColorPrimary,   setThemeColorPrimary  ] = useState('#7c3aed')
+  const [themeColorSecondary, setThemeColorSecondary] = useState('#ec4899')
+  const [themeColorBg,        setThemeColorBg       ] = useState('#f9fafb')
+  const [themeColorSurface,   setThemeColorSurface  ] = useState('#ffffff')
+  const [themeColorText,      setThemeColorText     ] = useState('#111827')
+  const [themeColorMuted,     setThemeColorMuted    ] = useState('#6b7280')
+  const [themeColorBorder,    setThemeColorBorder   ] = useState('#e5e7eb')
+  const [themeFont,           setThemeFont          ] = useState('')
   const [saving,      setSaving     ] = useState(false)
   const [loading,     setLoading    ] = useState(true)
   const [copied,      setCopied     ] = useState<string | null>(null)
@@ -785,6 +794,14 @@ function CatalogoTab() {
         setCatalogCuotas(d.catalog_cuotas ?? '')
         setGa4MeasurementId(d.catalog_ga4_measurement_id ?? '')
         setGa4PropertyId(d.catalog_ga4_property_id ?? '')
+        setThemeColorPrimary(d.catalog_color_primary     ?? '#7c3aed')
+        setThemeColorSecondary(d.catalog_color_secondary ?? '#ec4899')
+        setThemeColorBg(d.catalog_color_bg               ?? '#f9fafb')
+        setThemeColorSurface(d.catalog_color_surface     ?? '#ffffff')
+        setThemeColorText(d.catalog_color_text           ?? '#111827')
+        setThemeColorMuted(d.catalog_color_muted         ?? '#6b7280')
+        setThemeColorBorder(d.catalog_color_border       ?? '#e5e7eb')
+        setThemeFont(d.catalog_font                      ?? '')
       })
       .catch(() => toast.error('Error al cargar configuración'))
       .finally(() => setLoading(false))
@@ -824,6 +841,14 @@ function CatalogoTab() {
           catalog_cuotas:              catalogCuotas.trim() || null,
           catalog_ga4_measurement_id:  ga4MeasurementId.trim() || null,
           catalog_ga4_property_id:     ga4PropertyId.trim() || null,
+          catalog_color_primary:       themeColorPrimary   || null,
+          catalog_color_secondary:     themeColorSecondary || null,
+          catalog_color_bg:            themeColorBg        || null,
+          catalog_color_surface:       themeColorSurface   || null,
+          catalog_color_text:          themeColorText      || null,
+          catalog_color_muted:         themeColorMuted     || null,
+          catalog_color_border:        themeColorBorder    || null,
+          catalog_font:                themeFont.trim()    || null,
         }),
       })
       if (!res.ok) throw new Error((await res.json()).error)
@@ -1054,6 +1079,73 @@ function CatalogoTab() {
           <p className="text-xs text-gray-400">
             Número de cuotas sin interés que ofrecés. Ej: <code className="bg-gray-100 px-1 rounded">3</code> muestra
             "3 cuotas sin interés" en todos los productos. Dejar en 0 u vacío para no mostrar.
+          </p>
+        </div>
+      </div>
+
+      {/* ── Tema visual ─────────────────────────────────────────── */}
+      <div className="space-y-4 pt-2 border-t border-gray-100">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-violet-400" />
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tema visual de la tienda</p>
+        </div>
+        <p className="text-xs text-gray-400 -mt-2">
+          Los cambios se aplican en tiempo real al guardar — sin necesidad de redesplegar el sitio.
+        </p>
+
+        {/* Color pairs grid */}
+        {(
+          [
+            { label: 'Color primario',    desc: 'Botones, precios, activos',         val: themeColorPrimary,   set: setThemeColorPrimary   },
+            { label: 'Color secundario',  desc: 'Badges de promo, grupos de edad',   val: themeColorSecondary, set: setThemeColorSecondary },
+            { label: 'Fondo de página',   desc: 'Área gris detrás de las tarjetas',  val: themeColorBg,        set: setThemeColorBg        },
+            { label: 'Fondo de tarjetas', desc: 'Header, footer, cards, drawer',     val: themeColorSurface,   set: setThemeColorSurface   },
+            { label: 'Texto principal',   desc: 'Títulos y body text',               val: themeColorText,      set: setThemeColorText      },
+            { label: 'Texto secundario',  desc: 'Subtítulos, etiquetas, placeholders', val: themeColorMuted,  set: setThemeColorMuted     },
+            { label: 'Bordes',            desc: 'Separadores y marcos',              val: themeColorBorder,    set: setThemeColorBorder    },
+          ] as { label: string; desc: string; val: string; set: (v: string) => void }[]
+        ).map(({ label, desc, val, set }) => (
+          <div key={label} className="flex items-center gap-3">
+            <div className="relative shrink-0">
+              <input
+                type="color"
+                value={val}
+                onChange={e => set(e.target.value)}
+                className="w-9 h-9 rounded-lg cursor-pointer border border-gray-200 p-0.5"
+                title={label}
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-700">{label}</p>
+              <p className="text-xs text-gray-400">{desc}</p>
+            </div>
+            <input
+              type="text"
+              value={val}
+              onChange={e => set(e.target.value)}
+              pattern="^#[0-9a-fA-F]{6}$"
+              maxLength={7}
+              className="w-24 text-xs font-mono border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-violet-300 shrink-0"
+            />
+          </div>
+        ))}
+
+        {/* Tipografía */}
+        <div className="space-y-1.5">
+          <Label className="flex items-center gap-1.5">
+            Tipografía (Google Fonts)
+          </Label>
+          <Input
+            value={themeFont}
+            onChange={e => setThemeFont(e.target.value)}
+            placeholder="Inter"
+            className="text-sm"
+          />
+          <p className="text-xs text-gray-400">
+            Nombre exacto de la fuente en Google Fonts. Ej: <code className="bg-gray-100 px-1 rounded">Inter</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">Montserrat</code>,{' '}
+            <code className="bg-gray-100 px-1 rounded">Roboto</code>.
+            Dejarlo vacío usa la fuente del sistema.
           </p>
         </div>
       </div>

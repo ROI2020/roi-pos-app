@@ -22,7 +22,7 @@ const ProductModal = dynamic(() => import('./_components/product-modal'), { ssr:
 // ══════════════════════════════════════════════════════════════════════════════
 function TodayPromoBadge({ summary, label }: { summary: string; label: string }) {
   return (
-    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-pink-500 text-white shadow-sm">
+    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl store-badge-gradient shadow-sm">
       <span className="text-[10px] font-black uppercase tracking-widest opacity-80">{label}</span>
       <span className="text-[11px] font-bold leading-tight">{summary}</span>
     </div>
@@ -73,7 +73,7 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
     : null
 
   return (
-    <div className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 flex flex-col">
+    <div className="group store-surface rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 flex flex-col">
 
       {/* Imagen */}
       <div className="relative aspect-[3/4] bg-gray-100 overflow-hidden cursor-pointer" onClick={onSelect}>
@@ -82,8 +82,8 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
             loading="lazy" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-violet-100 to-pink-100">
-            <span className="text-5xl font-bold text-violet-300 select-none">
+          <div className="w-full h-full flex items-center justify-center store-placeholder">
+            <span className="text-5xl font-bold store-placeholder-letter select-none">
               {product.name.charAt(0).toUpperCase()}
             </span>
           </div>
@@ -113,7 +113,7 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
       {/* Info */}
       <div className="p-4 flex flex-col gap-2.5 flex-1">
         <div className="cursor-pointer" onClick={onSelect}>
-          <h3 className="text-sm font-semibold text-gray-900 leading-tight line-clamp-2 hover:text-violet-700 transition-colors">
+          <h3 className="text-sm font-semibold text-gray-900 leading-tight line-clamp-2 store-hover-primary transition-colors">
             {product.name}
           </h3>
           {product.description && (
@@ -122,7 +122,7 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
                 {product.description}
               </p>
               {longDesc && (
-                <button className="text-[11px] text-violet-500 hover:text-violet-700 font-medium mt-0.5"
+                <button className="text-[11px] store-text-primary hover:opacity-80 font-medium mt-0.5"
                   onClick={e => { e.stopPropagation(); setDescExpanded(v => !v) }}>
                   {descExpanded ? t('showLess') : t('showMore')}
                 </button>
@@ -135,11 +135,11 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
           {product.today_promo && product.promo_price != null ? (
             <>
               <div className="flex items-baseline gap-2">
-                <p className="text-xl font-bold text-violet-700 tracking-tight">{fmt(product.promo_price)}</p>
+                <p className="text-xl font-bold store-text-primary tracking-tight">{fmt(product.promo_price)}</p>
                 <p className="text-sm text-gray-400 line-through">{fmt(product.price)}</p>
               </div>
               <TodayPromoBadge summary={product.today_promo} label={t('todayOnly')} />
-              <p className="text-xs text-violet-600 font-medium">
+              <p className="text-xs store-text-primary font-medium">
                 {t('promoPrice', { price: fmt(product.promo_price) })}
               </p>
             </>
@@ -168,7 +168,7 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
                 <button key={color} title={color}
                   onClick={() => { setSelColor(color); setImgKey(k => k + 1) }}
                   className={`relative w-6 h-6 rounded-full border-2 transition-all duration-150 focus:outline-none
-                    ${isSel ? 'border-violet-500 scale-110 shadow-md' : 'border-transparent hover:border-gray-300 hover:scale-105'}
+                    ${isSel ? 'store-ring scale-110 shadow-md' : 'border-transparent hover:border-gray-300 hover:scale-105'}
                     ${!hasStock ? 'opacity-40' : ''}`}
                   style={isVarios
                     ? { background: 'linear-gradient(135deg,#f472b6,#818cf8,#34d399)' }
@@ -202,7 +202,7 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
 
         <div className="mt-auto pt-1 flex gap-2">
           <button onClick={onSelect}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold border border-violet-200 text-violet-600 hover:bg-violet-50 transition-colors">
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold border store-btn-outline transition-colors">
             {t('viewDetails')}
           </button>
           {waHref && anyInStock && (
@@ -276,7 +276,7 @@ export default function TiendaPage() {
   const store = data?.store
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen store-page">
 
       <CartDrawer />
 
@@ -290,13 +290,13 @@ export default function TiendaPage() {
       )}
 
       {/* Header */}
-      <header className="bg-white border-b relative">
+      <header className="store-surface border-b relative">
         {/* Botón carrito */}
         <button onClick={openCart}
-          className="absolute top-3 left-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold transition-colors shadow-sm">
+          className="absolute top-3 left-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full store-btn-primary text-xs font-semibold shadow-sm">
           <ShoppingCart className="h-3.5 w-3.5" />
           {itemCount > 0 && (
-            <span className="bg-white text-violet-700 rounded-full px-1.5 py-px text-[10px] font-black leading-none">
+            <span className="bg-white store-text-primary rounded-full px-1.5 py-px text-[10px] font-black leading-none">
               {itemCount}
             </span>
           )}
@@ -304,7 +304,7 @@ export default function TiendaPage() {
         </button>
 
         <a href="/login"
-          className="absolute top-3 right-4 text-xs text-gray-400 hover:text-violet-600 transition-colors flex items-center gap-1">
+          className="absolute top-3 right-4 text-xs text-gray-400 store-hover-primary transition-colors flex items-center gap-1">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>
           </svg>
@@ -313,7 +313,7 @@ export default function TiendaPage() {
         <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col items-center gap-3">
           {store?.logo
             ? <img src={store.logo} alt={store.name ?? 'Logo'} className="h-16 object-contain" />
-            : <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center">
+            : <div className="w-16 h-16 rounded-full store-badge-gradient flex items-center justify-center">
                 <ShoppingBag className="h-8 w-8 text-white" />
               </div>
           }
@@ -359,7 +359,7 @@ export default function TiendaPage() {
         </div>
       ) : null}
       {store?.banner_text && (
-        <div className="bg-white border-b">
+        <div className="store-surface border-b">
           <div className="max-w-7xl mx-auto px-4 py-4 flex flex-wrap justify-center gap-x-6 gap-y-1.5">
             {store.banner_text.split('\n').filter(l => l.trim()).map((line, i) => (
               <span key={i} className="text-sm text-gray-700 whitespace-pre">{line.trim()}</span>
@@ -369,13 +369,13 @@ export default function TiendaPage() {
       )}
 
       {/* Filtros */}
-      <div className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b shadow-sm">
+      <div className="sticky top-0 z-30 store-surface-blur backdrop-blur-md border-b shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
             <input type="search" placeholder={t('searchPlaceholderEllipsis')} value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-violet-300" />
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 store-focus-ring" />
             {search && (
               <button className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" onClick={() => setSearch('')}>
                 <X className="h-3.5 w-3.5" />
@@ -386,7 +386,7 @@ export default function TiendaPage() {
             {[{ label: t('allCategoriesFilter'), val: '__all__' }, ...(data?.categories ?? []).map(c => ({ label: c, val: c }))].map(({ label, val }) => (
               <button key={val} onClick={() => setSelCategory(val)}
                 className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-colors shrink-0
-                  ${selCategory === val ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                  ${selCategory === val ? 'store-active' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                 {label}
               </button>
             ))}
@@ -410,7 +410,7 @@ export default function TiendaPage() {
             {[{ label: t('allAgeGroupsFilter'), val: '__all__' }, ...(data?.age_groups ?? []).map(ag => ({ label: ag, val: ag }))].map(({ label, val }) => (
               <button key={val} onClick={() => setSelAgeGroup(val)}
                 className={`whitespace-nowrap px-3 py-1 rounded-full text-xs font-medium transition-colors shrink-0
-                  ${selAgeGroup === val ? 'bg-pink-500 text-white' : 'bg-pink-50 text-pink-700 hover:bg-pink-100'}`}>
+                  ${selAgeGroup === val ? 'store-active-secondary' : 'bg-pink-50 text-pink-700 hover:bg-pink-100'}`}>
                 {label}
               </button>
             ))}
@@ -422,7 +422,7 @@ export default function TiendaPage() {
             {[{ label: t('allCategoriesFilter'), val: '__all__' }, ...(data?.categories ?? []).map(c => ({ label: c, val: c }))].map(({ label, val }) => (
               <button key={val} onClick={() => { setSelCategory(val); setFiltersOpen(false) }}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors
-                  ${selCategory === val ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                  ${selCategory === val ? 'store-active' : 'bg-gray-100 text-gray-600'}`}>
                 {label}
               </button>
             ))}
@@ -444,7 +444,7 @@ export default function TiendaPage() {
         {loading && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="rounded-2xl overflow-hidden bg-white shadow-sm animate-pulse">
+              <div key={i} className="rounded-2xl overflow-hidden store-surface shadow-sm animate-pulse">
                 <div className="aspect-[3/4] bg-gray-200" />
                 <div className="p-4 space-y-2">
                   <div className="h-4 bg-gray-200 rounded w-3/4" />
@@ -478,7 +478,7 @@ export default function TiendaPage() {
                 : t('noProductsAvailable')}
             </p>
             {(selCategory !== '__all__' || selAgeGroup !== '__all__' || inStockOnly || search) && (
-              <button className="text-sm text-violet-500 hover:text-violet-700"
+              <button className="text-sm store-text-primary hover:opacity-80"
                 onClick={() => { setSelCategory('__all__'); setSelAgeGroup('__all__'); setInStockOnly(false); setSearch('') }}>
                 {t('clearFilters')}
               </button>
@@ -488,7 +488,7 @@ export default function TiendaPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t bg-white mt-12 py-10">
+      <footer className="border-t store-surface mt-12 py-10">
         <div className="max-w-7xl mx-auto px-4 text-center space-y-4">
           <div className="space-y-1">
             <p className="font-semibold text-gray-700">{store?.name}</p>

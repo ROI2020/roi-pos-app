@@ -28,16 +28,16 @@ export default function CartDrawer() {
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeCart} />
 
       {/* Panel */}
-      <div className="relative ml-auto w-full max-w-sm bg-white flex flex-col h-full shadow-2xl">
+      <div className="relative ml-auto w-full max-w-sm store-surface flex flex-col h-full shadow-2xl">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <div className="flex items-center gap-2">
-            <ShoppingCart className="h-5 w-5 text-violet-600" />
+            <ShoppingCart className="h-5 w-5 store-text-primary" />
             <h2 className="font-semibold text-gray-900">
               {t('title')}
               {items.length > 0 && (
-                <span className="ml-2 text-xs font-medium bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">
+                <span className="ml-2 text-xs font-medium store-badge-light px-2 py-0.5 rounded-full">
                   {t('itemCount', { count: items.length })}
                 </span>
               )}
@@ -55,7 +55,7 @@ export default function CartDrawer() {
               <Package className="h-14 w-14" />
               <p className="text-base text-gray-400 text-center">{t('empty')}</p>
               <button onClick={closeCart}
-                className="text-sm text-violet-500 hover:text-violet-700 font-medium transition-colors">
+                className="text-sm store-text-primary hover:opacity-80 font-medium transition-colors">
                 {t('keepShopping')}
               </button>
             </div>
@@ -72,8 +72,8 @@ export default function CartDrawer() {
                       <img src={`/api/images/products/${item.productId}`} alt={item.productName}
                         className="w-full h-full object-cover" loading="lazy" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-violet-100 to-pink-100">
-                        <span className="text-xl font-bold text-violet-300">
+                      <div className="w-full h-full flex items-center justify-center store-placeholder">
+                        <span className="text-xl font-bold store-placeholder-letter">
                           {item.productName.charAt(0).toUpperCase()}
                         </span>
                       </div>
@@ -88,7 +88,7 @@ export default function CartDrawer() {
                     <p className="text-xs text-gray-500 mt-0.5">
                       {item.color !== 'Varios' && `${item.color} · `}{t('size', { size: item.size })}
                     </p>
-                    <p className="text-sm font-bold text-violet-700 mt-1">{fmt(item.price)}</p>
+                    <p className="text-sm font-bold store-text-primary mt-1">{fmt(item.price)}</p>
                     {item.cuotas > 0 && (
                       <p className="text-[11px] text-gray-400">
                         {t('installments', { cuotas: item.cuotas, price: fmt(Math.round(item.price / item.cuotas)) })}
@@ -109,14 +109,14 @@ export default function CartDrawer() {
 
         {/* Footer */}
         {items.length > 0 && (
-          <div className="border-t px-5 py-4 space-y-3 bg-white">
+          <div className="border-t px-5 py-4 space-y-3 store-surface">
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-600">{t('subtotal')}</span>
               <span className="text-lg font-bold text-gray-900">{fmt(total)}</span>
             </div>
             <p className="text-xs text-gray-400">{t('shippingNote')}</p>
             <Link href={checkoutHref} onClick={closeCart}
-              className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm transition-colors shadow-lg shadow-violet-200">
+              className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl store-btn-primary font-bold text-sm shadow-lg">
               {t('goToCheckout')}
               <ArrowRight className="h-4 w-4" />
             </Link>

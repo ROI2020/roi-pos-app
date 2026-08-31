@@ -21,6 +21,7 @@ import { CurrencyProvider }   from './_context/currency-context'
 import { StorePathProvider }  from './_context/store-path-context'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
+import './store-theme.css'
 
 export const metadata: Metadata = {
   other: {
@@ -34,9 +35,10 @@ export default async function TiendaLayout({
   children: React.ReactNode
 }) {
   // ── Resolver negocio y configuración de idioma/moneda ─────────────────────
-  let locale     = 'es'
-  let currency   = 'ARS'
-  let fullLocale = 'es-AR'
+  let locale      = 'es'
+  let currency    = 'ARS'
+  let fullLocale  = 'es-AR'
+  let themeStyle  = ''          // CSS con variables del tema por negocio
   // x-store-base lo inyecta el middleware: '/store' (en) | '/tienda' (es)
   // Si no está (ej: SSR directo sin middleware), lo derivamos del locale.
   let storeBasePath = '/tienda'
@@ -49,7 +51,12 @@ export default async function TiendaLayout({
     const headerBase = h.get('x-store-base')
 
     const businessId = await resolveBusinessFromHost(host)
-    const s = await getPublicSettingsByKeys(businessId, ['locale', 'currency'])
+    const s = await getPublicSettingsByKeys(businessId, [
+      'locale', 'currency',
+      'catalog_color_primary', 'catalog_color_secondary',
+      'catalog_color_bg', 'catalog_color_surface', 'catalog_color_text',
+      'catalog_color_muted', 'catalog_color_border', 'catalog_font',
+    ])
 
     fullLocale = s.locale   ?? 'es-AR'
     currency   = s.currency ?? 'ARS'
@@ -58,6 +65,27 @@ export default async function TiendaLayout({
 
     // Si el middleware ya inyectó el header, confiar en él; sino derivar del locale
     storeBasePath = headerBase ?? (locale === 'en' ? '/store' : '/tienda')
+
+    // ── Tema visual por negocio ──────────────────────────────────
+    // Construye CSS custom properties a partir de los settings
+    const font = s.catalog_font?.trim() ?? ''
+    const cssImport = font
+      ? `@import url('https://fonts.googleapis.com/css2?family=${encodeURIComponent(font)}:wght@400;500;600;700;800&display=swap');\n`
+      : ''
+    const cssVars = [
+      s.catalog_color_primary   && `--store-primary:${s.catalog_color_primary};`,
+      s.catalog_color_secondary && `--store-secondary:${s.catalog_color_secondary};`,
+      s.catalog_color_bg        && `--store-bg:${s.catalog_color_bg};`,
+      s.catalog_color_surface   && `--store-surface:${s.catalog_color_surface};`,
+      s.catalog_color_text      && `--store-text:${s.catalog_color_text};`,
+      s.catalog_color_muted     && `--store-muted:${s.catalog_color_muted};`,
+      s.catalog_color_border    && `--store-border:${s.catalog_color_border};`,
+      font && `--store-font:'${font}',system-ui,-apple-system,sans-serif;`,
+    ].filter(Boolean).join('')
+
+    if (cssImport || cssVars) {
+      themeStyle = `${cssImport}${cssVars ? `:root{${cssVars}}` : ''}`
+    }
   } catch {
     // Fallback silencioso: Spanish / ARS / /tienda
   }
@@ -79,6 +107,11 @@ export default async function TiendaLayout({
 
   return (
     <NextIntlClientProvider locale={fullLocale} messages={messages}>
+      {/* Inyectar variables CSS del tema antes que cualquier componente */}
+      {themeStyle && (
+        // eslint-disable-next-line react/no-danger
+        <style dangerouslySetInnerHTML={{ __html: themeStyle }} />
+      )}
       <StorePathProvider basePath={storeBasePath}>
         <CurrencyProvider currency={currency} locale={fullLocale}>
           <CartProvider>
