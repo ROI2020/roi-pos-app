@@ -28,19 +28,20 @@ interface CJProduct {
 }
 
 interface CJVariant {
-  vid:              string
-  variantSku:       string
-  variantColor:     string
-  variantSize:      string
-  variantSellPrice: string
-  variantImage:     string
-  variantStock:     number
+  vid:                 string
+  variantSku:          string
+  variantColor:        string   // viene de variantKey en la API real
+  variantSize:         string
+  variantSellPrice:    string
+  variantSugSellPrice: string   // precio sugerido de venta por CJ
+  variantImage:        string
+  variantStock:        number | null  // null = CJ no informa stock por variante
 }
 
 interface CJProductDetail extends CJProduct {
   productDescription: string
   productWeight:      string
-  listedNum:          number   // stock total del producto (nivel producto, no por variante)
+  suggestSellPrice:   string  // precio sugerido de venta a nivel producto
   variants:           CJVariant[]
   productImages:      string[]
 }
@@ -405,21 +406,19 @@ export default function CJImportPage() {
               {/* Info */}
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs text-gray-400">Precio CJ</p>
+                  <p className="text-xs text-gray-400">Precio CJ (costo)</p>
                   <p className="font-bold text-lg text-gray-900">{fmt(selected.sellPrice)}</p>
                 </div>
+                {parseFloat(selected.suggestSellPrice) > 0 && (
+                  <div className="bg-violet-50 border border-violet-100 rounded-lg p-3">
+                    <p className="text-xs text-violet-500">Precio sugerido CJ</p>
+                    <p className="font-bold text-lg text-violet-700">{fmt(selected.suggestSellPrice)}</p>
+                  </div>
+                )}
                 <div className="bg-gray-50 rounded-lg p-3">
                   <p className="text-xs text-gray-400">Variantes</p>
                   <p className="font-bold text-lg text-gray-900">{selected.variants?.length ?? 0}</p>
                 </div>
-                {selected.listedNum > 0 && (
-                  <div className="bg-green-50 border border-green-100 rounded-lg p-3">
-                    <p className="text-xs text-green-600">Stock total CJ</p>
-                    <p className="font-bold text-lg text-green-700">
-                      {selected.listedNum.toLocaleString()} uds.
-                    </p>
-                  </div>
-                )}
                 <div className="bg-gray-50 rounded-lg p-3 col-span-2">
                   <p className="text-xs text-gray-400">Categoría</p>
                   <p className="font-medium text-gray-800">{selected.categoryName}</p>
@@ -438,18 +437,33 @@ export default function CJImportPage() {
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="text-left p-2 text-gray-500">Color</th>
-                          <th className="text-left p-2 text-gray-500">Talle</th>
-                          <th className="text-left p-2 text-gray-500">SKU</th>
-                          <th className="text-right p-2 text-gray-500">Precio</th>
-                          <th className="text-right p-2 text-gray-500">Stock CJ</th>
+                          <th className="text-left p-2 text-gray-500">Img</th>
+                          <th className="text-left p-2 text-gray-500">Color / Variante</th>
+                          <th className="text-left p-2 text-gray-500">SKU / VID</th>
+                          <th className="text-right p-2 text-gray-500">Costo CJ</th>
+                          <th className="text-right p-2 text-gray-500">P. Sugerido</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
                         {selected.variants.map(v => (
                           <tr key={v.vid} className="hover:bg-gray-50">
-                            <td className="p-2 text-gray-700">{v.variantColor || '—'}</td>
-                            <td className="p-2 text-gray-700">{v.variantSize  || '—'}</td>
+                            <td className="p-1.5">
+                              {v.variantImage ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={v.variantImage}
+                                  alt={v.variantColor}
+                                  className="w-9 h-9 object-cover rounded border"
+                                  onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                                />
+                              ) : <div className="w-9 h-9 bg-gray-100 rounded border" />}
+                            </td>
+                            <td className="p-2 text-gray-800 font-medium">
+                              {v.variantColor || v.variantSize || '—'}
+                              {v.variantSize && v.variantColor && (
+                                <span className="text-gray-400 ml-1">/ {v.variantSize}</span>
+                              )}
+                            </td>
                             <td className="p-2">
                               <div className="font-mono text-gray-600 text-[10px] leading-tight">
                                 <span title="SKU" className="block">{v.variantSku || '—'}</span>
@@ -459,8 +473,10 @@ export default function CJImportPage() {
                             <td className="p-2 text-right font-mono text-gray-800">
                               {fmt(v.variantSellPrice || selected.sellPrice)}
                             </td>
-                            <td className={`p-2 text-right font-medium ${v.variantStock > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                              {v.variantStock > 0 ? v.variantStock : 'Sin stock'}
+                            <td className="p-2 text-right text-violet-600 font-medium">
+                              {parseFloat(v.variantSugSellPrice) > 0
+                                ? fmt(v.variantSugSellPrice)
+                                : '—'}
                             </td>
                           </tr>
                         ))}

@@ -124,21 +124,27 @@ export interface CJProductSummary {
 }
 
 export interface CJVariant {
-  vid:              string
-  variantSku:       string
-  variantColor:     string
-  variantSize:      string
-  variantSellPrice: string
-  variantImage:     string
-  variantStock:     number
-  variantWeight:    string   // grams
+  vid:                  string
+  variantSku:           string
+  /** Color o atributo de variante ("Black", "Black yellow"). Viene de variantKey en la API. */
+  variantColor:         string
+  variantSize:          string
+  variantSellPrice:     string
+  /** Precio de venta sugerido por CJ (basado en márgenes típicos del mercado) */
+  variantSugSellPrice:  string
+  variantImage:         string
+  /** Stock por variante. null = CJ no informa (es normal); 0 = sin stock confirmado. */
+  variantStock:         number | null
+  variantWeight:        string   // grams
 }
 
 export interface CJProductDetail extends CJProductSummary {
-  productDescription: string
-  productWeight:      string
-  variants:           CJVariant[]
-  productImages:      string[]
+  productDescription:  string
+  productWeight:       string
+  /** Precio de venta sugerido por CJ a nivel producto */
+  suggestSellPrice:    string
+  variants:            CJVariant[]
+  productImages:       string[]
 }
 
 export interface SearchCJOptions {
@@ -282,92 +288,107 @@ export async function getCJProductDetail(
   }
 
   // ── Normalización de field names ─────────────────────────────────────────
-  // CJ cambia nombres de campos entre versiones de API y planes.
-  // Normalizamos aquí para que el resto del código use nombres estables.
+  // Verificado contra respuesta real de la API (endpoint /product/query):
+  // - productName    → JSON string de array; el nombre limpio está en productNameEn
+  // - productImage   → JSON string de array de URLs (no una URL directa)
+  // - productImageSet → array de strings ✓  (usar este)
+  // - variantKey     → string con el color/atributo ("Black", "Black yellow")
+  // - variantSellPrice → number (no string)
+  // - variantSugSellPrice → precio sugerido de venta por variante
+  // - inventoryNum   → null (CJ no expone stock por variante en este endpoint)
+  // - description    → campo HTML (no productDescription)
 
-  // Imágenes: CJ usa productImageSet (array) o productImages o productImgSet
-  const productImages: string[] = (
-    raw.productImageSet ??
-    raw.productImages   ??
-    raw.productImgSet   ??
-    []
-  ).filter((x: unknown) => typeof x === 'string')
+  // ── Imágenes ─────────────────────────────────────────────────────────────
+  // productImageSet es el array correcto. productImage puede ser un JSON string.
+  let productImages: string[] = []
+  if (Array.isArray(raw.productImageSet) && raw.productImageSet.length > 0) {
+    productImages = (raw.productImageSet as unknown[]).filter((x): x is string => typeof x === 'string')
+  } else if (typeof raw.productImage === 'string' && raw.productImage.startsWith('[')) {
+    try { productImages = JSON.parse(raw.productImage) as string[] } catch { /* ignore */ }
+  }
 
-  // También extrae imágenes de variantes como fallback
-  const variantImages: string[] = []
+  // ── Nombre del producto ───────────────────────────────────────────────────
+  // productNameEn es el nombre limpio; productName puede ser un JSON array string
+  let productName: string = raw.productNameEn ?? ''
+  if (!productName) {
+    const rawName = raw.productName ?? ''
+    if (typeof rawName === 'string' && rawName.startsWith('[')) {
+      try {
+        const parts = JSON.parse(rawName) as string[]
+        productName = parts.filter(Boolean).join(' ').trim()
+      } catch { productName = rawName }
+    } else {
+      productName = String(rawName)
+    }
+  }
 
-  // Variantes: normaliza múltiples esquemas de nombres de campo
+  // ── Imagen principal ──────────────────────────────────────────────────────
+  const mainImage = String(raw.bigImage ?? productImages[0] ?? raw.productImage ?? '')
+    .replace(/^\["|"\]$/g, '')  // limpiar si era JSON string de 1 elemento
+
+  // ── Variantes ─────────────────────────────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const variants: CJVariant[] = (raw.variants ?? raw.variantList ?? []).map((v: any) => {
-    const variantImage = v.variantImage ?? v.variantImgUrl ?? v.image ?? ''
-    if (variantImage) variantImages.push(variantImage)
-
-    // Stock: CJ usa variantStock, variantNum, variantInventory, o listedNum del producto
-    const variantStock: number =
-      v.variantStock     ??
-      v.variantNum       ??
-      v.variantInventory ??
-      v.stockNum         ??
-      v.inventory        ??
-      0
-
-    // Color/Size: pueden venir en variantNameEn o en variantKey (objeto con keyEn/valuEn)
-    let variantColor = v.variantColor ?? ''
-    let variantSize  = v.variantSize  ?? ''
-
-    // Algunos planes retornan los atributos en un array variantKey
-    if (!variantColor && !variantSize && Array.isArray(v.variantKey)) {
+    // variantKey es el atributo de variante en esta versión de API ("Black", "Black yellow")
+    // En otras versiones puede ser un array de objetos con keyEn/valueEn
+    let variantColor = ''
+    if (typeof v.variantKey === 'string' && v.variantKey) {
+      variantColor = v.variantKey
+    } else if (Array.isArray(v.variantKey)) {
+      // Formato objeto: [{keyEn: 'Color', valueEn: 'Black'}, ...]
       for (const k of v.variantKey) {
         const kName = String(k.keyEn ?? k.keyNa ?? '').toLowerCase()
-        const kVal  = String(k.valueEn ?? k.valuEn ?? k.valueNa ?? '')
-        if (kName.includes('color') || kName.includes('colour')) variantColor = kVal
-        else if (kName.includes('size') || kName.includes('talle')) variantSize = kVal
-        else if (!variantColor) variantColor = kVal  // primer atributo → color por defecto
+        const kVal  = String(k.valueEn ?? k.valuEn ?? k.valueNa ?? k.value ?? '')
+        if (kName.includes('color') || kName.includes('colour') || !variantColor) {
+          variantColor = kVal
+        }
       }
-    }
-    // Algunos planes usan variantNameEn como descripción combinada
-    if (!variantColor && !variantSize && v.variantNameEn) {
-      variantColor = v.variantNameEn
+    } else if (v.variantColor) {
+      variantColor = String(v.variantColor)
+    } else if (v.variantNameEn) {
+      variantColor = String(v.variantNameEn)
     }
 
+    // Stock: inventoryNum es el campo verificado; puede ser null (CJ no lo informa en detail)
+    const rawStock = v.inventoryNum ?? v.variantStock ?? v.variantNum ?? v.variantInventory ?? v.stockNum
+    const variantStock: number | null = rawStock !== null && rawStock !== undefined ? Number(rawStock) : null
+
+    // Precios: variantSellPrice puede ser number o string
+    const variantSellPrice     = String(v.variantSellPrice     ?? raw.sellPrice      ?? '0')
+    const variantSugSellPrice  = String(v.variantSugSellPrice  ?? raw.suggestSellPrice ?? '0')
+
     return {
-      vid:              String(v.vid ?? ''),
-      variantSku:       String(v.variantSku ?? v.sku ?? ''),
+      vid:                 String(v.vid         ?? ''),
+      variantSku:          String(v.variantSku  ?? v.sku ?? ''),
       variantColor,
-      variantSize,
-      variantSellPrice: String(v.variantSellPrice ?? v.sellPrice ?? raw.sellPrice ?? '0'),
-      variantImage,
+      variantSize:         String(v.variantSize ?? ''),
+      variantSellPrice,
+      variantSugSellPrice,
+      variantImage:        String(v.variantImage ?? v.variantImgUrl ?? ''),
       variantStock,
-      variantWeight:    String(v.variantWeight ?? v.weight ?? ''),
+      variantWeight:       String(v.variantWeight ?? v.weight ?? ''),
     } satisfies CJVariant
   })
 
-  // Si las imágenes del producto están vacías, usar las de variantes
-  const finalImages = productImages.length > 0 ? productImages : variantImages
-
-  // listedNum: stock total del producto (CJ lo pone a nivel producto, no por variante)
-  const listedNum: number = raw.listedNum ?? raw.listedNumber ?? raw.productStock ?? 0
-
-  // Si todas las variantes tienen stock 0 pero listedNum > 0,
-  // distribuir el stock del producto entre las variantes
-  const allVariantsZeroStock = variants.every(v => v.variantStock === 0)
-  const normalizedVariants = (allVariantsZeroStock && listedNum > 0)
-    ? variants.map(v => ({ ...v, variantStock: listedNum }))
-    : variants
+  // Si productImages sigue vacío, usar imágenes de variantes
+  if (productImages.length === 0) {
+    productImages = variants.map(v => v.variantImage).filter(Boolean)
+  }
 
   return {
-    pid:                String(raw.pid         ?? pid),
-    productName:        String(raw.productName ?? ''),
-    productImage:       String(raw.productImage ?? raw.productImgUrl ?? finalImages[0] ?? ''),
+    pid:                String(raw.pid          ?? pid),
+    productName,
+    productImage:       mainImage,
     sellPrice:          String(raw.sellPrice    ?? '0'),
     productUnit:        String(raw.productUnit  ?? ''),
-    listedNum,
+    listedNum:          Number(raw.listedNum    ?? 0),
     categoryId:         String(raw.categoryId   ?? ''),
     categoryName:       String(raw.categoryName ?? ''),
-    productDescription: String(raw.productDescription ?? raw.description ?? ''),
-    productWeight:      String(raw.productWeight ?? raw.weight ?? ''),
-    variants:           normalizedVariants,
-    productImages:      finalImages,
+    productDescription: String(raw.description  ?? raw.productDescription ?? ''),
+    productWeight:      String(raw.productWeight ?? raw.packingWeight ?? raw.weight ?? ''),
+    suggestSellPrice:   String(raw.suggestSellPrice ?? '0'),
+    variants,
+    productImages,
   }
 }
 
@@ -520,7 +541,7 @@ export async function getCJProductStock(
     map.set(v.vid, {
       vid:   v.vid,
       price: parseFloat(v.variantSellPrice) || parseFloat(detail.sellPrice) || 0,
-      stock: v.variantStock,
+      stock: v.variantStock ?? 0,
     })
   }
   return map
