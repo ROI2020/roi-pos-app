@@ -40,6 +40,7 @@ interface CJVariant {
 interface CJProductDetail extends CJProduct {
   productDescription: string
   productWeight:      string
+  listedNum:          number   // stock total del producto (nivel producto, no por variante)
   variants:           CJVariant[]
   productImages:      string[]
 }
@@ -139,19 +140,24 @@ export default function CJImportPage() {
       if ('error' in data) throw new Error(data.error)
       setSelected(data)
 
-      // Cargar flete en paralelo (no bloquea la apertura del modal)
+      // Cargar flete en paralelo (no bloquea la apertura del modal).
+      // Intenta CN primero; si no hay opciones, prueba US (warehouses distintos).
       const firstVid = data.variants?.[0]?.vid
       if (firstVid) {
         setLoadingFreight(true)
-        const from = warehouse === 'US' ? 'US' : 'CN'
-        fetch(`/api/admin/cj/freight?vid=${firstVid}&from=${from}&to=US`)
-          .then(r => r.json())
-          .then((opts: CJFreightOption[] | { error: string }) => {
-            if (!Array.isArray(opts)) return
-            setFreight(opts)
-          })
-          .catch(() => {/* silencioso */})
-          .finally(() => setLoadingFreight(false))
+        const preferredFrom = warehouse === 'US' ? 'US' : 'CN'
+        const fallbackFrom  = preferredFrom === 'US' ? 'CN' : 'US'
+
+        const tryFetch = (from: string) =>
+          fetch(`/api/admin/cj/freight?vid=${firstVid}&from=${from}&to=US`)
+            .then(r => r.json() as Promise<CJFreightOption[] | { error: string }>)
+            .then(opts => Array.isArray(opts) ? opts : [])
+            .catch(() => [] as CJFreightOption[])
+
+        tryFetch(preferredFrom).then(async (opts) => {
+          const result = opts.length > 0 ? opts : await tryFetch(fallbackFrom)
+          setFreight(result)
+        }).finally(() => setLoadingFreight(false))
       }
     } catch (err) {
       toast.error(String(err))
@@ -406,6 +412,14 @@ export default function CJImportPage() {
                   <p className="text-xs text-gray-400">Variantes</p>
                   <p className="font-bold text-lg text-gray-900">{selected.variants?.length ?? 0}</p>
                 </div>
+                {selected.listedNum > 0 && (
+                  <div className="bg-green-50 border border-green-100 rounded-lg p-3">
+                    <p className="text-xs text-green-600">Stock total CJ</p>
+                    <p className="font-bold text-lg text-green-700">
+                      {selected.listedNum.toLocaleString()} uds.
+                    </p>
+                  </div>
+                )}
                 <div className="bg-gray-50 rounded-lg p-3 col-span-2">
                   <p className="text-xs text-gray-400">Categoría</p>
                   <p className="font-medium text-gray-800">{selected.categoryName}</p>

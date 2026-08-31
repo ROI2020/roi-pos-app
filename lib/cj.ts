@@ -186,24 +186,29 @@ export async function getCJProductDetail(
   token: string,
   pid:   string,
 ): Promise<CJProductDetail> {
-  type Attempt = () => Promise<CJProductDetail>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type RawProduct = Record<string, any>
+  type Attempt = () => Promise<RawProduct>
 
   const attempts: Attempt[] = [
     // 1. POST con body — formato preferido en API v2 moderna
-    () => cjFetch<CJProductDetail>(token, '/product/getProductById', {
+    () => cjFetch<RawProduct>(token, '/product/getProductById', {
       method: 'POST',
       body:   JSON.stringify({ pid }),
     }),
     // 2. GET query param — formato original v2
-    () => cjFetch<CJProductDetail>(token, `/product/getProductById?pid=${pid}`),
+    () => cjFetch<RawProduct>(token, `/product/getProductById?pid=${pid}`),
     // 3. Endpoint alternativo documentado en algunos planes
-    () => cjFetch<CJProductDetail>(token, `/product/query?pid=${pid}`),
+    () => cjFetch<RawProduct>(token, `/product/query?pid=${pid}`),
   ]
 
   let lastError = ''
+  let raw: RawProduct | null = null
+
   for (const attempt of attempts) {
     try {
-      return await attempt()
+      raw = await attempt()
+      break
     } catch (err) {
       lastError = String(err)
       // Sólo continuar si el error es "endpoint no registrado"
@@ -211,11 +216,102 @@ export async function getCJProductDetail(
     }
   }
 
-  throw new Error(
-    `Producto CJ pid=${pid} inaccesible. ` +
-    `Ningún endpoint de detalle respondió correctamente. ` +
-    `Último error: ${lastError}`,
-  )
+  if (!raw) {
+    throw new Error(
+      `Producto CJ pid=${pid} inaccesible. ` +
+      `Ningún endpoint de detalle respondió correctamente. ` +
+      `Último error: ${lastError}`,
+    )
+  }
+
+  // ── Normalización de field names ─────────────────────────────────────────
+  // CJ cambia nombres de campos entre versiones de API y planes.
+  // Normalizamos aquí para que el resto del código use nombres estables.
+
+  // Imágenes: CJ usa productImageSet (array) o productImages o productImgSet
+  const productImages: string[] = (
+    raw.productImageSet ??
+    raw.productImages   ??
+    raw.productImgSet   ??
+    []
+  ).filter((x: unknown) => typeof x === 'string')
+
+  // También extrae imágenes de variantes como fallback
+  const variantImages: string[] = []
+
+  // Variantes: normaliza múltiples esquemas de nombres de campo
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const variants: CJVariant[] = (raw.variants ?? raw.variantList ?? []).map((v: any) => {
+    const variantImage = v.variantImage ?? v.variantImgUrl ?? v.image ?? ''
+    if (variantImage) variantImages.push(variantImage)
+
+    // Stock: CJ usa variantStock, variantNum, variantInventory, o listedNum del producto
+    const variantStock: number =
+      v.variantStock     ??
+      v.variantNum       ??
+      v.variantInventory ??
+      v.stockNum         ??
+      v.inventory        ??
+      0
+
+    // Color/Size: pueden venir en variantNameEn o en variantKey (objeto con keyEn/valuEn)
+    let variantColor = v.variantColor ?? ''
+    let variantSize  = v.variantSize  ?? ''
+
+    // Algunos planes retornan los atributos en un array variantKey
+    if (!variantColor && !variantSize && Array.isArray(v.variantKey)) {
+      for (const k of v.variantKey) {
+        const kName = String(k.keyEn ?? k.keyNa ?? '').toLowerCase()
+        const kVal  = String(k.valueEn ?? k.valuEn ?? k.valueNa ?? '')
+        if (kName.includes('color') || kName.includes('colour')) variantColor = kVal
+        else if (kName.includes('size') || kName.includes('talle')) variantSize = kVal
+        else if (!variantColor) variantColor = kVal  // primer atributo → color por defecto
+      }
+    }
+    // Algunos planes usan variantNameEn como descripción combinada
+    if (!variantColor && !variantSize && v.variantNameEn) {
+      variantColor = v.variantNameEn
+    }
+
+    return {
+      vid:              String(v.vid ?? ''),
+      variantSku:       String(v.variantSku ?? v.sku ?? ''),
+      variantColor,
+      variantSize,
+      variantSellPrice: String(v.variantSellPrice ?? v.sellPrice ?? raw.sellPrice ?? '0'),
+      variantImage,
+      variantStock,
+      variantWeight:    String(v.variantWeight ?? v.weight ?? ''),
+    } satisfies CJVariant
+  })
+
+  // Si las imágenes del producto están vacías, usar las de variantes
+  const finalImages = productImages.length > 0 ? productImages : variantImages
+
+  // listedNum: stock total del producto (CJ lo pone a nivel producto, no por variante)
+  const listedNum: number = raw.listedNum ?? raw.listedNumber ?? raw.productStock ?? 0
+
+  // Si todas las variantes tienen stock 0 pero listedNum > 0,
+  // distribuir el stock del producto entre las variantes
+  const allVariantsZeroStock = variants.every(v => v.variantStock === 0)
+  const normalizedVariants = (allVariantsZeroStock && listedNum > 0)
+    ? variants.map(v => ({ ...v, variantStock: listedNum }))
+    : variants
+
+  return {
+    pid:                String(raw.pid         ?? pid),
+    productName:        String(raw.productName ?? ''),
+    productImage:       String(raw.productImage ?? raw.productImgUrl ?? finalImages[0] ?? ''),
+    sellPrice:          String(raw.sellPrice    ?? '0'),
+    productUnit:        String(raw.productUnit  ?? ''),
+    listedNum,
+    categoryId:         String(raw.categoryId   ?? ''),
+    categoryName:       String(raw.categoryName ?? ''),
+    productDescription: String(raw.productDescription ?? raw.description ?? ''),
+    productWeight:      String(raw.productWeight ?? raw.weight ?? ''),
+    variants:           normalizedVariants,
+    productImages:      finalImages,
+  }
 }
 
 // ── Órdenes ───────────────────────────────────────────────────────────────────
