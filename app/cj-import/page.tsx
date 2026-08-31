@@ -151,6 +151,8 @@ export default function CJImportPage() {
         const preferredFrom = warehouse === 'US' ? 'US' : 'CN'
         const fallbackFrom  = preferredFrom === 'US' ? 'CN' : 'US'
 
+        const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
+
         const tryFetch = (from: string) =>
           fetch(`/api/admin/cj/freight?vid=${firstVid}&from=${from}&to=US`)
             .then(r => r.json() as Promise<CJFreightOption[] | { error: string }>)
@@ -158,8 +160,11 @@ export default function CJImportPage() {
             .catch(() => [] as CJFreightOption[])
 
         tryFetch(preferredFrom).then(async (opts) => {
-          const result = opts.length > 0 ? opts : await tryFetch(fallbackFrom)
-          setFreight(result)
+          if (opts.length > 0) { setFreight(opts); return }
+          // Espera 1.2s antes del segundo intento (rate limit CJ: 1 req/seg)
+          await delay(1200)
+          const fallback = await tryFetch(fallbackFrom)
+          setFreight(fallback)
         }).finally(() => setLoadingFreight(false))
       }
     } catch (err) {

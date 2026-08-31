@@ -589,34 +589,31 @@ export async function getCJFreight(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type RawFreight = Record<string, any>
 
-  const base = {
+  // CJ requiere formato products:[{vid,quantity}] (código 1600300 = "products must be not null"
+  // si se envía vid suelto). Rate limit: 1 req/seg → NO reintentar en el mismo request.
+  const body = JSON.stringify({
     startCountryCode: params.startCountryCode,
     endCountryCode:   params.endCountryCode,
     ...(params.toPostalCode ? { toPostalCode: params.toPostalCode } : {}),
-  }
+    products: [{ vid: params.vid, quantity: params.quantity }],
+  })
 
-  // CJ acepta dos formatos según la versión del plan:
-  // 1. products array (formato moderno / documentado)
-  // 2. vid + quantity sueltos (formato legacy)
-  const bodies = [
-    JSON.stringify({ ...base, products: [{ vid: params.vid, quantity: params.quantity }] }),
-    JSON.stringify({ ...base, vid: params.vid, quantity: params.quantity }),
-  ]
-
-  let list: RawFreight[] | null = null
-  for (const body of bodies) {
-    try {
-      const result = await cjFetch<RawFreight[]>(token, '/logistic/freightCalculate', {
-        method: 'POST', body,
-      })
-      if (Array.isArray(result) && result.length > 0) { list = result; break }
-      if (Array.isArray(result)) { list = result }  // guarda aunque esté vacío, sigue probando
-    } catch {
-      // continua con el siguiente formato
+  let list: RawFreight[]
+  try {
+    const result = await cjFetch<RawFreight[]>(token, '/logistic/freightCalculate', {
+      method: 'POST', body,
+    })
+    list = Array.isArray(result) ? result : []
+  } catch (err) {
+    // Rate limit (1600200), Interface not found, o error de red → silencioso
+    const msg = String(err)
+    if (!msg.includes('Interface not found') && !msg.includes('Too Many')) {
+      console.warn('[getCJFreight]', msg)
     }
+    return []
   }
 
-  if (!list) return []
+  if (list.length === 0) return []
 
   return list.map(r => {
     const freight = parseFloat(String(r.freight ?? r.freightCost ?? 0)) || 0
