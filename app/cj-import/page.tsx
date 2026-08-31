@@ -387,7 +387,7 @@ export default function CJImportPage() {
       {/* ── Modal detalle + import ── */}
       {selected && (
         <Dialog open onOpenChange={() => setSelected(null)}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-4xl w-[95vw] max-h-[92vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-base leading-snug pr-6">
                 {selected.productName}
@@ -415,10 +415,24 @@ export default function CJImportPage() {
                   <p className="font-bold text-lg text-gray-900">{fmt(selected.sellPrice)}</p>
                 </div>
                 {parseFloat(selected.suggestSellPrice) > 0 && (
-                  <div className="bg-violet-50 border border-violet-100 rounded-lg p-3">
-                    <p className="text-xs text-violet-500">Precio sugerido CJ</p>
+                  <button
+                    type="button"
+                    title="Hacer clic para usar este precio como precio de venta"
+                    onClick={() => {
+                      const cost   = parseFloat(selected.sellPrice)
+                      const sugg   = parseFloat(selected.suggestSellPrice)
+                      if (!cost || !sugg) return
+                      const pct = ((sugg / cost) - 1) * 100
+                      setMarkup(pct.toFixed(1))
+                    }}
+                    className="bg-violet-50 border border-violet-100 hover:border-violet-400 hover:bg-violet-100 rounded-lg p-3 text-left transition-colors group"
+                  >
+                    <p className="text-xs text-violet-500 flex items-center gap-1">
+                      Precio sugerido CJ
+                      <span className="text-violet-300 group-hover:text-violet-500 text-[10px]">↙ usar</span>
+                    </p>
                     <p className="font-bold text-lg text-violet-700">{fmt(selected.suggestSellPrice)}</p>
-                  </div>
+                  </button>
                 )}
                 <div className="bg-gray-50 rounded-lg p-3">
                   <p className="text-xs text-gray-400">Variantes</p>

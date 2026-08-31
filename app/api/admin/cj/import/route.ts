@@ -85,8 +85,8 @@ export async function POST(req: Request) {
 
       await client.query(
         `INSERT INTO product_variants
-           (product_id, sku, color, size, specific_image_url, cj_vid, quantity)
-         VALUES ($1, $2, $3, $4, $5, $6, 9999)
+           (product_id, sku, color, size, specific_image_url, cj_vid)
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (sku) DO NOTHING`,
         [
           productId,
