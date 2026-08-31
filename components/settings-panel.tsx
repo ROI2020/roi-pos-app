@@ -762,6 +762,8 @@ function CatalogoTab() {
   const [bannerText,  setBannerText ] = useState('')
   const [catalogPhone, setCatalogPhone] = useState('')
   const [envioInfo,   setEnvioInfo  ] = useState('')
+  const [footerText,  setFooterText ] = useState('')
+  const [catalogCuotas, setCatalogCuotas] = useState('')
   const [ga4MeasurementId, setGa4MeasurementId] = useState('')
   const [ga4PropertyId,    setGa4PropertyId   ] = useState('')
   const [saving,      setSaving     ] = useState(false)
@@ -779,6 +781,8 @@ function CatalogoTab() {
         setBannerText(d.catalog_banner_text ?? '')
         setCatalogPhone(d.catalog_phone ?? '')
         setEnvioInfo(d.catalog_envio_info ?? '')
+        setFooterText(d.catalog_footer_text ?? '')
+        setCatalogCuotas(d.catalog_cuotas ?? '')
         setGa4MeasurementId(d.catalog_ga4_measurement_id ?? '')
         setGa4PropertyId(d.catalog_ga4_property_id ?? '')
       })
@@ -816,6 +820,8 @@ function CatalogoTab() {
           catalog_banner_text:         bannerText.trim() || null,
           catalog_phone:               catalogPhone.trim() || null,
           catalog_envio_info:          envioInfo.trim() || null,
+          catalog_footer_text:         footerText.trim() || null,
+          catalog_cuotas:              catalogCuotas.trim() || null,
           catalog_ga4_measurement_id:  ga4MeasurementId.trim() || null,
           catalog_ga4_property_id:     ga4PropertyId.trim() || null,
         }),
@@ -1015,6 +1021,39 @@ function CatalogoTab() {
           />
           <p className="text-xs text-gray-400">
             Se muestra en el detalle de cada producto. Cada línea = una opción.
+          </p>
+        </div>
+
+        {/* Pie de página de la tienda */}
+        <div className="space-y-1.5">
+          <Label>Pie de página de la tienda</Label>
+          <textarea
+            value={footerText}
+            onChange={e => setFooterText(e.target.value)}
+            rows={4}
+            placeholder={'¡No te pierdas las novedades!\n¿Querés trabajar con nosotros? ¡Mandanos tu CV!'}
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none leading-relaxed"
+          />
+          <p className="text-xs text-gray-400">
+            Texto libre que aparece al final de la tienda. Cada línea = un párrafo.
+          </p>
+        </div>
+
+        {/* Cuotas sin interés */}
+        <div className="space-y-1.5">
+          <Label>Cuotas sin interés</Label>
+          <Input
+            type="number"
+            min="0"
+            max="24"
+            value={catalogCuotas}
+            onChange={e => setCatalogCuotas(e.target.value)}
+            placeholder="0 (desactivado)"
+            className="text-sm w-40"
+          />
+          <p className="text-xs text-gray-400">
+            Número de cuotas sin interés que ofrecés. Ej: <code className="bg-gray-100 px-1 rounded">3</code> muestra
+            "3 cuotas sin interés" en todos los productos. Dejar en 0 u vacío para no mostrar.
           </p>
         </div>
       </div>

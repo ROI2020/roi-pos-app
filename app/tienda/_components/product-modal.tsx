@@ -28,8 +28,8 @@ export default function ProductModal({
   const { fmt } = useCurrency()
   const t = useTranslations('ProductModal')
 
-  // Solo colores con al menos un talle en stock
-  const colors = [...new Set(product.variants.filter(v => v.in_stock).map(v => v.color))]
+  // Solo colores con al menos un talle en stock; filtramos string vacío (sin color diferenciado)
+  const colors = [...new Set(product.variants.filter(v => v.in_stock).map(v => v.color).filter(c => c))]
   const [selColor,    setSelColor   ] = useState<string>(colors[0] ?? '')
   const [selSize,     setSelSize    ] = useState<string>('')
   const [imgKey,      setImgKey     ] = useState(0)
@@ -40,12 +40,15 @@ export default function ProductModal({
 
   const { addItem, items: cartItems, openCart } = useCart()
 
-  const variantsForColor = product.variants.filter(v => v.color === selColor)
-  const sizes        = sortSizes([...new Set(variantsForColor.map(v => v.size))])
+  const variantsForColor = selColor
+    ? product.variants.filter(v => v.color === selColor)
+    : product.variants
+  const sizes        = sortSizes([...new Set(variantsForColor.map(v => v.size).filter(s => s))])
   const inStockSizes = new Set(variantsForColor.filter(v => v.in_stock).map(v => v.size))
   const stockTotal   = totalStock(product)
   const isUltimas    = stockTotal > 0 && stockTotal <= 3
-  const singleSize   = sizes.length === 1 && sizes[0] === 'X'
+  // singleSize: ocultar selector si solo hay un talle 'X' (legado) o ninguno
+  const singleSize   = sizes.length === 0 || (sizes.length === 1 && sizes[0] === 'X')
 
   const variantImg  = variantsForColor[0]?.specific_image_url
   const colorImgId  = product.images_by_color[selColor]
@@ -210,11 +213,11 @@ export default function ProductModal({
                 <p className="text-3xl font-bold text-violet-700 mt-1">{fmt(product.price)}</p>
               )}
 
-              {product.cuotas > 0 && (
+              {store.cuotas > 0 && (
                 <p className="text-sm text-gray-500 mt-1.5">
                   {t('installments', {
-                    cuotas: product.cuotas,
-                    price:  fmt(Math.round((product.promo_price ?? product.price) / product.cuotas)),
+                    cuotas: store.cuotas,
+                    price:  fmt(Math.round((product.promo_price ?? product.price) / store.cuotas)),
                   })}
                 </p>
               )}
@@ -292,15 +295,15 @@ export default function ProductModal({
                     <p className="text-xs text-gray-500">{t('listPrice')}</p>
                   </div>
                 </div>
-                {product.cuotas > 0 && (
+                {store.cuotas > 0 && (
                   <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
                     <CreditCard className="h-5 w-5 text-blue-600 shrink-0" />
                     <div>
                       <p className="text-sm font-medium text-gray-800">{t('creditCards')}</p>
                       <p className="text-xs font-semibold text-blue-600">
                         {t('installmentsNoInterest', {
-                          cuotas: product.cuotas,
-                          price:  fmt(Math.round((product.promo_price ?? product.price) / product.cuotas)),
+                          cuotas: store.cuotas,
+                          price:  fmt(Math.round((product.promo_price ?? product.price) / store.cuotas)),
                         })}
                       </p>
                     </div>

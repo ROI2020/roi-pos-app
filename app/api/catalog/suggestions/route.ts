@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getComplementaryKeywords, toIlikePatterns } from '@/lib/suggestion-rules'
 
 /**
@@ -28,6 +29,10 @@ export async function GET(req: Request) {
   const category  = searchParams.get('category')    // puede ser null
   const excludeId = parseInt(searchParams.get('exclude') ?? '0') || 0
   const limit     = Math.min(parseInt(searchParams.get('limit') ?? '8') || 8, 16)
+
+  // ── Resolver negocio desde el dominio (igual que /api/catalog) ────────────
+  const host       = req.headers.get('host') ?? ''
+  const businessId = await resolveBusinessFromHost(host)
 
   // ── Complementary patterns desde las reglas configuradas ──────────────────
   const complementaryKws      = getComplementaryKeywords(category)
@@ -87,6 +92,7 @@ export async function GET(req: Request) {
 
       WHERE p.exportable_web = true
         AND p.id != $2
+        AND p.business_id = $5
         -- Excluir siempre la misma categoría del producto visto
         AND (
           $3::text IS NULL         -- el producto no tiene categoría → no filtrar
@@ -113,6 +119,7 @@ export async function GET(req: Request) {
       excludeId,              // $2 — producto a excluir
       category,               // $3 — categoría actual (excluir misma cat)
       limit,                  // $4
+      businessId,             // $5 — solo productos del mismo negocio
     ])
 
     return NextResponse.json(rows)

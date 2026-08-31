@@ -18,7 +18,8 @@
     "categories": "Categorías",
     "ageGroups": "Grupo de edad",
     "cartButton": "Carrito",
-    "shippingBanner": "Envíos a todo el país"
+    "shippingBanner": "Envíos a todo el país",
+    "footerDisclaimer": "Precios en pesos argentinos. Stock sujeto a disponibilidad."
   },
   "ProductCard": {
     "lastItems": "¡Últimas!",

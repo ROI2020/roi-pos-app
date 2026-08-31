@@ -1,13 +1,19 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { resolveBusinessFromHost } from '@/lib/tenant-api'
 
 /**
  * GET /api/images/banner
  * Sirve el banner del catálogo (settings.catalog_banner) como imagen HTTP real.
+ * Resuelve el negocio desde el header Host para devolver el banner correcto.
  */
-export async function GET() {
+export async function GET(req: Request) {
+  const host       = req.headers.get('host') ?? ''
+  const businessId = await resolveBusinessFromHost(host)
+
   const { rows } = await pool.query<{ value: string | null }>(
-    `SELECT value FROM settings WHERE key = 'catalog_banner' LIMIT 1`
+    `SELECT value FROM settings WHERE key = 'catalog_banner' AND business_id = $1 LIMIT 1`,
+    [businessId],
   )
 
   const dataUrl = rows[0]?.value

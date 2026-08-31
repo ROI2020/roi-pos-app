@@ -4,6 +4,23 @@ import { requireBusinessId } from '@/lib/get-business-id'
 import type { CJProductDetail } from '@/lib/cj'
 
 /**
+ * Elimina etiquetas HTML y entidades comunes.
+ * CJ envía descripciones como HTML con tablas — las guardamos como texto plano.
+ */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#?\w+;/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
  * POST /api/admin/cj/import
  *
  * Importa un producto de CJ Dropshipping al catálogo local.
@@ -12,7 +29,8 @@ import type { CJProductDetail } from '@/lib/cj'
  * Body:
  * {
  *   product:  CJProductDetail   (tal cual viene de /api/admin/cj/product)
- *   categoryId?: number          (categoría local, opcional)
+ *   categoryId?: number          (categoría local, opcional — si no se provee se intenta
+ *                                  auto-asignar por categoryName del producto CJ)
  *   markup?:  number             (% de markup sobre precio CJ, default 0)
  * }
  *
@@ -51,7 +69,7 @@ export async function POST(req: Request) {
       [
         businessId,
         product.productName.slice(0, 150),
-        product.productDescription?.slice(0, 2000) ?? null,
+        product.productDescription ? stripHtml(product.productDescription).slice(0, 2000) : null,
         finalPrice.toFixed(2),
         product.productImages?.[0] ?? product.productImage ?? null,
         product.productWeight ? Math.round(parseFloat(product.productWeight)) : null,
@@ -60,17 +78,37 @@ export async function POST(req: Request) {
     )
     const productId = prod.id
 
-    // Asignar categoría si se proporcionó
-    if (categoryId) {
-      // Verificar que la categoría pertenece al negocio
+    // Asignar categoría: primero la provista por el admin; si no, auto-match por nombre CJ
+    let resolvedCategoryId: number | null = categoryId ?? null
+
+    if (!resolvedCategoryId && product.categoryName) {
+      const cjCatName = product.categoryName.trim().slice(0, 100)
+      const catMatch = await client.query<{ id: number }>(
+        `SELECT id FROM categories WHERE business_id = $1 AND LOWER(name) = LOWER($2) LIMIT 1`,
+        [businessId, cjCatName],
+      )
+      if (catMatch.rows.length) {
+        resolvedCategoryId = catMatch.rows[0].id
+      } else if (cjCatName) {
+        // Crear categoría automáticamente con el nombre de CJ
+        const newCat = await client.query<{ id: number }>(
+          `INSERT INTO categories (business_id, name) VALUES ($1, $2) RETURNING id`,
+          [businessId, cjCatName],
+        )
+        resolvedCategoryId = newCat.rows[0].id
+      }
+    }
+
+    if (resolvedCategoryId) {
+      // Verificar que la categoría pertenece al negocio (por si vino del body)
       const catQ = await client.query<{ id: number }>(
         `SELECT id FROM categories WHERE id = $1 AND business_id = $2`,
-        [categoryId, businessId],
+        [resolvedCategoryId, businessId],
       )
       if (catQ.rows.length) {
         await client.query(
           `UPDATE products SET category_id = $1 WHERE id = $2`,
-          [categoryId, productId],
+          [resolvedCategoryId, productId],
         )
       }
     }
@@ -91,8 +129,8 @@ export async function POST(req: Request) {
         [
           productId,
           sku.slice(0, 100),
-          (variant.variantColor || 'Única').slice(0, 50),
-          (variant.variantSize  || 'Única').slice(0, 50),
+          (variant.variantColor || '').slice(0, 50),  // '' = sin color diferenciado
+          (variant.variantSize  || '').slice(0, 50),  // '' = sin talle diferenciado
           variant.variantImage || null,
           variant.vid,
         ],
