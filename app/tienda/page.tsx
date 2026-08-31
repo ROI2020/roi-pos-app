@@ -113,7 +113,7 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
       {/* Info */}
       <div className="p-4 flex flex-col gap-2.5 flex-1">
         <div className="cursor-pointer" onClick={onSelect}>
-          <h3 className="text-sm font-semibold text-gray-900 leading-tight line-clamp-2 store-hover-primary transition-colors">
+          <h3 className="text-sm font-semibold leading-tight line-clamp-2 store-hover-primary transition-colors">
             {product.name}
           </h3>
           {product.description && (
@@ -144,7 +144,7 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
               </p>
             </>
           ) : (
-            <p className="text-xl font-bold text-gray-900 tracking-tight">{fmt(product.price)}</p>
+            <p className="text-xl font-bold store-text-primary tracking-tight">{fmt(product.price)}</p>
           )}
           {storeCuotas > 0 && (
             <p className="text-xs text-gray-500">
@@ -318,7 +318,7 @@ export default function TiendaPage() {
               </div>
           }
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-gray-900">{store?.name ?? 'Store'}</h1>
+            <h1 className="text-2xl font-bold">{store?.name ?? 'Store'}</h1>
             {store?.address && (
               <p className="text-sm text-gray-400 flex items-center justify-center gap-1 mt-0.5">
                 <MapPin className="h-3.5 w-3.5" />{store.address}

@@ -34,7 +34,7 @@ export default function CartDrawer() {
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <div className="flex items-center gap-2">
             <ShoppingCart className="h-5 w-5 store-text-primary" />
-            <h2 className="font-semibold text-gray-900">
+            <h2 className="font-semibold">
               {t('title')}
               {items.length > 0 && (
                 <span className="ml-2 text-xs font-medium store-badge-light px-2 py-0.5 rounded-full">
@@ -82,7 +82,7 @@ export default function CartDrawer() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 leading-tight line-clamp-2">
+                    <p className="text-sm font-semibold leading-tight line-clamp-2">
                       {item.productName}
                     </p>
                     <p className="text-xs text-gray-500 mt-0.5">
@@ -112,7 +112,7 @@ export default function CartDrawer() {
           <div className="border-t px-5 py-4 space-y-3 store-surface">
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-600">{t('subtotal')}</span>
-              <span className="text-lg font-bold text-gray-900">{fmt(total)}</span>
+              <span className="text-lg font-bold store-text-primary">{fmt(total)}</span>
             </div>
             <p className="text-xs text-gray-400">{t('shippingNote')}</p>
             <Link href={checkoutHref} onClick={closeCart}

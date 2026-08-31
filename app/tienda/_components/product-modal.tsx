@@ -193,7 +193,7 @@ export default function ProductModal({
 
             {/* Nombre + precio */}
             <div>
-              <h1 className="text-xl font-bold text-gray-900 leading-tight">{product.name}</h1>
+              <h1 className="text-xl font-bold leading-tight">{product.name}</h1>
 
               {product.today_promo && product.promo_price != null ? (
                 <div className="mt-1 space-y-1.5">

@@ -41,7 +41,12 @@
 }
 
 /* ── Superficies (tarjetas, header, footer, drawer, modal) ────── */
-.store-surface { background-color: var(--store-surface); }
+/* color: var(--store-text) es necesario porque el modal/drawer son overlays  */
+/* fixed que no heredan de .store-page                                         */
+.store-surface {
+  background-color: var(--store-surface);
+  color: var(--store-text);
+}
 
 /* ── Texto ────────────────────────────────────────────────────── */
 .store-text-primary   { color: var(--store-primary);   }
