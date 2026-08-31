@@ -29,7 +29,7 @@ export async function GET(req: Request) {
       'business_name', 'business_logo',
       'receipt_address', 'receipt_phone', 'whatsapp_report_number',
       'catalog_banner', 'catalog_banner_text', 'catalog_envio_info',
-      'catalog_phone', 'catalog_cuotas', 'catalog_footer_text',
+      'catalog_phone', 'catalog_cuotas', 'catalog_footer_text', 'catalog_html_banner',
       'currency', 'locale',   // para formateo de precios en la tienda
     ])
 
@@ -276,6 +276,7 @@ export async function GET(req: Request) {
         phone:         s.receipt_phone           ?? null,
         whatsapp:      s.catalog_phone            ?? s.whatsapp_report_number ?? null,
         has_banner:    !!s.catalog_banner,
+        html_banner:   s.catalog_html_banner     ?? null,
         banner_text:   s.catalog_banner_text     ?? null,
         shipping_info: s.catalog_envio_info      ?? null,
         cuotas:        parseInt(s.catalog_cuotas ?? '0') || 0,

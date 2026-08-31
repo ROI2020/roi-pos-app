@@ -343,11 +343,21 @@ export default function TiendaPage() {
         </div>
       </header>
 
-      {store?.has_banner && (
+      {store?.html_banner ? (
+        /* Banner HTML animado — renderizado en iframe aislado para preservar estilos y animaciones */
+        <div className="w-full overflow-hidden" style={{ height: '420px' }}>
+          <iframe
+            srcDoc={store.html_banner}
+            className="w-full h-full border-0"
+            title="Banner"
+            scrolling="no"
+          />
+        </div>
+      ) : store?.has_banner ? (
         <div className="w-full overflow-hidden" style={{ aspectRatio: '3/1', maxHeight: '400px' }}>
           <img src="/api/images/banner" alt="Banner" className="w-full h-full object-cover" />
         </div>
-      )}
+      ) : null}
       {store?.banner_text && (
         <div className="bg-white border-b">
           <div className="max-w-7xl mx-auto px-4 py-4 flex flex-wrap justify-center gap-x-6 gap-y-1.5">
