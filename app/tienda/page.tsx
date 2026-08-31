@@ -318,7 +318,7 @@ export default function TiendaPage() {
               </div>
           }
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-gray-900">{store?.name ?? 'Tienda'}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{store?.name ?? 'Store'}</h1>
             {store?.address && (
               <p className="text-sm text-gray-400 flex items-center justify-center gap-1 mt-0.5">
                 <MapPin className="h-3.5 w-3.5" />{store.address}
@@ -486,11 +486,9 @@ export default function TiendaPage() {
             {store?.phone   && <p className="text-sm text-gray-400">{store.phone}</p>}
           </div>
           {store?.footer_text && (
-            <div className="text-sm text-gray-500 space-y-1">
-              {store.footer_text.split('\n').filter(l => l.trim()).map((line, i) => (
-                <p key={i}>{line}</p>
-              ))}
-            </div>
+            // footer_text puede contener HTML configurado por el admin (links, iconos SVG, etc.)
+            // eslint-disable-next-line react/no-danger
+            <div dangerouslySetInnerHTML={{ __html: store.footer_text }} />
           )}
           <p className="text-xs text-gray-300">
             {t('footerDisclaimer')}
