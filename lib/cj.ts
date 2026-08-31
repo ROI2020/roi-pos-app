@@ -41,6 +41,20 @@ async function cjFetch<T = unknown>(
   return data.data
 }
 
+/** Fetch crudo (sin lanzar error): devuelve el envelope completo {code, message, data} */
+async function cjFetchRaw(
+  token: string,
+  path:  string,
+  init?: RequestInit,
+): Promise<{ code: number; message: string; data: unknown }> {
+  const res = await fetch(`${CJ_BASE}${path}`, {
+    ...init,
+    headers: { ...cjHeaders(token), ...(init?.headers ?? {}) },
+    cache:   'no-store',
+  })
+  return res.json() as Promise<{ code: number; message: string; data: unknown }>
+}
+
 // ── Autenticación ─────────────────────────────────────────────────────────────
 
 /**
@@ -182,6 +196,49 @@ export async function searchCJProducts(
  * Se intenta en ese orden; "Interface not found" indica que ese path
  * no existe en este plan → se prueba el siguiente.
  */
+/**
+ * Devuelve la respuesta cruda de CJ para un producto, sin normalizar.
+ * Útil para debug: ver exactamente qué campo names devuelve CJ en este plan/cuenta.
+ * Prueba los 3 endpoints en orden, retorna el primero que responde con code=200.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getCJProductRaw(token: string, pid: string): Promise<Record<string, any>> {
+  const endpoints = [
+    () => cjFetchRaw(token, '/product/getProductById', {
+      method: 'POST', body: JSON.stringify({ pid }),
+    }),
+    () => cjFetchRaw(token, `/product/getProductById?pid=${pid}`),
+    () => cjFetchRaw(token, `/product/query?pid=${pid}`),
+  ]
+
+  const results: Array<{ endpoint: string; response: { code: number; message: string; data: unknown } }> = []
+  const names = [
+    'POST /product/getProductById',
+    'GET  /product/getProductById?pid',
+    'GET  /product/query?pid',
+  ]
+
+  for (let i = 0; i < endpoints.length; i++) {
+    try {
+      const r = await endpoints[i]()
+      results.push({ endpoint: names[i], response: r })
+      if (r.code === 200) {
+        // Devuelve el data junto con metadata de debug
+        return {
+          _debug: { endpoint: names[i], code: r.code, message: r.message },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ...(r.data as any),
+        }
+      }
+    } catch (err) {
+      results.push({ endpoint: names[i], response: { code: -1, message: String(err), data: null } })
+    }
+  }
+
+  // Ninguno funcionó → devolver diagnóstico completo
+  return { _debug_all_failed: true, attempts: results }
+}
+
 export async function getCJProductDetail(
   token: string,
   pid:   string,
