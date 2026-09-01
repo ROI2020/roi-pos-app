@@ -45,7 +45,7 @@ interface ExpenseType {
 
 const ACCOUNT_TYPES = [
   { value: 'efectivo',    label: 'Efectivo'           },
-  { value: 'mercadopago', label: 'Mercado Pago'       },
+  { value: 'mercadopago', label: 'Billetera'       },
   { value: 'banco',       label: 'Cuenta bancaria'    },
   { value: 'otro',        label: 'Otro'               },
 ] as const
