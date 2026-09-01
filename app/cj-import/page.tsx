@@ -113,10 +113,46 @@ export default function CJImportPage() {
 
   // ── Buscar ────────────────────────────────────────────────────────────────
 
+  /**
+   * Extrae el PID de CJ si la query es:
+   *   - Un PID directo (solo dígitos, ≥10 chars): "2091938725500452866"
+   *   - Una URL de CJ: "https://cjdropshipping.com/product/xxx-p-2091938725500452866.html"
+   * Si no coincide, devuelve null → búsqueda por keyword normal.
+   */
+  function extractCJPid(q: string): string | null {
+    const trimmed = q.trim()
+    // URL de CJ: extrae el PID del patrón -p-{PID}.html
+    const urlMatch = trimmed.match(/[?&-]p[=-](\d{10,})/i) ?? trimmed.match(/\/p-(\d{10,})/i)
+    if (urlMatch) return urlMatch[1]
+    // Solo dígitos, al menos 10 caracteres (PIDs de CJ son ~19 dígitos)
+    if (/^\d{10,}$/.test(trimmed)) return trimmed
+    return null
+  }
+
   const handleSearch = useCallback(async (p = 1) => {
     if (!query.trim()) return
     setSearching(true)
     try {
+      // ── Búsqueda directa por PID o URL de CJ ────────────────────────────
+      const pid = extractCJPid(query)
+      if (pid) {
+        const res  = await fetch(`/api/admin/cj/product?pid=${encodeURIComponent(pid)}`)
+        const data = await res.json() as CJProductDetail | { error: string }
+        if ('error' in data) throw new Error(data.error)
+        // Mostramos el producto encontrado como resultado único
+        setResults([{
+          pid:          data.pid,
+          productName:  data.productName,
+          productImage: data.productImage,
+          sellPrice:    data.sellPrice,
+          categoryName: data.categoryName,
+        }])
+        setTotal(1)
+        setPage(1)
+        return
+      }
+
+      // ── Búsqueda por keyword ─────────────────────────────────────────────
       const params = new URLSearchParams({
         q:       query,
         page:    String(p),
@@ -366,7 +402,7 @@ export default function CJImportPage() {
           {/* Fila 1: campo + botón */}
           <div className="flex gap-3">
             <Input
-              placeholder="Ej: wireless earbuds, led ring light, phone case..."
+              placeholder="Nombre, PID (ej: 2091938725500452866) o URL de CJ..."
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSearch(1)}

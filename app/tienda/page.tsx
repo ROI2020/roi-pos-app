@@ -58,11 +58,15 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
 
   const variantImg   = variantsForColor[0]?.specific_image_url
   const colorImgId   = product.images_by_color[selColor]
-  // Prioridad: foto de color (local) → specific_image_url de variante (proxied) →
-  //            image_url del producto (proxied CDN CJ) → foto principal local
+  // Prioridad en la card (thumbnail):
+  //   foto de color local → image_url del producto (general_image_url CJ) →
+  //   specific_image_url de variante → foto principal local
+  // NOTA: product.image_url va ANTES de variantImg porque para productos CJ todos
+  //       los primeros variantes pueden tener el mismo specific_image_url, mientras
+  //       que general_image_url es distinta por producto. El modal usa otra lógica.
   const imgSrc = colorImgId != null
     ? `/api/images/product-images/${colorImgId}`
-    : variantImg ?? product.image_url ?? (product.has_image ? `/api/images/products/${product.id}` : null)
+    : product.image_url ?? variantImg ?? (product.has_image ? `/api/images/products/${product.id}` : null)
   const longDesc = (product.description?.length ?? 0) > 80
 
   const colorPart = selColor && selColor !== 'Varios'

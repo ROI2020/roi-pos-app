@@ -91,8 +91,10 @@ export async function GET(req: Request) {
       headers: {
         'Content-Type':  contentType,
         'Content-Length': String(buffer.byteLength),
-        // Caché muy agresivo: las URLs de CJ son estáticas e inmutables
-        'Cache-Control': 'public, max-age=31536000, immutable',
+        // private: el browser cachea localmente (evita re-fetch), pero el CDN (Netlify/Vercel)
+        // NO cachea a nivel edge — necesario porque Netlify ignora el ?u= como cache key
+        // y devolvería la misma imagen para todas las URLs del proxy.
+        'Cache-Control': 'private, max-age=86400',
         // No indexar estas imágenes (son de CJ, no del negocio)
         'X-Robots-Tag': 'noindex, nofollow',
       },

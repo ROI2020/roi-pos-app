@@ -450,7 +450,7 @@ export default function ProductModal({
                         <div className="text-right shrink-0">
                           {bonified ? (
                             <>
-                              <p className="text-sm font-bold text-green-700">Bonificado</p>
+                              <p className="text-sm font-bold text-green-700">FREE</p>
                               {opt.freight > 0 && (
                                 <p className="text-xs text-gray-400 line-through">{fmt(opt.freight)}</p>
                               )}
