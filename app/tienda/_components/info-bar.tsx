@@ -65,14 +65,14 @@ export default function InfoBar({ items }: { items: InfoItem[] }) {
 
   return (
     <div className="store-surface border-b">
-      <div className="max-w-7xl mx-auto px-4 py-3 overflow-x-auto scrollbar-none">
-        <div className="flex items-center justify-center gap-x-8 gap-y-2 flex-wrap min-w-max sm:min-w-0">
+      <div className="max-w-7xl mx-auto px-4 py-3">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:justify-center gap-x-8 gap-y-2.5">
           {items.map((item, i) => {
             const Icon = ICON_MAP[item.icon] ?? Tag
             return (
-              <div key={i} className="flex items-center gap-2 shrink-0">
+              <div key={i} className="flex items-center gap-2">
                 <Icon className="h-4 w-4 store-text-primary shrink-0" />
-                <span className="text-xs font-medium store-text-muted whitespace-nowrap">
+                <span className="text-xs font-medium store-text-muted leading-tight">
                   {item.text}
                 </span>
               </div>

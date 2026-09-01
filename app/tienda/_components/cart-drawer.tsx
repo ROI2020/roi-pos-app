@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
-import { X, ShoppingCart, Trash2, ArrowRight, Package } from "lucide-react"
+import { X, ShoppingCart, Trash2, ArrowRight, Package, Minus, Plus } from "lucide-react"
 import { useTranslations } from 'next-intl'
 import { useCart }        from "../_context/cart-context"
 import { useCurrency }    from "../_context/currency-context"
@@ -9,7 +9,7 @@ import { useStoreHref }   from "../_context/store-path-context"
 import Link from "next/link"
 
 export default function CartDrawer() {
-  const { items, total, isOpen, closeCart, removeItem } = useCart()
+  const { items, total, isOpen, closeCart, removeItem, updateQuantity } = useCart()
   const { fmt }     = useCurrency()
   const t           = useTranslations('Cart')
   const checkoutHref = useStoreHref('/checkout')
@@ -88,19 +88,42 @@ export default function CartDrawer() {
                     <p className="text-xs text-gray-500 mt-0.5">
                       {item.color !== 'Varios' && `${item.color} · `}{t('size', { size: item.size })}
                     </p>
-                    <p className="text-sm font-bold store-text-primary mt-1">{fmt(item.price)}</p>
+                    <p className="text-sm font-bold store-text-primary mt-1">
+                      {fmt(item.price * item.quantity)}
+                    </p>
+                    {item.quantity > 1 && (
+                      <p className="text-[11px] text-gray-400">{fmt(item.price)} c/u</p>
+                    )}
                     {item.cuotas > 0 && (
                       <p className="text-[11px] text-gray-400">
                         {t('installments', { cuotas: item.cuotas, price: fmt(Math.round(item.price / item.cuotas)) })}
                       </p>
                     )}
-                  </div>
 
-                  {/* Quitar */}
-                  <button onClick={() => removeItem(item.variantId)}
-                    className="shrink-0 text-gray-300 hover:text-red-400 transition-colors self-start mt-1">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                    {/* Control de cantidad */}
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <button
+                        onClick={() => updateQuantity(item.variantId, item.quantity - 1)}
+                        className="w-6 h-6 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 hover:border-red-300 hover:text-red-400 transition-colors"
+                        aria-label="Reducir cantidad"
+                      >
+                        {item.quantity === 1
+                          ? <Trash2 className="h-3 w-3" />
+                          : <Minus className="h-3 w-3" />
+                        }
+                      </button>
+                      <span className="text-sm font-medium w-5 text-center tabular-nums">
+                        {item.quantity}
+                      </span>
+                      <button
+                        onClick={() => updateQuantity(item.variantId, item.quantity + 1)}
+                        className="w-6 h-6 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 hover:store-text-primary hover:border-current transition-colors"
+                        aria-label="Aumentar cantidad"
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
                 </li>
               ))}
             </ul>

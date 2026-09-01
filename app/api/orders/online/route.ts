@@ -36,29 +36,41 @@ export async function GET(req: Request) {
 
   try {
     const { rows } = await pool.query<{
-      id:            number
-      buyer_name:    string
-      buyer_phone:   string
-      delivery_type: string
-      subtotal:      number
-      shipping_cost: number
-      total:         number
-      status:        string
-      item_count:    number
-      tracking_number: string | null
-      shipment_status: string | null
-      created_at:    string
-      updated_at:    string
+      id:                 number
+      buyer_name:         string
+      buyer_phone:        string
+      buyer_email:        string | null
+      delivery_type:      string
+      subtotal:           number
+      shipping_cost:      number
+      total:              number
+      status:             string
+      payment_method:     string | null
+      fulfillment_status: string | null
+      cj_order_id:        string | null
+      cj_order_num:       string | null
+      cj_tracking_no:     string | null
+      item_count:         number
+      tracking_number:    string | null
+      shipment_status:    string | null
+      created_at:         string
+      updated_at:         string
     }>(
       `SELECT
          oo.id,
          oo.buyer_name,
          oo.buyer_phone,
+         oo.buyer_email,
          oo.delivery_type,
          oo.subtotal::float,
          oo.shipping_cost::float,
          oo.total::float,
          oo.status,
+         oo.payment_method,
+         oo.fulfillment_status,
+         oo.cj_order_id,
+         oo.cj_order_num,
+         oo.cj_tracking_no,
          COUNT(ooi.id)::int AS item_count,
          sh.tracking_number,
          sh.status AS shipment_status,

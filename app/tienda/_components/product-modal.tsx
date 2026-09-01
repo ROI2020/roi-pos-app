@@ -33,6 +33,7 @@ export default function ProductModal({
   const [selColor,    setSelColor   ] = useState<string>(colors[0] ?? '')
   const [selSize,     setSelSize    ] = useState<string>('')
   const [imgKey,      setImgKey     ] = useState(0)
+  const [galIdx,      setGalIdx     ] = useState(0)    // índice activo en la galería CJ
   const [localidad,   setLocalidad  ] = useState('')
   const [cp,          setCp         ] = useState('')
   const [suggestions, setSuggestions] = useState<SuggestionProduct[]>([])
@@ -52,10 +53,16 @@ export default function ProductModal({
 
   const variantImg  = variantsForColor[0]?.specific_image_url
   const colorImgId  = product.images_by_color[selColor]
-  // Prioridad: foto de color → specific_image_url de variante → foto principal
-  const imgSrc = colorImgId != null
-    ? `/api/images/product-images/${colorImgId}`
-    : variantImg ?? (product.has_image ? `/api/images/products/${product.id}` : null)
+
+  // Si hay galería CJ, la usamos con control de índice propio
+  const hasGallery = product.gallery.length > 1
+  // Prioridad: galería CJ activa → foto de color (local) → specific_image_url (proxied) →
+  //            image_url (proxied CDN principal) → foto local
+  const imgSrc = hasGallery
+    ? product.gallery[galIdx]
+    : colorImgId != null
+      ? `/api/images/product-images/${colorImgId}`
+      : variantImg ?? product.image_url ?? (product.has_image ? `/api/images/products/${product.id}` : null)
 
   // Auto-seleccionar talle único
   useEffect(() => {
@@ -85,7 +92,11 @@ export default function ProductModal({
       .catch(() => {})
   }, [product.id, product.category])
 
-  const handleColorChange = (color: string) => { setSelColor(color); setImgKey(k => k + 1) }
+  const handleColorChange = (color: string) => {
+    setSelColor(color)
+    setImgKey(k => k + 1)
+    setGalIdx(0)
+  }
 
   const buildWaMsg = (includeEnvio = false) => {
     let msg = t('greeting', { name: product.name })
@@ -137,6 +148,8 @@ export default function ProductModal({
       hasImage:         product.has_image,
       price:            effectivePrice,
       cuotas:           product.cuotas,
+      quantity:         1,
+      freightOptions:   product.freight_options,
     })
     setAdded(true)
     setTimeout(() => setAdded(false), 2000)
@@ -169,17 +182,58 @@ export default function ProductModal({
         {/* Scroll */}
         <div className="flex-1 overflow-y-auto pb-24">
 
-          {/* Imagen */}
-          <div className="relative bg-gray-100 aspect-[4/3]">
-            {imgSrc ? (
-              <img key={imgKey} src={imgSrc} alt={product.name} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center store-placeholder">
-                <span className="text-7xl font-bold store-placeholder-letter select-none">
-                  {product.name.charAt(0).toUpperCase()}
-                </span>
-              </div>
+          {/* Imagen principal + galería */}
+          <div className="relative bg-gray-100">
+            {/* Imagen principal */}
+            <div className="aspect-[4/3]">
+              {imgSrc ? (
+                <img key={imgKey + '-' + galIdx} src={imgSrc} alt={product.name}
+                  className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center store-placeholder">
+                  <span className="text-7xl font-bold store-placeholder-letter select-none">
+                    {product.name.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Flechas de navegación (solo galería CJ con >1 imagen) */}
+            {hasGallery && (
+              <>
+                <button
+                  aria-label="Imagen anterior"
+                  onClick={() => setGalIdx(i => (i - 1 + product.gallery.length) % product.gallery.length)}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center transition-colors"
+                >
+                  ‹
+                </button>
+                <button
+                  aria-label="Imagen siguiente"
+                  onClick={() => setGalIdx(i => (i + 1) % product.gallery.length)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center transition-colors"
+                >
+                  ›
+                </button>
+                {/* Dots / contador */}
+                <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+                  {product.gallery.slice(0, 8).map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setGalIdx(i)}
+                      className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                        i === galIdx ? 'bg-white' : 'bg-white/40'
+                      }`}
+                    />
+                  ))}
+                  {product.gallery.length > 8 && (
+                    <span className="text-white/60 text-[10px] ml-1">{galIdx + 1}/{product.gallery.length}</span>
+                  )}
+                </div>
+              </>
             )}
+
+            {/* Badge últimas unidades */}
             {isUltimas && (
               <div className="absolute top-3 left-3">
                 <span className="flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-orange-500 text-white shadow animate-pulse">
@@ -188,6 +242,24 @@ export default function ProductModal({
               </div>
             )}
           </div>
+
+          {/* Thumbnails de galería CJ (scroll horizontal) */}
+          {hasGallery && (
+            <div className="flex gap-2 px-3 py-2 overflow-x-auto bg-gray-50 border-b scrollbar-none">
+              {product.gallery.map((url, i) => (
+                <button
+                  key={i}
+                  onClick={() => setGalIdx(i)}
+                  className={`flex-none w-14 h-14 rounded-lg overflow-hidden border-2 transition-colors ${
+                    i === galIdx ? 'store-ring' : 'border-transparent'
+                  }`}
+                >
+                  <img src={url} alt={`Vista ${i + 1}`}
+                    className="w-full h-full object-cover" loading="lazy" />
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="px-5 py-4 space-y-5">
 
@@ -288,27 +360,65 @@ export default function ProductModal({
             <div className="space-y-2">
               <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">{t('paymentMethods')}</p>
               <div className="space-y-2">
-                <div className="flex items-center gap-3 bg-green-50 border border-green-100 rounded-xl px-4 py-3">
-                  <Banknote className="h-5 w-5 text-green-600 shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">{t('cashTransfer')}</p>
-                    <p className="text-xs text-gray-500">{t('listPrice')}</p>
-                  </div>
-                </div>
-                {store.cuotas > 0 && (
-                  <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
-                    <CreditCard className="h-5 w-5 text-blue-600 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-800">{t('creditCards')}</p>
-                      <p className="text-xs font-semibold text-blue-600">
-                        {t('installmentsNoInterest', {
-                          cuotas: store.cuotas,
-                          price:  fmt(Math.round((product.promo_price ?? product.price) / store.cuotas)),
-                        })}
-                      </p>
+
+                {store.payment_gateway === 'paypal' ? (
+                  /* ── PayPal ── */
+                  <>
+                    <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+                      <CreditCard className="h-5 w-5 text-blue-600 shrink-0" />
+                      <div>
+                        {/* Logo PayPal con texto inline */}
+                        <p className="text-sm font-medium text-gray-800">
+                          <span className="font-black">
+                            <span className="text-[#003087]">Pay</span>
+                            <span className="text-[#009cde]">Pal</span>
+                          </span>
+                          {' '}— {t('creditDebitCard')}
+                        </p>
+                        <p className="text-xs text-gray-500">{t('secureCheckout')}</p>
+                      </div>
                     </div>
-                  </div>
+                    <div className="flex items-center gap-3 bg-yellow-50 border border-yellow-100 rounded-xl px-4 py-3">
+                      <Banknote className="h-5 w-5 text-yellow-600 shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">
+                          <span className="font-black">
+                            <span className="text-[#003087]">Pay</span>
+                            <span className="text-[#009cde]">Pal</span>
+                          </span>
+                          {' '}Pay Later
+                        </p>
+                        <p className="text-xs text-gray-500">{t('buyNowPayLater')}</p>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  /* ── Efectivo / Transferencia (manual o MercadoPago) ── */
+                  <>
+                    <div className="flex items-center gap-3 bg-green-50 border border-green-100 rounded-xl px-4 py-3">
+                      <Banknote className="h-5 w-5 text-green-600 shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">{t('cashTransfer')}</p>
+                        <p className="text-xs text-gray-500">{t('listPrice')}</p>
+                      </div>
+                    </div>
+                    {store.cuotas > 0 && (
+                      <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+                        <CreditCard className="h-5 w-5 text-blue-600 shrink-0" />
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">{t('creditCards')}</p>
+                          <p className="text-xs font-semibold text-blue-600">
+                            {t('installmentsNoInterest', {
+                              cuotas: store.cuotas,
+                              price:  fmt(Math.round((product.promo_price ?? product.price) / store.cuotas)),
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
+
               </div>
             </div>
 
@@ -317,7 +427,44 @@ export default function ProductModal({
             {/* Envíos */}
             <div className="space-y-3">
               <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">{t('shippingSection')}</p>
-              {store.shipping_info ? (
+
+              {/* Opciones de envío CJ */}
+              {product.freight_options.length > 0 ? (
+                <div className="space-y-2">
+                  {product.freight_options.map((opt, i) => {
+                    const salePrice = product.promo_price ?? product.price
+                    const bonified  = opt.freight < salePrice * 0.10
+                    return (
+                      <div key={i} className="flex items-start justify-between gap-3 bg-green-50 border border-green-100 rounded-xl px-4 py-3">
+                        <div className="flex items-start gap-2.5">
+                          <Truck className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">{opt.logisticName}</p>
+                            {opt.logisticAging && (
+                              <p className="text-xs text-gray-500">
+                                Estimated delivery: {opt.logisticAging} business days
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {bonified ? (
+                            <>
+                              <p className="text-sm font-bold text-green-700">Bonificado</p>
+                              {opt.freight > 0 && (
+                                <p className="text-xs text-gray-400 line-through">{fmt(opt.freight)}</p>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-sm font-bold store-text-primary">{fmt(opt.freight)}</p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : store.shipping_info ? (
+                /* Envío configurado manualmente */
                 <div className="space-y-1.5">
                   {store.shipping_info.split('\n').filter(l => l.trim()).map((line, i) => (
                     <div key={i} className="flex items-start gap-2 text-sm text-gray-700">
@@ -332,25 +479,28 @@ export default function ProductModal({
                   <span>{t('shippingContact')}</span>
                 </div>
               )}
-              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
-                <p className="text-sm font-medium text-gray-700">{t('calculateShipping')}</p>
-                <div className="flex gap-2">
-                  <input type="text" placeholder={t('cityPlaceholder')} value={localidad}
-                    onChange={e => setLocalidad(e.target.value)}
-                    className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 store-focus-ring bg-white" />
-                  <input type="text" placeholder={t('zipPlaceholder')} value={cp}
-                    onChange={e => setCp(e.target.value)}
-                    className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 store-focus-ring bg-white" />
+              {/* Calculadora de envío — solo para productos locales (no CJ) */}
+              {!product.cj_pid && (
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
+                  <p className="text-sm font-medium text-gray-700">{t('calculateShipping')}</p>
+                  <div className="flex gap-2">
+                    <input type="text" placeholder={t('cityPlaceholder')} value={localidad}
+                      onChange={e => setLocalidad(e.target.value)}
+                      className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 store-focus-ring bg-white" />
+                    <input type="text" placeholder={t('zipPlaceholder')} value={cp}
+                      onChange={e => setCp(e.target.value)}
+                      className="w-20 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 store-focus-ring bg-white" />
+                  </div>
+                  {waEnvio ? (
+                    <a href={waEnvio} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold bg-green-500 hover:bg-green-600 text-white transition-colors">
+                      <MessageCircle className="h-4 w-4" /> {t('whatsappShippingBtn')}
+                    </a>
+                  ) : (
+                    <p className="text-xs text-gray-400 text-center">{t('enterCity')}</p>
+                  )}
                 </div>
-                {waEnvio ? (
-                  <a href={waEnvio} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold bg-green-500 hover:bg-green-600 text-white transition-colors">
-                    <MessageCircle className="h-4 w-4" /> {t('whatsappShippingBtn')}
-                  </a>
-                ) : (
-                  <p className="text-xs text-gray-400 text-center">{t('enterCity')}</p>
-                )}
-              </div>
+              )}
             </div>
 
             {/* Sugerencias */}

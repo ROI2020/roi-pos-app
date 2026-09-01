@@ -47,6 +47,7 @@ export async function POST(req: Request) {
       items: {
         variantId:   number
         unitPrice:   number
+        quantity?:   number
         productName: string
         variantSku:  string
         color:       string
@@ -57,6 +58,7 @@ export async function POST(req: Request) {
       buyerEmail?:    string
       deliveryType:   'pickup_store' | 'homeDelivery' | 'agency'
       shippingRateId?: number
+      cjShippingCost?: number   // Para productos CJ: costo de envío CJ (no hay shipping_rate en DB)
       agencyId?:       string
       address?: {
         streetName:   string
@@ -106,10 +108,11 @@ export async function POST(req: Request) {
     }
 
     // ── Totales ────────────────────────────────────────────────────────────
-    const subtotal = body.items.reduce((s, i) => s + i.unitPrice, 0)
+    const subtotal = body.items.reduce((s, i) => s + i.unitPrice * (i.quantity ?? 1), 0)
 
     let shippingCost = 0
     if (body.shippingRateId) {
+      // Correo Argentino: buscar tarifa real en DB
       const { rows } = await pool.query<{ price: number }>(
         `SELECT sr.price::float
          FROM shipping_rates sr
@@ -118,6 +121,9 @@ export async function POST(req: Request) {
         [body.shippingRateId, businessId],
       )
       shippingCost = rows[0]?.price ?? 0
+    } else if (body.cjShippingCost && body.cjShippingCost > 0) {
+      // CJ Dropshipping: el costo viene del frontend (opciones de CJ no están en shipping_rates)
+      shippingCost = body.cjShippingCost
     }
 
     const total = subtotal + shippingCost
@@ -171,10 +177,10 @@ export async function POST(req: Request) {
       for (const item of body.items) {
         await client.query(
           `INSERT INTO online_order_items
-             (online_order_id, product_variant_id, unit_price,
+             (online_order_id, product_variant_id, unit_price, quantity,
               product_name, variant_sku, variant_color, variant_size)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [orderId, item.variantId, item.unitPrice,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [orderId, item.variantId, item.unitPrice, item.quantity ?? 1,
            item.productName, item.variantSku, item.color, item.size],
         )
       }
@@ -191,9 +197,10 @@ export async function POST(req: Request) {
     const paypalItems: PayPalOrderItem[] = body.items.map(i => ({
       name:       `${i.productName} (${i.color}, ${i.size})`,
       unit_price: i.unitPrice,
+      quantity:   i.quantity ?? 1,
     }))
 
-    const token        = await getPayPalToken(paypalClientId, clientSecret, paypalMode)
+    const token         = await getPayPalToken(paypalClientId, clientSecret, paypalMode)
     const paypalOrderId = await createPayPalOrder({
       token,
       mode:        paypalMode,
@@ -203,6 +210,12 @@ export async function POST(req: Request) {
       items:       paypalItems,
       referenceId: orderId,
     })
+
+    // Guardar el PayPal Order ID para poder rastrearlo en el panel de PayPal
+    await pool.query(
+      `UPDATE online_orders SET paypal_order_id = $1 WHERE id = $2`,
+      [paypalOrderId, orderId],
+    )
 
     return NextResponse.json({ paypalOrderId, internalOrderId: orderId }, { status: 201 })
 

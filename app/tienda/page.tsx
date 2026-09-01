@@ -58,10 +58,11 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
 
   const variantImg   = variantsForColor[0]?.specific_image_url
   const colorImgId   = product.images_by_color[selColor]
-  // Prioridad: foto de color del catálogo → specific_image_url de variante → foto principal del producto
+  // Prioridad: foto de color (local) → specific_image_url de variante (proxied) →
+  //            image_url del producto (proxied CDN CJ) → foto principal local
   const imgSrc = colorImgId != null
     ? `/api/images/product-images/${colorImgId}`
-    : variantImg ?? (product.has_image ? `/api/images/products/${product.id}` : null)
+    : variantImg ?? product.image_url ?? (product.has_image ? `/api/images/products/${product.id}` : null)
   const longDesc = (product.description?.length ?? 0) > 80
 
   const colorPart = selColor && selColor !== 'Varios'

@@ -1,3 +1,14 @@
+/** Opción de envío retornada por getCJFreight. Espejada aquí para uso client-side. */
+export interface CJFreightOption {
+  logisticName:     string
+  freight:          number
+  isFree:           boolean
+  minDeliveryDays?: number
+  maxDeliveryDays?: number
+  /** Rango original como string: "3-5", "7-15", etc. */
+  logisticAging?:   string
+}
+
 export interface Variant {
   id: number; sku: string; color: string; size: string
   specific_image_url: string | null; in_stock: boolean; stock_count: number
@@ -5,7 +16,18 @@ export interface Variant {
 export interface Product {
   id: number; name: string; description: string | null
   price: number; cuotas: number; category: string | null; age_group: string | null
-  has_image: boolean; today_promo: string | null; promo_price: number | null
+  has_image: boolean
+  /** URL principal de imagen, ya proxied. Para CJ = general_image_url via /api/images/proxy. */
+  image_url: string | null
+  /** Galería completa de imágenes CJ (proxied). [] para productos locales. */
+  gallery: string[]
+  /** PID de CJ (null = producto local sin dropshipping). */
+  cj_pid: string | null
+  /** Costo de envío desde CJ en USD. null = sin datos / producto local. */
+  cj_shipping_usd: number | null
+  /** Opciones de envío CJ disponibles (logisticName, freight, delivery time). */
+  freight_options: CJFreightOption[]
+  today_promo: string | null; promo_price: number | null
   variants: Variant[]
   /** Mapa color → product_images.id para cargar /api/images/product-images/[id] */
   images_by_color: Record<string, number>
@@ -26,6 +48,8 @@ export interface StoreData {
   currency: string
   /** BCP 47: 'es-AR', 'en-US', etc. — para Intl.NumberFormat. Default 'es-AR'. */
   locale: string
+  /** Gateway de pago detectado por settings configurados del negocio. */
+  payment_gateway: 'paypal' | 'mercadopago' | 'manual'
 }
 export interface CatalogData {
   store: StoreData; categories: string[]; age_groups: string[]; products: Product[]

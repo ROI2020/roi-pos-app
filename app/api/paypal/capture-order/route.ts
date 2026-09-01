@@ -4,6 +4,7 @@ import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys, getSecretSetting } from '@/lib/settings'
 import { getPayPalToken, capturePayPalOrder } from '@/lib/paypal'
 import { attemptCJFulfillment } from '@/lib/cj-fulfillment'
+import { sendOrderConfirmation } from '@/lib/email-order'
 
 /**
  * POST /api/paypal/capture-order
@@ -29,8 +30,8 @@ export async function POST(req: Request) {
     if (!internalOrderId) return NextResponse.json({ error: 'internalOrderId requerido' }, { status: 400 })
 
     // ── Verificar que la orden pertenece a este negocio ────────────────────────
-    const { rows: orderRows } = await pool.query<{ id: number; status: string }>(
-      `SELECT id, status FROM online_orders WHERE id = $1 AND business_id = $2`,
+    const { rows: orderRows } = await pool.query<{ id: number; status: string; total: number }>(
+      `SELECT id, status, total::float FROM online_orders WHERE id = $1 AND business_id = $2`,
       [internalOrderId, businessId],
     )
     if (!orderRows.length) {
@@ -41,6 +42,8 @@ export async function POST(req: Request) {
     if (orderRows[0].status === 'approved') {
       return NextResponse.json({ success: true, orderId: internalOrderId })
     }
+
+    const dbTotal = orderRows[0].total
 
     // ── Obtener credenciales PayPal del negocio ────────────────────────────────
     const pubSettings = await getPublicSettingsByKeys(businessId, ['paypal_client_id', 'paypal_mode'])
@@ -67,21 +70,55 @@ export async function POST(req: Request) {
       )
     }
 
-    // ── Actualizar el pedido en DB ────────────────────────────────────────────
-    const captureId = captured.captures[0]?.id ?? null
+    // ── Verificar que el monto capturado coincide con nuestro total ───────────
+    // Protege contra manipulación del precio en el frontend.
+    const captureData     = captured.captures[0]
+    const captureId       = captureData?.id ?? null
+    const capturedAmount  = parseFloat(captureData?.amount?.value ?? '0')
+    const capturedCurrency = captureData?.amount?.currency_code ?? null
 
+    if (capturedAmount < dbTotal - 0.02) {
+      // El monto capturado es menor al esperado — posible manipulación de precio.
+      // NO aprobamos el pedido. Logueamos el intento.
+      console.error(
+        `[capture-order] ⚠️  MONTO INSUFICIENTE — orderId=${internalOrderId}`,
+        `esperado=${dbTotal} capturado=${capturedAmount} captureId=${captureId}`
+      )
+      return NextResponse.json(
+        {
+          error:    'Payment amount mismatch',
+          expected: dbTotal,
+          received: capturedAmount,
+        },
+        { status: 402 },
+      )
+    }
+
+    // ── Actualizar el pedido en DB ────────────────────────────────────────────
     await pool.query(
       `UPDATE online_orders
-       SET status           = 'approved',
-           paypal_capture_id = $1,
-           updated_at        = NOW()
-       WHERE id = $2 AND business_id = $3`,
-      [captureId, internalOrderId, businessId],
+       SET status                   = 'approved',
+           paypal_capture_id        = $1,
+           paypal_captured_amount   = $2,
+           paypal_captured_currency = $3,
+           updated_at               = NOW()
+       WHERE id = $4 AND business_id = $5`,
+      [captureId, capturedAmount, capturedCurrency, internalOrderId, businessId],
     )
 
     // Auto-fulfillment CJ (no bloquea la respuesta si falla)
-    attemptCJFulfillment(internalOrderId).catch(e =>
-      console.error('[capture-order] CJ fulfillment error:', e)
+    // En sandbox no enviamos a CJ — solo en live se crea la orden real.
+    if (mode === 'live') {
+      attemptCJFulfillment(internalOrderId).catch(e =>
+        console.error('[capture-order] CJ fulfillment error:', e)
+      )
+    } else {
+      console.log(`[capture-order] Sandbox mode — CJ fulfillment skipped para orderId=${internalOrderId}`)
+    }
+
+    // Email de confirmación (no bloquea la respuesta)
+    sendOrderConfirmation(internalOrderId).catch(e =>
+      console.error('[capture-order] email confirmation error:', e)
     )
 
     return NextResponse.json({ success: true, orderId: internalOrderId })

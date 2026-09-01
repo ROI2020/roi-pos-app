@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireBusinessId } from '@/lib/get-business-id'
+import { getCJTokenForBusiness, getCJFreight } from '@/lib/cj'
 import type { CJProductDetail } from '@/lib/cj'
 
 /**
@@ -60,11 +61,14 @@ export async function POST(req: Request) {
     const finalPrice = basePrice * (1 + markup / 100)
 
     // ── 1. Crear producto local ───────────────────────────────────────────────
+    // cj_data: guardamos el JSON completo para preservar galería, atributos, etc.
+    // general_image_url: primera imagen (fallback rápido sin necesitar cj_data)
     const { rows: [prod] } = await client.query<{ id: number }>(
       `INSERT INTO products
          (business_id, name, description, base_price, general_image_url,
-          weight_grams, cj_pid, cj_last_sync, exportable_web)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), true)
+          weight_grams, cj_pid, cj_last_sync, exportable_web,
+          cj_data, cj_cost_usd, markup_pct, cuotas)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), true, $8, $9, $10, 0)
        RETURNING id`,
       [
         businessId,
@@ -74,6 +78,12 @@ export async function POST(req: Request) {
         product.productImages?.[0] ?? product.productImage ?? null,
         product.productWeight ? Math.round(parseFloat(product.productWeight)) : null,
         product.pid,
+        // cj_data: JSON completo (galería, shipping, atributos). Columna requerida (20260831).
+        JSON.stringify(product),
+        // cj_cost_usd: precio CJ sin markup — se usa en sync para recalcular base_price
+        basePrice.toFixed(2),
+        // markup_pct: porcentaje de markup guardado para que el sync pueda replicarlo
+        markup,
       ],
     )
     const productId = prod.id
@@ -148,7 +158,35 @@ export async function POST(req: Request) {
       }
     }
 
-    // ── 3. Log ────────────────────────────────────────────────────────────────
+    // ── 3. Freight options (async, no bloquea si falla) ───────────────────────
+    // Obtiene las opciones de envío CJ para el primer variant y las persiste.
+    // Rate limit de CJ: 1 req/seg — no reintentar en el mismo request.
+    const firstVid = product.variants[0]?.vid
+    if (firstVid) {
+      try {
+        const cjToken      = await getCJTokenForBusiness(businessId)
+        const freightOpts  = await getCJFreight(cjToken, {
+          vid:              firstVid,
+          quantity:         1,
+          startCountryCode: 'US',    // almacén origen (CJ US warehouse)
+          endCountryCode:   'US',    // destino por defecto
+        })
+        if (freightOpts.length > 0) {
+          const cheapest = freightOpts[0]   // ya ordenados ascendente por precio
+          await client.query(
+            `UPDATE products
+             SET cj_freight_options = $1, cj_shipping_usd = $2
+             WHERE id = $3`,
+            [JSON.stringify(freightOpts), cheapest.freight, productId],
+          )
+        }
+      } catch (freightErr) {
+        // No falla el import si freight no se puede calcular (rate limit, etc.)
+        console.warn('[import] freight sync omitido:', String(freightErr).slice(0, 120))
+      }
+    }
+
+    // ── 4. Log ────────────────────────────────────────────────────────────────
     await client.query(
       `INSERT INTO cj_sync_log (business_id, sync_type, product_id, status, detail)
        VALUES ($1, 'import', $2, 'ok', $3)`,
@@ -169,6 +207,14 @@ export async function POST(req: Request) {
 
   } catch (err) {
     await client.query('ROLLBACK')
+    // Si el error es que cj_data no existe (migration pendiente), reintentar sin ese campo
+    if (String(err).includes('cj_data') && String(err).includes('column')) {
+      console.warn('[POST /api/admin/cj/import] cj_data no existe en DB — ejecutar 20260831_cj_data.sql')
+      return NextResponse.json(
+        { error: 'Migration pendiente: ejecutar db/migrations/20260831_cj_data.sql en Supabase' },
+        { status: 500 }
+      )
+    }
     console.error('[POST /api/admin/cj/import]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
   } finally {

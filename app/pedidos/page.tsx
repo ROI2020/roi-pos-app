@@ -5,6 +5,7 @@ import {
   Package, CheckCircle2, Truck, XCircle, Clock,
   RefreshCw, Printer, MapPin, Eye, Loader2,
   AlertCircle, Store, Building2, CheckCheck, MessageCircle,
+  RotateCcw, ExternalLink, ShoppingBag,
 } from "lucide-react"
 import { toast } from "sonner"
 import { provinceName } from "@/lib/correo/provinces"
@@ -12,21 +13,34 @@ import { imprimirTicket } from "@/lib/print-ticket"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
-type OrderStatus = 'awaiting_payment' | 'pending' | 'confirmed' | 'preparing' | 'shipped' | 'delivered' | 'cancelled'
+type OrderStatus = 'awaiting_payment' | 'approved' | 'pending' | 'confirmed' | 'preparing' | 'shipped' | 'delivered' | 'cancelled'
 
 interface OrderRow {
-  id:              number
-  buyer_name:      string
-  buyer_phone:     string
-  delivery_type:   string
-  subtotal:        number
-  shipping_cost:   number
-  total:           number
-  status:          OrderStatus
-  item_count:      number
-  tracking_number: string | null
-  shipment_status: string | null
-  created_at:      string
+  id:                 number
+  buyer_name:         string
+  buyer_phone:        string
+  buyer_email:        string | null
+  delivery_type:      string
+  subtotal:           number
+  shipping_cost:      number
+  total:              number
+  status:             OrderStatus
+  payment_method:     string | null
+  fulfillment_status: string | null
+  cj_order_id:        string | null
+  cj_order_num:       string | null
+  cj_tracking_no:     string | null
+  item_count:         number
+  tracking_number:    string | null
+  shipment_status:    string | null
+  created_at:         string
+}
+
+interface CJFulfillment {
+  status:       string | null
+  cjOrderId:    string | null
+  cjOrderNum:   string | null
+  cjTrackingNo: string | null
 }
 
 interface OrderDetail {
@@ -41,18 +55,20 @@ interface OrderDetail {
       zipCode: string; observation: string | null
     } | null
   }
-  subtotal:     number
-  shippingCost: number
-  total:        number
-  status:       OrderStatus
-  notes:        string | null
-  saleId:       number | null
-  shipment:     { trackingNumber: string; status: string; error: string | null } | null
+  subtotal:      number
+  shippingCost:  number
+  total:         number
+  status:        OrderStatus
+  paymentMethod: string | null
+  notes:         string | null
+  saleId:        number | null
+  shipment:      { trackingNumber: string; status: string; error: string | null } | null
+  fulfillment:   CJFulfillment | null
   items: {
     id: number; product_variant_id: number
     product_name: string; variant_sku: string
     variant_color: string; variant_size: string
-    unit_price: number; in_stock: boolean
+    unit_price: number; in_stock: boolean; is_cj: boolean
   }[]
   createdAt: string
 }
@@ -63,6 +79,7 @@ interface TrackingEvent { date: string; description: string; location?: string; 
 
 const STATUS_CONFIG: Record<OrderStatus, { label: string; bg: string; fg: string; Icon: React.FC<{ className?: string }> }> = {
   awaiting_payment: { label: 'Esperando pago', bg: 'bg-orange-100', fg: 'text-orange-700', Icon: Clock },
+  approved:  { label: 'Aprobado',    bg: 'bg-green-100',  fg: 'text-green-700',  Icon: CheckCircle2 },
   pending:   { label: 'Pendiente',   bg: 'bg-amber-100',  fg: 'text-amber-700',  Icon: Clock       },
   confirmed: { label: 'Confirmado',  bg: 'bg-blue-100',   fg: 'text-blue-700',   Icon: CheckCircle2 },
   preparing: { label: 'Preparando',  bg: 'bg-violet-100', fg: 'text-violet-700', Icon: Package      },
@@ -93,6 +110,7 @@ const fmtDate = (iso: string) =>
 const TABS: { label: string; status: OrderStatus | '' }[] = [
   { label: 'Todos',         status: ''                 },
   { label: 'Esp. pago',     status: 'awaiting_payment' },
+  { label: 'Aprobados',     status: 'approved'         },
   { label: 'Pendientes',    status: 'pending'          },
   { label: 'Confirmados',   status: 'confirmed'        },
   { label: 'Preparando',    status: 'preparing'        },
@@ -108,15 +126,16 @@ function OrderDetailModal({ orderId, onClose, onRefresh }: {
   onClose:   () => void
   onRefresh: () => void
 }) {
-  const [order,        setOrder       ] = useState<OrderDetail | null>(null)
-  const [loading,      setLoading     ] = useState(true)
-  const [confirming,   setConfirming  ] = useState(false)
-  const [cancelling,   setCancelling  ] = useState(false)
-  const [delivering,   setDelivering  ] = useState(false)
+  const [order,           setOrder          ] = useState<OrderDetail | null>(null)
+  const [loading,         setLoading        ] = useState(true)
+  const [confirming,      setConfirming     ] = useState(false)
+  const [cancelling,      setCancelling     ] = useState(false)
+  const [delivering,      setDelivering     ] = useState(false)
   const [printingReceipt, setPrintingReceipt] = useState(false)
-  const [tracking,     setTracking    ] = useState<TrackingEvent[] | null>(null)
-  const [loadingTk,    setLoadingTk   ] = useState(false)
-  const [printingLabel, setPrintingLabel] = useState(false)
+  const [tracking,        setTracking       ] = useState<TrackingEvent[] | null>(null)
+  const [loadingTk,       setLoadingTk      ] = useState(false)
+  const [printingLabel,   setPrintingLabel  ] = useState(false)
+  const [retrying,        setRetrying       ] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -153,9 +172,11 @@ function OrderDetailModal({ orderId, onClose, onRefresh }: {
       if (data.shipment?.error) {
         toast.warning(`Venta confirmada, pero el envío falló: ${data.shipment.error}. Podés reintentarlo.`)
       } else if (data.shipment?.trackingNumber) {
-        toast.success(`Pedido confirmado · Tracking: ${data.shipment.trackingNumber}`)
-      } else {
+        toast.success(`Pedido confirmado · Tracking PAQ.AR: ${data.shipment.trackingNumber}`)
+      } else if (order?.delivery.type === 'pickup_store') {
         toast.success('Pedido confirmado para retiro en tienda')
+      } else {
+        toast.success('Pedido confirmado')
       }
       load()
       onRefresh()
@@ -344,6 +365,26 @@ function OrderDetailModal({ orderId, onClose, onRefresh }: {
     }
   }
 
+  async function handleRetryFulfillment() {
+    setRetrying(true)
+    try {
+      const res  = await fetch(`/api/orders/online/${orderId}/retry-fulfillment`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      if (data.fulfilled) {
+        toast.success('Fulfillment CJ enviado correctamente')
+      } else {
+        toast.warning('No se pudo enviar a CJ. Revisá la configuración CJ en ajustes.')
+      }
+      load()
+      onRefresh()
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setRetrying(false)
+    }
+  }
+
   const o = order
 
   return (
@@ -359,7 +400,7 @@ function OrderDetailModal({ orderId, onClose, onRefresh }: {
           </div>
           <div className="flex items-center gap-2">
             {o && (() => {
-              const cfg = STATUS_CONFIG[o.status]
+              const cfg = STATUS_CONFIG[o.status] ?? { label: o.status, bg: 'bg-gray-100', fg: 'text-gray-600', Icon: Clock }
               const Icon = cfg.Icon
               return (
                 <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${cfg.bg} ${cfg.fg}`}>
@@ -422,6 +463,54 @@ function OrderDetailModal({ orderId, onClose, onRefresh }: {
                   </div>
                 )}
               </section>
+
+              {/* CJ Fulfillment */}
+              {(o.fulfillment || o.paymentMethod === 'paypal') && (() => {
+                const f = o.fulfillment
+                const fulfilled  = !!f?.cjOrderId
+                const fStatus    = f?.status ?? null
+                const hasFailed  = !fulfilled && ['approved','confirmed','processing','preparing'].includes(o.status)
+
+                const CJ_STATUS: Record<string, { label: string; bg: string; fg: string }> = {
+                  submitted: { label: 'Enviado a CJ',  bg: 'bg-blue-50',   fg: 'text-blue-700'   },
+                  shipped:   { label: 'Despachado CJ', bg: 'bg-cyan-50',   fg: 'text-cyan-700'   },
+                  delivered: { label: 'Entregado CJ',  bg: 'bg-green-50',  fg: 'text-green-700'  },
+                }
+                const stCfg = fStatus ? (CJ_STATUS[fStatus] ?? { label: fStatus, bg: 'bg-gray-50', fg: 'text-gray-600' }) : null
+
+                return (
+                  <section className="space-y-2">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">CJ Dropshipping</p>
+
+                    {hasFailed && (
+                      <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+                        <span>El fulfillment no llegó a CJ. Podés reintentarlo con el botón de abajo.</span>
+                      </div>
+                    )}
+
+                    {stCfg && (
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${stCfg.bg} ${stCfg.fg}`}>
+                        <ShoppingBag className="h-3 w-3" />{stCfg.label}
+                      </span>
+                    )}
+
+                    {f?.cjOrderNum && (
+                      <div className="flex justify-between text-xs text-gray-600">
+                        <span className="text-gray-400">Orden CJ</span>
+                        <span className="font-mono">{f.cjOrderNum}</span>
+                      </div>
+                    )}
+
+                    {f?.cjTrackingNo && (
+                      <div className="flex justify-between text-xs text-gray-600">
+                        <span className="text-gray-400">Tracking CJ</span>
+                        <span className="font-mono select-all">{f.cjTrackingNo}</span>
+                      </div>
+                    )}
+                  </section>
+                )
+              })()}
 
               {/* Items */}
               <section className="space-y-2">
@@ -511,6 +600,16 @@ function OrderDetailModal({ orderId, onClose, onRefresh }: {
                 className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:bg-violet-300 text-white font-semibold text-sm transition-colors">
                 {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                 {confirming ? 'Confirmando…' : 'Confirmar pedido y despachar'}
+              </button>
+            )}
+
+            {/* Retry CJ fulfillment — solo cuando no se envió a CJ y el pago ya fue aprobado */}
+            {!o.fulfillment?.cjOrderId &&
+              ['approved','confirmed','processing','preparing'].includes(o.status) && (
+              <button onClick={handleRetryFulfillment} disabled={retrying}
+                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-amber-200 text-amber-700 hover:bg-amber-50 font-medium text-sm transition-colors">
+                {retrying ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                {retrying ? 'Enviando a CJ…' : 'Reintentar fulfillment CJ'}
               </button>
             )}
 
@@ -649,7 +748,7 @@ export default function PedidosPage() {
         ) : (
           <div className="space-y-2">
             {orders.map(order => {
-              const cfg = STATUS_CONFIG[order.status]
+              const cfg = STATUS_CONFIG[order.status] ?? { label: order.status, bg: 'bg-gray-100', fg: 'text-gray-600', Icon: Clock }
               const Icon = cfg.Icon
               const DelivIcon = DELIVERY_ICON[order.delivery_type] ?? MapPin
               return (
@@ -675,15 +774,35 @@ export default function PedidosPage() {
                           <p className="text-[11px] text-gray-400">{order.item_count} item{order.item_count !== 1 ? 's' : ''}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 mt-1.5">
+                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                         <span className={`flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.fg}`}>
                           <Icon className="h-3 w-3" />{cfg.label}
                         </span>
                         <span className="flex items-center gap-1 text-[11px] text-gray-500">
                           <DelivIcon className="h-3 w-3" />{DELIVERY_LABEL[order.delivery_type] ?? order.delivery_type}
                         </span>
-                        {order.tracking_number && (
-                          <span className="text-[11px] text-cyan-600 font-mono">{order.tracking_number}</span>
+                        {/* CJ: fulfillment badge */}
+                        {order.cj_order_id && order.fulfillment_status === 'submitted' && (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">CJ enviado</span>
+                        )}
+                        {order.cj_order_id && order.fulfillment_status === 'shipped' && (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-cyan-50 text-cyan-600">CJ despachado</span>
+                        )}
+                        {order.cj_order_id && order.fulfillment_status === 'delivered' && (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-green-50 text-green-600">CJ entregado</span>
+                        )}
+                        {/* CJ: alerta si no se envió a CJ y el pago está aprobado */}
+                        {!order.cj_order_id && order.payment_method === 'paypal' &&
+                          ['approved','confirmed','processing','preparing'].includes(order.status) && (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">
+                            ⚠ Sin CJ
+                          </span>
+                        )}
+                        {/* Tracking: CJ primero, PAQ.AR como fallback */}
+                        {(order.cj_tracking_no || order.tracking_number) && (
+                          <span className="text-[11px] text-cyan-600 font-mono">
+                            {order.cj_tracking_no ?? order.tracking_number}
+                          </span>
                         )}
                       </div>
                     </div>

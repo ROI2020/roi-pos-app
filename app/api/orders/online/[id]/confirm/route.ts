@@ -60,32 +60,44 @@ export async function PATCH(
       return NextResponse.json({ error: `El pedido ya está en estado '${order.status}'` }, { status: 409 })
 
     // ── Cargar items ────────────────────────────────────────────────────────
+    // Incluye is_cj para separar variantes CJ (sin branch_inventory) de físicas.
     const { rows: items } = await pool.query<{
-      product_variant_id: number; unit_price: number
+      product_variant_id: number; unit_price: number; is_cj: boolean
     }>(
-      `SELECT product_variant_id, unit_price::float
-       FROM online_order_items WHERE online_order_id = $1`,
+      `SELECT oi.product_variant_id,
+              oi.unit_price::float,
+              (p.cj_pid IS NOT NULL) AS is_cj
+       FROM online_order_items oi
+       JOIN product_variants pv ON pv.id = oi.product_variant_id
+       JOIN products p          ON p.id  = pv.product_id
+       WHERE oi.online_order_id = $1`,
       [orderId]
     )
 
-    const variantIds = items.map(i => i.product_variant_id)
+    const physicalVariantIds = items.filter(i => !i.is_cj).map(i => i.product_variant_id)
+    const hasCJItems         = items.some(i => i.is_cj)
 
-    // ── Re-verificar stock ──────────────────────────────────────────────────
-    const { rows: stockRows } = await pool.query<{ product_variant_id: number }>(
-      `SELECT DISTINCT product_variant_id
-       FROM branch_inventory
-       WHERE product_variant_id = ANY($1::int4[])`,
-      [variantIds]
-    )
-    const inStock   = new Set(stockRows.map(r => r.product_variant_id))
-    const outOfStock = variantIds.filter(id => !inStock.has(id))
-
-    if (outOfStock.length > 0) {
-      return NextResponse.json(
-        { error: 'Algunos items ya no tienen stock', outOfStock },
-        { status: 422 }
+    // ── Re-verificar stock (solo productos físicos) ─────────────────────────
+    // Los productos CJ no tienen branch_inventory — el stock lo gestiona CJ.
+    if (physicalVariantIds.length > 0) {
+      const { rows: stockRows } = await pool.query<{ product_variant_id: number }>(
+        `SELECT DISTINCT product_variant_id
+         FROM branch_inventory
+         WHERE product_variant_id = ANY($1::int4[])`,
+        [physicalVariantIds]
       )
+      const inStock    = new Set(stockRows.map(r => r.product_variant_id))
+      const outOfStock = physicalVariantIds.filter(id => !inStock.has(id))
+
+      if (outOfStock.length > 0) {
+        return NextResponse.json(
+          { error: 'Algunos items ya no tienen stock', outOfStock },
+          { status: 422 }
+        )
+      }
     }
+
+    const variantIds = items.map(i => i.product_variant_id)
 
     // ── Branch para ventas online ───────────────────────────────────────────
     // Preferencia: settings.online_branch_id (sucursal dedicada con CUIT propio).
@@ -134,22 +146,25 @@ export async function PATCH(
       )
       saleId = saleRows[0].id
 
-      // Crear sale_details y eliminar de branch_inventory (descuento de stock)
+      // Crear sale_details (todos los ítems, CJ y físicos por igual — contabilidad).
+      // Descontar stock solo para productos físicos; CJ no usa branch_inventory.
       for (const item of items) {
         await client.query(
           `INSERT INTO sale_details (sale_id, product_variant_id, unit_price)
            VALUES ($1, $2, $3)`,
           [saleId, item.product_variant_id, item.unit_price]
         )
-        await client.query(
-          `DELETE FROM branch_inventory
-           WHERE product_variant_id = $1
-             AND id = (
-               SELECT id FROM branch_inventory
-               WHERE product_variant_id = $1 LIMIT 1
-             )`,
-          [item.product_variant_id]
-        )
+        if (!item.is_cj) {
+          await client.query(
+            `DELETE FROM branch_inventory
+             WHERE product_variant_id = $1
+               AND id = (
+                 SELECT id FROM branch_inventory
+                 WHERE product_variant_id = $1 LIMIT 1
+               )`,
+            [item.product_variant_id]
+          )
+        }
       }
 
       // Actualizar estado del pedido
@@ -169,12 +184,20 @@ export async function PATCH(
     }
 
     // ── Crear envío en PAQ.AR (fuera de la transacción de venta) ───────────
+    // Los pedidos 100% CJ no usan PAQ.AR — CJ gestiona su propio despacho.
+    // Si hay ítems físicos mezclados con CJ, PAQ.AR solo cubre los físicos
+    // (caso edge — se loguea para revisión manual).
     let shipmentResult: { trackingNumber?: string; error?: string } = {}
 
-    if (order.delivery_type !== 'pickup_store') {
+    if (hasCJItems && physicalVariantIds.length === 0) {
+      // Pedido puro CJ — nada que hacer con PAQ.AR.
+      // El fulfillment ya fue enviado a CJ en el momento del pago (capture-order).
+      console.info(`[confirm order ${orderId}] Pedido CJ — PAQ.AR omitido`)
+    } else if (order.delivery_type !== 'pickup_store') {
       try {
-        // Calcular dimensiones del bulto
-        const dims = await calcBulkDimensions(variantIds)
+        // Calcular dimensiones del bulto (solo ítems físicos; CJ no tiene dims en DB)
+        const dimsVariants = physicalVariantIds.length > 0 ? physicalVariantIds : variantIds
+        const dims = await calcBulkDimensions(dimsVariants)
 
         // Cargar dirección si es homeDelivery
         let paqarAddress

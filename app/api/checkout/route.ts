@@ -56,6 +56,7 @@ export async function POST(req: Request) {
       items: {
         variantId:   number
         unitPrice:   number
+        quantity?:   number
         productName: string
         variantSku:  string
         color:       string
@@ -66,6 +67,7 @@ export async function POST(req: Request) {
       buyerEmail?:    string
       deliveryType:   'pickup_store' | 'homeDelivery' | 'agency' | 'locker'
       shippingRateId?: number
+      cjShippingCost?: number   // Para productos CJ: costo de envío CJ (no hay shipping_rate en DB)
       agencyId?:       string
       address?: {
         streetName:   string
@@ -126,10 +128,11 @@ export async function POST(req: Request) {
     }
 
     // ── Calcular totales ───────────────────────────────────────────────────
-    const subtotal = body.items.reduce((sum, i) => sum + i.unitPrice, 0)
+    const subtotal = body.items.reduce((sum, i) => sum + i.unitPrice * (i.quantity ?? 1), 0)
 
     let shippingCost = 0
     if (body.shippingRateId) {
+      // Correo Argentino: buscar tarifa real en DB
       const { rows: rateRows } = await pool.query<{ price: number }>(
         `SELECT sr.price::float
          FROM shipping_rates sr
@@ -140,6 +143,9 @@ export async function POST(req: Request) {
         [body.shippingRateId, businessId]
       )
       shippingCost = rateRows[0]?.price ?? 0
+    } else if (body.cjShippingCost && body.cjShippingCost > 0) {
+      // CJ Dropshipping: el costo viene del frontend (opciones de CJ no están en shipping_rates)
+      shippingCost = body.cjShippingCost
     }
 
     const total = subtotal + shippingCost
@@ -212,10 +218,10 @@ export async function POST(req: Request) {
       for (const item of body.items) {
         await client.query(
           `INSERT INTO online_order_items
-             (online_order_id, product_variant_id, unit_price,
+             (online_order_id, product_variant_id, unit_price, quantity,
               product_name, variant_sku, variant_color, variant_size)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [orderId, item.variantId, item.unitPrice,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [orderId, item.variantId, item.unitPrice, item.quantity ?? 1,
            item.productName, item.variantSku, item.color, item.size]
         )
       }
@@ -242,7 +248,7 @@ export async function POST(req: Request) {
     const mpItems: MPPreferenceItem[] = body.items.map(item => ({
       id:          String(item.variantId),
       title:       `${item.productName} (${item.color}, T.${item.size})`,
-      quantity:    1,
+      quantity:    item.quantity ?? 1,
       unit_price:  item.unitPrice,
       currency_id: currency,
     }))

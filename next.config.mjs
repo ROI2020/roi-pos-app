@@ -8,8 +8,39 @@ const { version } = JSON.parse(readFileSync(new URL('./package.json', import.met
 // next-intl necesario para SSR de componentes con useTranslations.
 const withNextIntl = createNextIntlPlugin('./i18n/request.ts')
 
+// ── Content-Security-Policy para rutas de la tienda pública ─────────────────
+// PayPal Smart Buttons requiere 'unsafe-inline' y frames de paypal.com.
+// El resto del sitio (panel admin) no tiene CSP para no interferir con el POS.
+const TIENDA_CSP = [
+  "default-src 'self'",
+  // PayPal inyecta scripts inline; unsafe-inline es requerido por su SDK
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.paypal.com https://www.paypalobjects.com https://*.paypal.com",
+  // Frames del modal de pago PayPal
+  "frame-src 'self' https://www.paypal.com https://*.paypal.com",
+  // Imágenes de productos (CDN CJ proxiado por /api/images/proxy) + PayPal logos
+  "img-src 'self' data: blob: https://www.paypal.com https://www.paypalobjects.com",
+  // Estilos: tema custom inline + Google Fonts
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  // Fetch a nuestras APIs + PayPal REST API (sandbox y live)
+  "connect-src 'self' https://www.paypal.com https://*.paypal.com https://api-m.sandbox.paypal.com https://api-m.paypal.com",
+].join('; ')
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  async headers() {
+    return [
+      {
+        // Tienda pública: checkout, catálogo, tracking, etc.
+        source: '/(tienda|store)/:path*',
+        headers: [
+          { key: 'Content-Security-Policy', value: TIENDA_CSP },
+          { key: 'X-Content-Type-Options',  value: 'nosniff' },
+          { key: 'X-Frame-Options',         value: 'SAMEORIGIN' },
+        ],
+      },
+    ]
+  },
   // Paquetes que no pueden ser bundleados por webpack (usan CommonJS, binarios nativos, etc.)
   // sharp y @img/* son arrastrados por quagga2 → ndarray-pixels en el path Node.js del scanner
   serverExternalPackages: ['node-soap', 'sharp'],

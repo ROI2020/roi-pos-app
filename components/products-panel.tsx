@@ -855,7 +855,7 @@ function EditProductDialog({
   const [name,        setName       ] = useState(product.name)
   const [description, setDescription] = useState(product.description ?? '')
   const [price,       setPrice      ] = useState(String(product.base_price))
-  const [cuotas,      setCuotas     ] = useState(String(product.cuotas ?? 3))
+  const [cuotas,      setCuotas     ] = useState(String(product.cuotas ?? 0))
   const [categoryId,  setCategoryId ] = useState(product.category_id  ? String(product.category_id)  : '__none__')
   const [ageGroupId,  setAgeGroupId ] = useState(product.age_group_id ? String(product.age_group_id) : '__none__')
   const [seasonId,    setSeasonId   ] = useState(product.season_id    ? String(product.season_id)    : '__none__')

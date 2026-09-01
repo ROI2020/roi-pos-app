@@ -26,18 +26,24 @@ export interface CurrencyConfig {
 }
 
 /**
+ * Monedas sin centavos habituales en e-commerce latinoamericano.
+ * Para estas se formatea sin decimales (ej: $1.500).
+ * El resto (USD, EUR, etc.) se formatea con 2 decimales (ej: $15.99).
+ */
+const NO_DECIMALS = new Set(['ARS', 'CLP', 'COP', 'PYG', 'UYU', 'BOB', 'VES'])
+
+/**
  * Crea un formatter de moneda eficiente (reutiliza Intl internamente).
- * Instanciarlo una vez y pasar la función resultante como prop o contexto.
- *
- * Muestra enteros sin decimales (comportamiento habitual en tiendas online).
- * Para decimales usar maximumFractionDigits: 2 en el options override.
+ * - ARS y otras monedas latinoamericanas: sin decimales ($1.500)
+ * - USD, EUR, etc.: con 2 decimales ($15.99)
  */
 export function createFmt(currency: string, locale: string): (amount: number) => string {
+  const maxFrac = NO_DECIMALS.has(currency.toUpperCase()) ? 0 : 2
   const formatter = new Intl.NumberFormat(locale, {
     style:                 'currency',
     currency,
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    maximumFractionDigits: maxFrac,
   })
   return (amount: number) => formatter.format(amount)
 }
@@ -47,11 +53,12 @@ export function createFmt(currency: string, locale: string): (amount: number) =>
  * Conveniente para usos aislados; si formateás muchos montos, usá createFmt().
  */
 export function formatCurrency(amount: number, config: CurrencyConfig): string {
+  const maxFrac = NO_DECIMALS.has(config.currency.toUpperCase()) ? 0 : 2
   return new Intl.NumberFormat(config.locale, {
     style:                 'currency',
     currency:              config.currency,
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    maximumFractionDigits: maxFrac,
   }).format(amount)
 }
 

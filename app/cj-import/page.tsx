@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react"
 import {
   Search, Package, Plus, Loader2, ChevronLeft, ChevronRight,
-  ExternalLink, CheckCircle2, Truck, Filter,
+  ExternalLink, CheckCircle2, Truck, Filter, RefreshCw, AlertTriangle,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button }   from "@/components/ui/button"
@@ -98,6 +98,16 @@ export default function CJImportPage() {
   const [markup,    setMarkup   ] = useState('30')
   const [importing, setImporting] = useState(false)
   const [imported,  setImported ] = useState<Set<string>>(new Set())
+
+  // ── Sync ──────────────────────────────────────────────────────────────────
+  const [syncing,      setSyncing     ] = useState(false)
+  const [syncProgress, setSyncProgress] = useState<{ current: number; total: number } | null>(null)
+  const [syncResult,   setSyncResult  ] = useState<{
+    updated:      number
+    discontinued: number
+    errors:       { pid: string; error: string }[]
+    total:        number
+  } | null>(null)
 
   const pageSize = 20
 
@@ -195,6 +205,89 @@ export default function CJImportPage() {
     }
   }
 
+  // ── Sync todos los productos CJ (uno por llamada para evitar timeout Netlify) ──
+
+  const handleSync = async () => {
+    setSyncing(true)
+    setSyncResult(null)
+    setSyncProgress(null)
+    try {
+      // 1. Obtener lista de productos
+      const listRes  = await fetch('/api/admin/cj/sync')
+      const listData = await listRes.json() as {
+        products?: { id: number; cj_pid: string; name: string }[]
+        error?:    string
+      }
+      if (listData.error) throw new Error(listData.error)
+
+      const products = listData.products ?? []
+      if (products.length === 0) {
+        toast.info('No hay productos CJ para sincronizar')
+        return
+      }
+
+      setSyncProgress({ current: 0, total: products.length })
+
+      let totalUpdated      = 0
+      let totalDiscontinued = 0
+      const allErrors: { pid: string; error: string }[] = []
+
+      // 2. Sincronizar uno a uno (~3s por producto, dentro del límite Netlify)
+      for (let i = 0; i < products.length; i++) {
+        const prod = products[i]
+        setSyncProgress({ current: i + 1, total: products.length })
+
+        try {
+          const res  = await fetch('/api/admin/cj/sync', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ productId: prod.id }),
+          })
+          const data = await res.json() as {
+            updated:      number
+            discontinued: number
+            errors:       { pid: string; error: string }[]
+            error?:       string
+          }
+          if (data.error) {
+            allErrors.push({ pid: prod.cj_pid, error: data.error })
+          } else {
+            totalUpdated      += data.updated      ?? 0
+            totalDiscontinued += data.discontinued ?? 0
+            allErrors.push(...(data.errors ?? []))
+          }
+        } catch (err) {
+          allErrors.push({ pid: prod.cj_pid, error: String(err) })
+        }
+      }
+
+      setSyncResult({
+        updated:      totalUpdated,
+        discontinued: totalDiscontinued,
+        errors:       allErrors,
+        total:        products.length,
+      })
+
+      if (totalUpdated > 0 || totalDiscontinued > 0) {
+        toast.success(
+          `Sync OK — ${totalUpdated} actualizado(s)` +
+          (totalDiscontinued ? `, ${totalDiscontinued} discontinuado(s)` : '')
+        )
+      } else if (allErrors.length === 0) {
+        toast.info('Sync completado — sin cambios')
+      }
+      if (allErrors.length > 0) {
+        toast.error(`${allErrors.length} error(es) durante el sync`)
+      }
+
+    } catch (err) {
+      toast.error('Error en sync: ' + String(err))
+    } finally {
+      setSyncing(false)
+      setSyncProgress(null)
+    }
+  }
+
   const totalPages = Math.ceil(total / pageSize)
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -204,11 +297,66 @@ export default function CJImportPage() {
       <div className="max-w-5xl mx-auto space-y-6">
 
         {/* Header */}
-        <div className="flex items-center gap-3">
-          <Package className="h-6 w-6 text-violet-600" />
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Importar desde CJ Dropshipping</h1>
-            <p className="text-sm text-gray-500">Buscá productos en el catálogo de CJ y agregalos a tu tienda</p>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Package className="h-6 w-6 text-violet-600" />
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Importar desde CJ Dropshipping</h1>
+              <p className="text-sm text-gray-500">Buscá productos en el catálogo de CJ y agregalos a tu tienda</p>
+            </div>
+          </div>
+
+          {/* Sync */}
+          <div className="flex flex-col items-end gap-2 flex-shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSync}
+              disabled={syncing}
+              className="gap-2 text-violet-700 border-violet-200 hover:bg-violet-50 hover:border-violet-400"
+            >
+              <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Sync en curso...' : 'Sincronizar productos'}
+            </Button>
+
+            {/* Resultado del último sync */}
+            {syncResult && !syncing && (
+              <div className="text-right space-y-0.5">
+                <p className="text-xs text-gray-500">
+                  Sync completado — {syncResult.total} producto(s) procesado(s)
+                </p>
+                <div className="flex items-center justify-end gap-3 text-xs">
+                  <span className="text-green-700 font-medium flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3" />
+                    {syncResult.updated} actualizado(s)
+                  </span>
+                  {syncResult.discontinued > 0 && (
+                    <span className="text-orange-600 font-medium flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3" />
+                      {syncResult.discontinued} discontinuado(s)
+                    </span>
+                  )}
+                  {syncResult.errors.length > 0 && (
+                    <span className="text-red-600 font-medium flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3" />
+                      {syncResult.errors.length} error(es)
+                    </span>
+                  )}
+                </div>
+                {syncResult.errors.length > 0 && (
+                  <details className="text-left mt-1">
+                    <summary className="text-[10px] text-red-500 cursor-pointer">Ver errores</summary>
+                    <ul className="mt-1 space-y-0.5 max-h-24 overflow-y-auto">
+                      {syncResult.errors.map((e, i) => (
+                        <li key={i} className="text-[10px] text-gray-500 font-mono">
+                          <span className="text-red-400">{e.pid}</span>: {e.error.slice(0, 80)}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -630,6 +778,31 @@ export default function CJImportPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+      )}
+
+      {/* ── Indicador flotante de sync en segundo plano ─────────────────────── */}
+      {syncing && (
+        <div className="fixed bottom-6 right-6 z-50 bg-white border border-violet-200 rounded-2xl shadow-xl px-4 py-3 w-64 space-y-2">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 animate-spin text-violet-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-800">Sync en curso</p>
+              <p className="text-xs text-gray-500 truncate">
+                {syncProgress
+                  ? `Producto ${syncProgress.current} de ${syncProgress.total}`
+                  : 'Obteniendo lista...'}
+              </p>
+            </div>
+          </div>
+          {syncProgress && (
+            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-violet-500 transition-all duration-300"
+                style={{ width: `${Math.round((syncProgress.current / syncProgress.total) * 100)}%` }}
+              />
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

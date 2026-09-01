@@ -23,6 +23,7 @@ export async function GET(
       delivery_type: string; agency_id: string | null
       subtotal: number; shipping_cost: number; total: number
       status: string; notes: string | null; sale_id: number | null
+      payment_method: string | null
       created_at: string; updated_at: string
       // dirección
       street_name: string | null; street_number: string | null
@@ -32,21 +33,28 @@ export async function GET(
       // shipping rate
       rate_label: string | null; rate_price: number | null
       carrier_name: string | null
-      // shipment
+      // shipment (PAQ.AR)
       tracking_number: string | null; shipment_status: string | null
       shipment_error: string | null
+      // CJ fulfillment
+      fulfillment_status: string | null
+      cj_order_id:  string | null
+      cj_order_num: string | null
+      cj_tracking_no: string | null
     }>(
       `SELECT
          oo.id, oo.buyer_name, oo.buyer_phone, oo.buyer_email,
          oo.delivery_type, oo.agency_id,
          oo.subtotal::float, oo.shipping_cost::float, oo.total::float,
          oo.status, oo.notes, oo.sale_id,
+         oo.payment_method,
          oo.created_at, oo.updated_at,
          sa.street_name, sa.street_number, sa.floor, sa.department,
          sa.city_name, sa.state, sa.zip_code, sa.observation,
          sr.display_label AS rate_label, sr.price::float AS rate_price,
          cc.display_name AS carrier_name,
-         sh.tracking_number, sh.status AS shipment_status, sh.error_detail AS shipment_error
+         sh.tracking_number, sh.status AS shipment_status, sh.error_detail AS shipment_error,
+         oo.fulfillment_status, oo.cj_order_id, oo.cj_order_num, oo.cj_tracking_no
        FROM online_orders oo
        LEFT JOIN shipping_addresses sa ON sa.id = oo.shipping_address_id
        LEFT JOIN shipping_rates     sr ON sr.id = oo.shipping_rate_id
@@ -64,18 +72,23 @@ export async function GET(
       id: number; product_variant_id: number
       product_name: string; variant_sku: string
       variant_color: string; variant_size: string
-      unit_price: number; in_stock: boolean
+      unit_price: number; in_stock: boolean; is_cj: boolean
     }>(
       `SELECT
          ooi.id, ooi.product_variant_id,
          ooi.product_name, ooi.variant_sku,
          ooi.variant_color, ooi.variant_size,
          ooi.unit_price::float,
-         EXISTS(
-           SELECT 1 FROM branch_inventory bi
-           WHERE bi.product_variant_id = ooi.product_variant_id
-         ) AS in_stock
+         (p.cj_pid IS NOT NULL) AS is_cj,
+         -- CJ items never use branch_inventory; always in_stock from our side
+         (p.cj_pid IS NOT NULL
+          OR EXISTS(
+            SELECT 1 FROM branch_inventory bi
+            WHERE bi.product_variant_id = ooi.product_variant_id
+          )) AS in_stock
        FROM online_order_items ooi
+       JOIN product_variants pv ON pv.id = ooi.product_variant_id
+       JOIN products p          ON p.id  = pv.product_id
        WHERE ooi.online_order_id = $1
        ORDER BY ooi.id`,
       [id]
@@ -98,16 +111,24 @@ export async function GET(
           zipCode: o.zip_code, observation: o.observation,
         } : null,
       },
-      subtotal:   o.subtotal,
-      shippingCost: o.shipping_cost,
-      total:      o.total,
-      status:     o.status,
-      notes:      o.notes,
-      saleId:     o.sale_id,
-      shipment:   o.tracking_number ? {
+      subtotal:      o.subtotal,
+      shippingCost:  o.shipping_cost,
+      total:         o.total,
+      status:        o.status,
+      paymentMethod: o.payment_method,
+      notes:         o.notes,
+      saleId:        o.sale_id,
+      shipment: o.tracking_number ? {
         trackingNumber: o.tracking_number,
         status:         o.shipment_status,
         error:          o.shipment_error,
+      } : null,
+      // CJ dropshipping fulfillment
+      fulfillment: (o.cj_order_id || o.fulfillment_status) ? {
+        status:      o.fulfillment_status,
+        cjOrderId:   o.cj_order_id,
+        cjOrderNum:  o.cj_order_num,
+        cjTrackingNo: o.cj_tracking_no,
       } : null,
       items,
       createdAt:  o.created_at,

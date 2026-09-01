@@ -42,6 +42,7 @@ export async function getPayPalToken(
 export interface PayPalOrderItem {
   name:       string   // max 127 chars
   unit_price: number
+  quantity?:  number   // default 1
 }
 
 export interface CreatePayPalOrderParams {
@@ -80,7 +81,7 @@ export async function createPayPalOrder(p: CreatePayPalOrderParams): Promise<str
         items: p.items.map(i => ({
           name:        i.name.slice(0, 127),
           unit_amount: { currency_code: p.currency, value: i.unit_price.toFixed(2) },
-          quantity:    '1',
+          quantity:    String(i.quantity ?? 1),
           category:    'PHYSICAL_GOODS',
         })),
       }],

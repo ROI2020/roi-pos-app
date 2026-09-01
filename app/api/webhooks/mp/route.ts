@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { mpPayment } from '@/lib/mp'
 import { attemptCJFulfillment } from '@/lib/cj-fulfillment'
+import { sendOrderConfirmation } from '@/lib/email-order'
 
 /**
  * POST /api/webhooks/mp
@@ -86,6 +87,11 @@ export async function POST(req: Request) {
       // Auto-fulfillment CJ si está habilitado para el negocio
       attemptCJFulfillment(orderId).catch(e =>
         console.error('[webhook/mp] CJ fulfillment error:', e)
+      )
+
+      // Email de confirmación al comprador
+      sendOrderConfirmation(orderId).catch(e =>
+        console.error('[webhook/mp] email confirmation error:', e)
       )
 
     } else if (status === 'rejected' || status === 'cancelled') {

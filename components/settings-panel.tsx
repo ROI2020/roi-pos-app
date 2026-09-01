@@ -6,7 +6,7 @@ import {
   Loader2, Save, Upload, X, CheckCircle2, Star,
   Globe, Copy, RefreshCw, Eye, EyeOff, Rss, BarChart2,
   Wallet, ChevronDown, ChevronRight, CreditCard, Sparkles, Receipt,
-  FileText, ExternalLink,
+  FileText, ExternalLink, Mail, Send, Code, Clock,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button }   from "@/components/ui/button"
@@ -34,7 +34,7 @@ interface Account {
   branch_id: number | null; branch_name: string; fops: Fop[]
 }
 
-type Tab = 'negocio' | 'usuarios' | 'sucursales' | 'cuentas' | 'catalogo' | 'ia' | 'gastos' | 'pagos' | 'dropshipping' | 'paginas'
+type Tab = 'negocio' | 'usuarios' | 'sucursales' | 'cuentas' | 'catalogo' | 'ia' | 'gastos' | 'pagos' | 'dropshipping' | 'paginas' | 'email'
 
 interface ExpenseType {
   id: number
@@ -766,6 +766,7 @@ function CatalogoTab() {
   const [footerText,  setFooterText ] = useState('')
   const [catalogCuotas, setCatalogCuotas] = useState('')
   const [infoItems,   setInfoItems  ] = useState('')
+  const [htmlBanner,  setHtmlBanner ] = useState('')
   const [ga4MeasurementId, setGa4MeasurementId] = useState('')
   const [ga4PropertyId,    setGa4PropertyId   ] = useState('')
   // ── Tema visual ──────────────────────────────────────────────
@@ -795,6 +796,7 @@ function CatalogoTab() {
         setFooterText(d.catalog_footer_text ?? '')
         setCatalogCuotas(d.catalog_cuotas ?? '')
         setInfoItems(d.catalog_info_items ?? '')
+        setHtmlBanner(d.catalog_html_banner ?? '')
         setGa4MeasurementId(d.catalog_ga4_measurement_id ?? '')
         setGa4PropertyId(d.catalog_ga4_property_id ?? '')
         setThemeColorPrimary(d.catalog_color_primary     ?? '#7c3aed')
@@ -843,6 +845,7 @@ function CatalogoTab() {
           catalog_footer_text:         footerText.trim() || null,
           catalog_cuotas:              catalogCuotas.trim() || null,
           catalog_info_items:          infoItems.trim() || null,
+          catalog_html_banner:         htmlBanner.trim() || null,
           catalog_ga4_measurement_id:  ga4MeasurementId.trim() || null,
           catalog_ga4_property_id:     ga4PropertyId.trim() || null,
           catalog_color_primary:       themeColorPrimary   || null,
@@ -1102,6 +1105,26 @@ function CatalogoTab() {
           />
           <p className="text-xs text-gray-400">
             Texto libre que aparece al final de la tienda. Cada línea = un párrafo.
+          </p>
+        </div>
+
+        {/* Banner HTML personalizado */}
+        <div className="space-y-1.5">
+          <Label className="flex items-center gap-1.5">
+            <Code className="h-4 w-4 text-gray-400" />
+            Banner HTML personalizado
+          </Label>
+          <textarea
+            value={htmlBanner}
+            onChange={e => setHtmlBanner(e.target.value)}
+            rows={8}
+            spellCheck={false}
+            placeholder={'<!-- Ejemplo: banner promocional -->\n<div style="background:#7c3aed;color:#fff;text-align:center;padding:12px 16px;font-size:14px">\n  🔥 <strong>OFERTA:</strong> 20% OFF en toda la tienda · Código: <code>PROMO20</code>\n</div>'}
+            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-violet-300 resize-y min-h-[120px]"
+          />
+          <p className="text-xs text-gray-400">
+            HTML libre que se inyecta en la parte superior de la tienda (debajo del header).
+            Podés usar estilos inline, emojis y texto. Dejá vacío para no mostrar nada.
           </p>
         </div>
 
@@ -2534,6 +2557,364 @@ function CJTab() {
 // ══════════════════════════════════════════════════════════════════════════════
 // Componente principal
 // ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// Pestaña: Emails transaccionales
+// ══════════════════════════════════════════════════════════════════════════════
+function EmailTab() {
+  const [loading,   setLoading  ] = useState(true)
+  const [saving,    setSaving   ] = useState(false)
+  const [testing,   setTesting  ] = useState(false)
+  const [testTo,    setTestTo   ] = useState('')
+
+  // Campos públicos
+  const [enabled,     setEnabled    ] = useState(false)
+  const [smtpHost,    setSmtpHost   ] = useState('')
+  const [smtpPort,    setSmtpPort   ] = useState('587')
+  const [smtpSecure,  setSmtpSecure ] = useState(false)
+  const [fromName,    setFromName   ] = useState('')
+  const [fromAddress, setFromAddress] = useState('')
+  const [replyTo,     setReplyTo    ] = useState('')
+  const [bcc,         setBcc        ] = useState('')
+
+  // Templates editables
+  const [subjectConfirmation, setSubjectConfirmation] = useState('')
+  const [introConfirmation,   setIntroConfirmation  ] = useState('')
+  const [subjectShipment,     setSubjectShipment    ] = useState('')
+  const [introShipment,       setIntroShipment      ] = useState('')
+
+  // Credenciales secretas (solo se ven como flags)
+  const [userSet,  setUserSet ] = useState(false)
+  const [passSet,  setPassSet ] = useState(false)
+  const [smtpUser, setSmtpUser] = useState('')
+  const [smtpPass, setSmtpPass] = useState('')
+  const [showPass, setShowPass] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/settings/email')
+      .then(r => r.json())
+      .then((d: Record<string, string | boolean>) => {
+        setEnabled(d.email_enabled === 'true')
+        setSmtpHost(String(d.email_smtp_host    ?? ''))
+        setSmtpPort(String(d.email_smtp_port    ?? '587'))
+        setSmtpSecure(d.email_smtp_secure === 'true')
+        setFromName(String(d.email_from_name    ?? ''))
+        setFromAddress(String(d.email_from_address ?? ''))
+        setReplyTo(String(d.email_reply_to      ?? ''))
+        setBcc(String(d.email_bcc               ?? ''))
+        setSubjectConfirmation(String(d.email_subject_confirmation ?? ''))
+        setIntroConfirmation(String(d.email_intro_confirmation     ?? ''))
+        setSubjectShipment(String(d.email_subject_shipment         ?? ''))
+        setIntroShipment(String(d.email_intro_shipment             ?? ''))
+        setUserSet(!!d.email_smtp_user_set)
+        setPassSet(!!d.email_smtp_pass_set)
+      })
+      .catch(() => toast.error('Error al cargar configuración de email'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const body: Record<string, string | null> = {
+        email_enabled:               enabled ? 'true' : 'false',
+        email_smtp_host:             smtpHost.trim()              || null,
+        email_smtp_port:             smtpPort.trim()              || '587',
+        email_smtp_secure:           smtpSecure ? 'true' : 'false',
+        email_from_name:             fromName.trim()              || null,
+        email_from_address:          fromAddress.trim()           || null,
+        email_reply_to:              replyTo.trim()               || null,
+        email_bcc:                   bcc.trim()                   || null,
+        email_subject_confirmation:  subjectConfirmation.trim()   || null,
+        email_intro_confirmation:    introConfirmation.trim()     || null,
+        email_subject_shipment:      subjectShipment.trim()       || null,
+        email_intro_shipment:        introShipment.trim()         || null,
+        email_smtp_user:             smtpUser.trim()              || null,
+        email_smtp_pass:             smtpPass.trim()              || null,
+      }
+      const res = await fetch('/api/settings/email', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      // Marcar como set si se guardaron credenciales
+      if (smtpUser.trim()) { setUserSet(true); setSmtpUser('') }
+      if (smtpPass.trim()) { setPassSet(true); setSmtpPass('') }
+      toast.success('Configuración de email guardada')
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleTest = async () => {
+    if (!testTo.trim()) { toast.error('Ingresá un email de destino'); return }
+    setTesting(true)
+    try {
+      const res = await fetch('/api/settings/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ testTo: testTo.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(`Email de prueba enviado a ${testTo}`)
+    } catch (err) {
+      toast.error(`Error al enviar prueba: ${(err as Error).message}`)
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  if (loading) return (
+    <div className="flex items-center gap-2 text-gray-400 py-8">
+      <Loader2 className="h-5 w-5 animate-spin" /> Cargando…
+    </div>
+  )
+
+  return (
+    <div className="space-y-6 max-w-xl">
+
+      <div>
+        <h3 className="text-base font-semibold text-gray-900 mb-1">Emails transaccionales</h3>
+        <p className="text-sm text-gray-500">
+          Configurá el servidor SMTP para enviar confirmaciones de pedido y notificaciones de envío a tus clientes.
+          Compatible con Gmail, Outlook, Zoho o cualquier proveedor SMTP.
+        </p>
+      </div>
+
+      {/* Habilitar */}
+      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border">
+        <div>
+          <p className="text-sm font-medium text-gray-800">Emails habilitados</p>
+          <p className="text-xs text-gray-500 mt-0.5">Los clientes recibirán confirmación de pedido y aviso de envío.</p>
+        </div>
+        <Switch checked={enabled} onCheckedChange={setEnabled} />
+      </div>
+
+      {/* Servidor SMTP */}
+      <div className="space-y-4">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Servidor SMTP</p>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div className="col-span-2 space-y-1.5">
+            <Label>Host</Label>
+            <Input placeholder="smtp.gmail.com" value={smtpHost} onChange={e => setSmtpHost(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Puerto</Label>
+            <Input placeholder="587" value={smtpPort} onChange={e => setSmtpPort(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Switch id="smtp-secure" checked={smtpSecure} onCheckedChange={setSmtpSecure} />
+          <Label htmlFor="smtp-secure" className="cursor-pointer">
+            SSL directo (puerto 465) — desactivado = STARTTLS (puerto 587)
+          </Label>
+        </div>
+
+        <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-700 space-y-1">
+          <p className="font-semibold">Gmail / Google Workspace</p>
+          <p>Host: <code className="bg-blue-100 px-1 rounded">smtp.gmail.com</code> · Puerto: <code className="bg-blue-100 px-1 rounded">587</code> · SSL: desactivado</p>
+          <p>Necesitás una <strong>App Password</strong> (no tu contraseña normal). Activala en tu cuenta Google → Seguridad → Verificación en 2 pasos → Contraseñas de aplicación.</p>
+        </div>
+      </div>
+
+      {/* Credenciales */}
+      <div className="space-y-4">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Credenciales SMTP</p>
+
+        <div className="space-y-1.5">
+          <Label>
+            Usuario SMTP
+            {userSet && <span className="ml-2 text-[10px] font-normal text-green-600 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-full">configurado</span>}
+          </Label>
+          <Input
+            placeholder={userSet ? '••••••••••••  (dejar vacío para no cambiar)' : 'tu@gmail.com'}
+            value={smtpUser}
+            onChange={e => setSmtpUser(e.target.value)}
+            autoComplete="off"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>
+            Contraseña / App Password
+            {passSet && <span className="ml-2 text-[10px] font-normal text-green-600 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-full">configurado</span>}
+          </Label>
+          <div className="relative">
+            <Input
+              type={showPass ? 'text' : 'password'}
+              placeholder={passSet ? '••••••••••••  (dejar vacío para no cambiar)' : 'App Password de 16 caracteres'}
+              value={smtpPass}
+              onChange={e => setSmtpPass(e.target.value)}
+              autoComplete="new-password"
+              className="pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPass(p => !p)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              {showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400">Las credenciales se guardan cifradas y nunca se muestran en claro.</p>
+        </div>
+      </div>
+
+      {/* Remitente */}
+      <div className="space-y-4">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Remitente</p>
+
+        <div className="space-y-1.5">
+          <Label>Nombre del remitente</Label>
+          <Input placeholder="Mi Tienda" value={fromName} onChange={e => setFromName(e.target.value)} />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Email del remitente (From)</Label>
+          <Input type="email" placeholder="pedidos@mitienda.com" value={fromAddress} onChange={e => setFromAddress(e.target.value)} />
+          <p className="text-xs text-gray-400">Generalmente el mismo que el usuario SMTP.</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Reply-To <span className="text-gray-400 font-normal">(opcional)</span></Label>
+          <Input type="email" placeholder="soporte@mitienda.com" value={replyTo} onChange={e => setReplyTo(e.target.value)} />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="flex items-center gap-1.5">
+            BCC — Copia oculta
+            <span className="text-gray-400 font-normal">(opcional)</span>
+          </Label>
+          <Input type="email" placeholder="ruben@ejemplo.com" value={bcc} onChange={e => setBcc(e.target.value)} />
+          <p className="text-xs text-gray-400">Recibís una copia de cada email que se envía a clientes. Útil para monitorear.</p>
+        </div>
+      </div>
+
+      {/* Acciones */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <Button onClick={handleSave} disabled={saving} className="gap-2">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          Guardar cambios
+        </Button>
+      </div>
+
+      {/* Test */}
+      <div className="border-t pt-5 space-y-3">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Email de prueba</p>
+        <p className="text-xs text-gray-400">Guardá los cambios primero y luego enviá un email de prueba para verificar que la configuración funciona.</p>
+        <div className="flex gap-2">
+          <Input
+            type="email"
+            placeholder="destino@ejemplo.com"
+            value={testTo}
+            onChange={e => setTestTo(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleTest()}
+            className="max-w-xs"
+          />
+          <Button variant="outline" onClick={handleTest} disabled={testing} className="gap-2 shrink-0">
+            {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {testing ? 'Enviando…' : 'Enviar prueba'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Emails automáticos — estado + templates editables */}
+      <div className="border-t pt-5 space-y-5">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Emails automáticos</p>
+
+        {/* ── Confirmación de pedido ── */}
+        <div className="rounded-xl border border-gray-200 overflow-hidden">
+          <div className="flex items-start gap-3 p-4 bg-gray-50">
+            <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-gray-800">Pago aprobado</p>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">ACTIVO</span>
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5">Confirmación de pedido con ítems, totales y link de tracking · Disparado al capturar pago PayPal / MercadoPago</p>
+            </div>
+          </div>
+          <div className="p-4 space-y-3 border-t border-gray-100">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Asunto del email</Label>
+              <Input
+                placeholder={`Order #{{orderId}} confirmed — {{storeName}}`}
+                value={subjectConfirmation}
+                onChange={e => setSubjectConfirmation(e.target.value)}
+                className="text-sm font-mono"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Texto de introducción</Label>
+              <textarea
+                rows={3}
+                placeholder={`Hi {{buyerName}}, your order #{{orderId}} is confirmed and being processed.`}
+                value={introConfirmation}
+                onChange={e => setIntroConfirmation(e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 resize-y"
+              />
+              <p className="text-xs text-gray-400">
+                Variables: <code className="bg-gray-100 px-1 rounded">{'{{buyerName}}'}</code>{' '}
+                <code className="bg-gray-100 px-1 rounded">{'{{orderId}}'}</code>{' '}
+                <code className="bg-gray-100 px-1 rounded">{'{{storeName}}'}</code>.
+                Dejá vacío para usar el texto por defecto.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Pedido enviado ── */}
+        <div className="rounded-xl border border-amber-200 overflow-hidden">
+          <div className="flex items-start gap-3 p-4 bg-amber-50">
+            <Clock className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-gray-800">Pedido enviado</p>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">PENDIENTE DE CONEXIÓN</span>
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5">Notificación de envío con carrier y número de guía · Se activará cuando CJ registre el tracking del pedido</p>
+            </div>
+          </div>
+          <div className="p-4 space-y-3 border-t border-amber-100">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Asunto del email</Label>
+              <Input
+                placeholder={`Your order #{{orderId}} has shipped! — {{storeName}}`}
+                value={subjectShipment}
+                onChange={e => setSubjectShipment(e.target.value)}
+                className="text-sm font-mono"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Texto de introducción</Label>
+              <textarea
+                rows={3}
+                placeholder={`Hi {{buyerName}}, order #{{orderId}} has been shipped!`}
+                value={introShipment}
+                onChange={e => setIntroShipment(e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300 resize-y"
+              />
+              <p className="text-xs text-gray-400">
+                Variables: <code className="bg-gray-100 px-1 rounded">{'{{buyerName}}'}</code>{' '}
+                <code className="bg-gray-100 px-1 rounded">{'{{orderId}}'}</code>{' '}
+                <code className="bg-gray-100 px-1 rounded">{'{{storeName}}'}</code>.
+                Dejá vacío para usar el texto por defecto.
+              </p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  )
+}
+
 const TABS: { value: Tab; label: string; Icon: React.ElementType }[] = [
   { value: 'negocio',    label: 'Negocio',    Icon: Building2  },
   { value: 'usuarios',   label: 'Usuarios',   Icon: Users      },
@@ -2545,6 +2926,7 @@ const TABS: { value: Tab; label: string; Icon: React.ElementType }[] = [
   { value: 'ia',           label: 'IA',            Icon: Sparkles   },
   { value: 'gastos',       label: 'Gastos',        Icon: Receipt    },
   { value: 'paginas',      label: 'Páginas',       Icon: FileText   },
+  { value: 'email',        label: 'Emails',        Icon: Mail       },
 ]
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2772,20 +3154,20 @@ export default function SettingsPanel() {
 
         {/* Tabs */}
         <div className="bg-white rounded-xl border shadow-sm">
-          {/* Tab headers — horizontal scroll on mobile */}
-          <div className="border-b overflow-x-auto scrollbar-hide">
-            <div className="flex px-2 pt-2 gap-0.5 min-w-max">
+          {/* Tab headers — wraps into 2 rows when tabs don't fit */}
+          <div className="border-b">
+            <div className="flex flex-wrap px-2 pt-2 gap-0.5">
               {TABS.map(({ value, label, Icon }) => (
                 <button
                   key={value}
                   onClick={() => setTab(value)}
-                  className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px whitespace-nowrap
+                  className={`flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium rounded-t-lg transition-colors border-b-2 -mb-px whitespace-nowrap
                     ${tab === value
                       ? 'border-violet-500 text-violet-700 bg-violet-50/50'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                     }`}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-3.5 w-3.5" />
                   {label}
                 </button>
               ))}
@@ -2804,6 +3186,7 @@ export default function SettingsPanel() {
             {tab === 'ia'           && <IATab />}
             {tab === 'gastos'       && <GastosTab />}
             {tab === 'paginas'      && <PaginasTab />}
+            {tab === 'email'        && <EmailTab />}
           </div>
         </div>
       </div>

@@ -15,6 +15,7 @@ import { PAQAR_PROVINCES } from "@/lib/correo/provinces"
 import { US_STATES }       from "@/lib/us-states"
 import Link from "next/link"
 import type { ComponentType } from "react"
+import type { CJFreightOption } from "../_types"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -91,7 +92,7 @@ function StepBuyer({ data, onChange, isUS }: {
             type="text" value={data.name} autoFocus
             onChange={e => onChange({ ...data, name: e.target.value })}
             placeholder={isUS ? 'e.g. Jane Smith' : 'Ej: María García'}
-            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 store-focus-ring"
           />
         </div>
 
@@ -117,14 +118,13 @@ function StepBuyer({ data, onChange, isUS }: {
         {/* Email */}
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">
-            {t('buyer.email')}{' '}
-            <span className="text-gray-400 font-normal">{t('buyer.emailOptional')}</span>
+            {t('buyer.email')} <span className="text-red-500">*</span>
           </label>
           <input
             type="email" value={data.email}
             onChange={e => onChange({ ...data, email: e.target.value })}
             placeholder="email@example.com"
-            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 store-focus-ring"
           />
         </div>
       </div>
@@ -134,10 +134,13 @@ function StepBuyer({ data, onChange, isUS }: {
 
 // ── Step 2 — Tipo de entrega ──────────────────────────────────────────────────
 
-function StepDelivery({ data, onChange, isUS }: {
-  data:     DeliveryData
-  onChange: (d: DeliveryData) => void
-  isUS:     boolean
+function StepDelivery({ data, onChange, isUS, cjFreightOptions, hasCJItemsWithNoCommonCarrier }: {
+  data:                            DeliveryData
+  onChange:                        (d: DeliveryData) => void
+  isUS:                            boolean
+  cjFreightOptions:                CJFreightOption[]
+  /** true cuando hay productos CJ en el carrito pero sin carriers en común */
+  hasCJItemsWithNoCommonCarrier?:  boolean
 }) {
   const t = useTranslations('Checkout')
   const { fmt } = useCurrency()
@@ -195,8 +198,10 @@ function StepDelivery({ data, onChange, isUS }: {
     Icon:  ComponentType<{ className?: string }>
   }
   const options: DeliveryOption[] = [
-    { value: 'pickup_store', label: t('delivery.pickup.label'), desc: t('delivery.pickup.desc'), Icon: Store },
+    // Retiro en local solo para negocios físicos (no CJ/US — no hay local)
+    ...(!isUS ? [{ value: 'pickup_store' as DeliveryType, label: t('delivery.pickup.label'), desc: t('delivery.pickup.desc'), Icon: Store }] : []),
     { value: 'homeDelivery', label: t('delivery.home.label'),   desc: t('delivery.home.desc'),   Icon: MapPin },
+    // Sucursales Correo solo para AR
     ...(!isUS ? [{ value: 'agency' as DeliveryType, label: t('delivery.agency.label'), desc: t('delivery.agency.desc'), Icon: Building2 }] : []),
   ]
 
@@ -211,18 +216,27 @@ function StepDelivery({ data, onChange, isUS }: {
 
       {/* Opciones de entrega */}
       <div className="space-y-2">
-        {options.map(({ value, label, desc, Icon }) => (
-          <button key={value}
-            onClick={() => set({ type: value, rateId: null, agencyId: '', agencyName: '' })}
-            className={`w-full flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all
-              ${data.type === value ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-gray-300'}`}>
-            <Icon className={`h-5 w-5 mt-0.5 shrink-0 ${data.type === value ? 'text-violet-600' : 'text-gray-400'}`} />
-            <div>
-              <p className={`text-sm font-semibold ${data.type === value ? 'text-violet-700' : 'text-gray-800'}`}>{label}</p>
-              <p className="text-xs text-gray-500">{desc}</p>
-            </div>
-          </button>
-        ))}
+        {options.map(({ value, label, desc, Icon }) => {
+          const active = data.type === value
+          return (
+            <button key={value}
+              onClick={() => set({ type: value, rateId: null, agencyId: '', agencyName: '' })}
+              className="w-full flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all"
+              style={active
+                ? { borderColor: 'var(--store-primary)', backgroundColor: 'color-mix(in srgb, var(--store-primary) 8%, white)' }
+                : { borderColor: '#e5e7eb' }}
+            >
+              <span style={{ color: active ? 'var(--store-primary)' : '#9ca3af' }} className="mt-0.5 shrink-0">
+                <Icon className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold"
+                  style={{ color: active ? 'var(--store-primary)' : '#1f2937' }}>{label}</p>
+                <p className="text-xs text-gray-500">{desc}</p>
+              </div>
+            </button>
+          )
+        })}
       </div>
 
       {/* Formulario de domicilio */}
@@ -236,7 +250,7 @@ function StepDelivery({ data, onChange, isUS }: {
                 {t('delivery.province')} <span className="text-red-500">*</span>
               </label>
               <select value={data.state} onChange={e => set({ state: e.target.value, rateId: null })}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300">
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 store-focus-ring">
                 <option value="">{t('delivery.selectProvince')}</option>
                 {regionList.map(r => <option key={r.code} value={r.code}>{r.name}</option>)}
               </select>
@@ -247,7 +261,7 @@ function StepDelivery({ data, onChange, isUS }: {
               </label>
               <input type="text" value={data.zipCode} onChange={e => set({ zipCode: e.target.value })}
                 placeholder={t('delivery.zipPlaceholder')}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 store-focus-ring" />
             </div>
           </div>
 
@@ -258,7 +272,7 @@ function StepDelivery({ data, onChange, isUS }: {
               </label>
               <input type="text" value={data.streetName} onChange={e => set({ streetName: e.target.value })}
                 placeholder={t('delivery.streetPlaceholder')}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 store-focus-ring" />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">
@@ -266,7 +280,7 @@ function StepDelivery({ data, onChange, isUS }: {
               </label>
               <input type="text" value={data.streetNumber} onChange={e => set({ streetNumber: e.target.value })}
                 placeholder={t('delivery.numberPlaceholder')}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 store-focus-ring" />
             </div>
           </div>
 
@@ -275,13 +289,13 @@ function StepDelivery({ data, onChange, isUS }: {
               <label className="block text-xs text-gray-500 mb-1">{t('delivery.floor')}</label>
               <input type="text" value={data.floor} onChange={e => set({ floor: e.target.value })}
                 placeholder="3"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 store-focus-ring" />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">{t('delivery.apt')}</label>
               <input type="text" value={data.department} onChange={e => set({ department: e.target.value })}
                 placeholder="A"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 store-focus-ring" />
             </div>
           </div>
 
@@ -301,6 +315,51 @@ function StepDelivery({ data, onChange, isUS }: {
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
           </div>
 
+          {/* Sin carriers en común entre los productos CJ del carrito */}
+          {isUS && cjFreightOptions.length === 0 && hasCJItemsWithNoCommonCarrier && (
+            <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-lg text-sm text-amber-700">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>
+                The products in your cart have different shipping options.
+                The exact cost will be calculated when you confirm your order.
+              </span>
+            </div>
+          )}
+
+          {/* Opciones de envío CJ — solo US */}
+          {isUS && cjFreightOptions.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-700 mb-2 uppercase tracking-wide">
+                {t('delivery.shippingCost')}
+              </p>
+              <div className="space-y-2">
+                {cjFreightOptions.map((opt, idx) => {
+                  const sel = data.rateId === idx
+                  return (
+                    <button key={idx} onClick={() => set({ rateId: idx })}
+                      className="w-full flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all"
+                      style={sel
+                        ? { borderColor: 'var(--store-primary)', backgroundColor: 'color-mix(in srgb, var(--store-primary) 8%, white)' }
+                        : { borderColor: '#e5e7eb' }}>
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">{opt.logisticName}</p>
+                        {opt.logisticAging && (
+                          <p className="text-xs text-gray-500">
+                            Estimated delivery: {opt.logisticAging} business days
+                          </p>
+                        )}
+                      </div>
+                      <span className="text-sm font-bold ml-3"
+                        style={{ color: sel ? 'var(--store-primary)' : '#374151' }}>
+                        {opt.isFree || opt.freight === 0 ? 'FREE' : fmt(opt.freight)}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Tarifas Correo — solo AR */}
           {!isUS && data.state && (
             <div>
@@ -316,19 +375,25 @@ function StepDelivery({ data, onChange, isUS }: {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {rates.map(rate => (
-                    <button key={rate.id} onClick={() => set({ rateId: rate.id })}
-                      className={`w-full flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all
-                        ${data.rateId === rate.id ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">{rate.display_label}</p>
-                        <p className="text-xs text-gray-500">{rate.display_name}</p>
-                      </div>
-                      <span className={`text-sm font-bold ${data.rateId === rate.id ? 'text-violet-700' : 'text-gray-700'}`}>
-                        {rate.price === 0 ? t('delivery.toConsult') : fmt(rate.price)}
-                      </span>
-                    </button>
-                  ))}
+                  {rates.map(rate => {
+                    const sel = data.rateId === rate.id
+                    return (
+                      <button key={rate.id} onClick={() => set({ rateId: rate.id })}
+                        className="w-full flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all"
+                        style={sel
+                          ? { borderColor: 'var(--store-primary)', backgroundColor: 'color-mix(in srgb, var(--store-primary) 8%, white)' }
+                          : { borderColor: '#e5e7eb' }}>
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">{rate.display_label}</p>
+                          <p className="text-xs text-gray-500">{rate.display_name}</p>
+                        </div>
+                        <span className="text-sm font-bold"
+                          style={{ color: sel ? 'var(--store-primary)' : '#374151' }}>
+                          {rate.price === 0 ? t('delivery.toConsult') : fmt(rate.price)}
+                        </span>
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -364,16 +429,21 @@ function StepDelivery({ data, onChange, isUS }: {
               <p className="text-sm text-gray-400 py-2">{t('delivery.noAgencies')}</p>
             ) : (
               <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                {agencies.map(ag => (
+                {agencies.map(ag => {
+                  const sel = data.agencyId === ag.agencyId
+                  return (
                   <button key={ag.agencyId}
                     onClick={() => set({ agencyId: ag.agencyId, agencyName: ag.name })}
-                    className={`w-full text-left p-3 rounded-xl border-2 transition-all
-                      ${data.agencyId === ag.agencyId ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    className="w-full text-left p-3 rounded-xl border-2 transition-all"
+                    style={sel
+                      ? { borderColor: 'var(--store-primary)', backgroundColor: 'color-mix(in srgb, var(--store-primary) 8%, white)' }
+                      : { borderColor: '#e5e7eb' }}>
                     <p className="text-sm font-semibold text-gray-800">{ag.name}</p>
                     <p className="text-xs text-gray-500">{ag.address}, {ag.cityName}</p>
                     {ag.schedule && <p className="text-[11px] text-gray-400 mt-0.5">{ag.schedule}</p>}
                   </button>
-                ))}
+                  )
+                })}
               </div>
             )
           )}
@@ -388,19 +458,24 @@ function StepDelivery({ data, onChange, isUS }: {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {rates.map(rate => (
-                    <button key={rate.id} onClick={() => set({ rateId: rate.id })}
-                      className={`w-full flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all
-                        ${data.rateId === rate.id ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">{rate.display_label}</p>
-                        <p className="text-xs text-gray-500">{rate.display_name}</p>
-                      </div>
-                      <span className="text-sm font-bold text-gray-700">
-                        {rate.price === 0 ? t('delivery.toConsult') : fmt(rate.price)}
-                      </span>
-                    </button>
-                  ))}
+                  {rates.map(rate => {
+                    const sel = data.rateId === rate.id
+                    return (
+                      <button key={rate.id} onClick={() => set({ rateId: rate.id })}
+                        className="w-full flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all"
+                        style={sel
+                          ? { borderColor: 'var(--store-primary)', backgroundColor: 'color-mix(in srgb, var(--store-primary) 8%, white)' }
+                          : { borderColor: '#e5e7eb' }}>
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">{rate.display_label}</p>
+                          <p className="text-xs text-gray-500">{rate.display_name}</p>
+                        </div>
+                        <span className="text-sm font-bold text-gray-700">
+                          {rate.price === 0 ? t('delivery.toConsult') : fmt(rate.price)}
+                        </span>
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -413,18 +488,21 @@ function StepDelivery({ data, onChange, isUS }: {
 
 // ── Step 3 — Resumen ──────────────────────────────────────────────────────────
 
-function StepSummary({ buyer, delivery, items, shippingCost, gateway, isUS }: {
-  buyer:        BuyerData
-  delivery:     DeliveryData
-  items:        import('../_context/cart-context').CartItem[]
-  shippingCost: number
-  gateway:      string
-  isUS:         boolean
+function StepSummary({ buyer, delivery, items, shippingCost, gateway, isUS, selectedCJFreight }: {
+  buyer:             BuyerData
+  delivery:          DeliveryData
+  items:             import('../_context/cart-context').CartItem[]
+  shippingCost:      number
+  gateway:           string
+  isUS:              boolean
+  selectedCJFreight: CJFreightOption | null
 }) {
   const t = useTranslations('Checkout')
   const { fmt } = useCurrency()
-  const subtotal = items.reduce((s, i) => s + i.price, 0)
-  const total    = subtotal + shippingCost
+  // ARS: redondear a entero (sin centavos). USD y otras: mantener decimales exactos.
+  const round    = (n: number) => isUS ? n : Math.round(n)
+  const subtotal = round(items.reduce((s, i) => s + i.price * i.quantity, 0))
+  const total    = subtotal + round(shippingCost)
 
   const deliveryLabel: Record<DeliveryType, string> = {
     pickup_store: t('summary.pickup'),
@@ -448,8 +526,8 @@ function StepSummary({ buyer, delivery, items, shippingCost, gateway, isUS }: {
                 ? <img src={item.specificImageUrl} alt={item.productName} className="w-full h-full object-cover" />
                 : item.hasImage
                   ? <img src={`/api/images/products/${item.productId}`} alt={item.productName} className="w-full h-full object-cover" />
-                  : <div className="w-full h-full flex items-center justify-center bg-violet-100">
-                      <span className="text-sm font-bold text-violet-300">{item.productName.charAt(0)}</span>
+                  : <div className="w-full h-full flex items-center justify-center store-placeholder">
+                      <span className="text-sm font-bold store-placeholder-letter">{item.productName.charAt(0)}</span>
                     </div>
               }
             </div>
@@ -457,8 +535,11 @@ function StepSummary({ buyer, delivery, items, shippingCost, gateway, isUS }: {
               <p className="text-sm font-medium text-gray-900 line-clamp-1">{item.productName}</p>
               <p className="text-xs text-gray-500">
                 {item.color !== 'Varios' ? `${item.color} · ` : ''}{item.size}
+                {item.quantity > 1 && ` · x${item.quantity}`}
               </p>
-              <p className="text-sm font-bold text-violet-700 mt-0.5">{fmt(item.price)}</p>
+              <p className="text-sm font-bold store-text-primary mt-0.5">
+                {fmt(item.price * item.quantity)}
+              </p>
             </div>
           </li>
         ))}
@@ -484,6 +565,15 @@ function StepSummary({ buyer, delivery, items, shippingCost, gateway, isUS }: {
             <span className="font-medium text-gray-800 text-right max-w-[180px]">{delivery.agencyName}</span>
           </div>
         )}
+        {selectedCJFreight && (
+          <div className="flex justify-between text-sm text-gray-600">
+            <span>Carrier</span>
+            <span className="font-medium text-gray-800 text-right max-w-[180px]">
+              {selectedCJFreight.logisticName}
+              {selectedCJFreight.logisticAging ? ` · ${selectedCJFreight.logisticAging} days` : ''}
+            </span>
+          </div>
+        )}
         {delivery.type === 'homeDelivery' && delivery.streetName && (
           <div className="flex justify-between text-sm text-gray-600">
             <span>{t('summary.address')}</span>
@@ -506,7 +596,7 @@ function StepSummary({ buyer, delivery, items, shippingCost, gateway, isUS }: {
         )}
         <div className="flex justify-between text-base font-bold text-gray-900 pt-1">
           <span>{t('summary.total')}</span>
-          <span className="text-violet-700">{fmt(total)}</span>
+          <span className="store-text-primary">{fmt(total)}</span>
         </div>
       </div>
 
@@ -543,6 +633,27 @@ export default function CheckoutPage() {
   const [paypalMode,     setPaypalMode    ] = useState('sandbox')
   const [configLoaded,   setConfigLoaded  ] = useState(false)
 
+  // ── Freight fresco desde DB ──────────────────────────────────────────────────
+  // Reemplaza las freight options del carrito (potencialmente viejas) con datos
+  // actuales de la DB. Se consulta una sola vez al cargar el checkout.
+  const [freshFreight, setFreshFreight] = useState<Record<string, CJFreightOption[]>>({})
+
+  useEffect(() => {
+    // Únicamente para items CJ que ya tienen freight options en el carrito
+    const cjProductIds = [...new Set(
+      items
+        .filter(i => (i.freightOptions ?? []).length > 0)
+        .map(i => String(i.productId))
+    )]
+    if (cjProductIds.length === 0) return
+    fetch(`/api/tienda/freight?productIds=${cjProductIds.join(',')}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { freight: Record<string, CJFreightOption[]> } | null) => {
+        if (data?.freight) setFreshFreight(data.freight)
+      })
+      .catch(() => { /* falla silenciosamente, usa el freight del localStorage */ })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     fetch('/api/tienda/config')
       .then(r => r.json())
@@ -562,7 +673,8 @@ export default function CheckoutPage() {
 
   const [buyer, setBuyer] = useState<BuyerData>({ name: '', phone: '', email: '' })
   const [delivery, setDelivery] = useState<DeliveryData>({
-    type: 'pickup_store', rateId: null,
+    // US (CJ) arranca directo en homeDelivery — no hay retiro en local
+    type: isUS ? 'homeDelivery' : 'pickup_store', rateId: null,
     agencyId: '', agencyName: '', state: '',
     streetName: '', streetNumber: '', floor: '', department: '',
     cityName: '', zipCode: '', observation: '',
@@ -571,19 +683,86 @@ export default function CheckoutPage() {
   // ID interno de la orden PayPal — guardado cuando se crea la orden en PayPal
   const [internalOrderId, setInternalOrderId] = useState(0)
 
-  // Precio de envío (solo AR con Correo)
+  // Opciones de envío CJ — intersección de carriers disponibles en TODOS los items CJ,
+  // con costo = suma de cada carrier por producto.
+  //
+  // Usa freshFreight (DB-fresco) cuando está disponible; si no, cae al valor
+  // guardado en el CartItem (localStorage). Esto evita mostrar precios de envío
+  // desactualizados cuando el carrito lleva días sin abrirse.
+  //
+  // Regla: solo mostrar un carrier si está disponible en cada producto del carrito.
+  // El costo es la suma real: $0 (A gratis) + $2.99 (B) = $2.99 para ese carrier.
+  const cjFreightOptions: CJFreightOption[] = (() => {
+    // Para cada item CJ, usar freight fresco de DB o el del carrito como fallback
+    const cjItems = items
+      .filter(i => {
+        const fresh = freshFreight[String(i.productId)]
+        return (fresh && fresh.length > 0) || (i.freightOptions ?? []).length > 0
+      })
+      .map(i => ({
+        ...i,
+        freightOptions: freshFreight[String(i.productId)] ?? i.freightOptions ?? [],
+      }))
+    if (cjItems.length === 0) return []
+
+    // Carriers disponibles en el primer item
+    const firstNames = new Set(cjItems[0].freightOptions!.map(o => o.logisticName))
+
+    // Intersección: solo carriers que aparecen en TODOS los items CJ
+    const commonNames = cjItems.slice(1).reduce((names, item) => {
+      const itemNames = new Set(item.freightOptions!.map(o => o.logisticName))
+      return new Set([...names].filter(n => itemNames.has(n)))
+    }, firstNames)
+
+    if (commonNames.size === 0) return []
+
+    // Para cada carrier común, sumar los costos de todos los items
+    const result: CJFreightOption[] = []
+    for (const name of commonNames) {
+      let totalFreight = 0
+      let isFreeAll    = true
+      let baseOpt: CJFreightOption | null = null
+
+      for (const item of cjItems) {
+        const opt = item.freightOptions!.find(o => o.logisticName === name)!
+        totalFreight += opt.freight
+        if (!opt.isFree) isFreeAll = false
+        if (!baseOpt) baseOpt = opt   // tomar metadata (aging, días) del primer item
+      }
+
+      result.push({
+        ...baseOpt!,
+        // Redondear a 2 decimales para evitar floats como 2.9900000001
+        freight: Math.round(totalFreight * 100) / 100,
+        isFree:  isFreeAll,
+      })
+    }
+
+    return result.sort((a, b) => a.freight - b.freight)
+  })()
+
+  // Precio de envío — CJ o Correo (AR)
   const [selectedRate, setSelectedRate] = useState<ShippingRate | null>(null)
   useEffect(() => {
-    if (!delivery.rateId) { setSelectedRate(null); return }
+    if (isUS || !delivery.rateId) { setSelectedRate(null); return }
     fetch('/api/shipping/rates')
       .then(r => r.json())
       .then((rs: ShippingRate[]) => setSelectedRate(rs.find(r => r.id === delivery.rateId) ?? null))
       .catch(() => {})
-  }, [delivery.rateId])
+  }, [delivery.rateId, isUS])
 
-  const shippingCost = selectedRate?.price ?? 0
-  const cartSubtotal = items.reduce((s, i) => s + i.price, 0)
-  const total        = cartSubtotal + shippingCost
+  // Para CJ/US: rateId es el índice en cjFreightOptions
+  const selectedCJFreight = isUS && delivery.rateId !== null
+    ? cjFreightOptions[delivery.rateId] ?? null
+    : null
+
+  const shippingCost = isUS
+    ? (selectedCJFreight?.freight ?? 0)
+    : (selectedRate?.price ?? 0)
+  // ARS: redondear a entero (sin centavos). USD y otras: mantener decimales exactos.
+  const round = (n: number) => isUS ? n : Math.round(n)
+  const cartSubtotal = round(items.reduce((s, i) => s + i.price * i.quantity, 0))
+  const total        = cartSubtotal + round(shippingCost)
 
   // Redirigir si el carrito está vacío
   useEffect(() => {
@@ -596,6 +775,9 @@ export default function CheckoutPage() {
       if (!buyer.name.trim())               return t('errors.nameRequired')
       if (!buyer.phone.trim())              return t('errors.phoneRequired')
       if (buyer.phone.trim().length < 7)    return t('errors.phoneInvalid')
+      if (!buyer.email.trim())              return t('errors.emailRequired')
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(buyer.email.trim()))
+                                            return t('errors.emailInvalid')
     }
     if (step === 1) {
       if (delivery.type === 'homeDelivery') {
@@ -631,6 +813,7 @@ export default function CheckoutPage() {
       items: items.map(i => ({
         variantId:   i.variantId,
         unitPrice:   i.price,
+        quantity:    i.quantity,
         productName: i.productName,
         variantSku:  i.variantSku,
         color:       i.color,
@@ -638,9 +821,12 @@ export default function CheckoutPage() {
       })),
       buyerName:      buyer.name.trim(),
       buyerPhone:     phone,
-      buyerEmail:     buyer.email.trim() || undefined,
+      buyerEmail:     buyer.email.trim(),
       deliveryType:   delivery.type,
-      shippingRateId: delivery.rateId ?? undefined,
+      // Para CJ (isUS): rateId es índice en cjFreightOptions, NO un shipping_rate_id real.
+      // Mandamos el costo CJ como campo separado y omitimos shippingRateId.
+      shippingRateId: isUS ? undefined : (delivery.rateId ?? undefined),
+      cjShippingCost: isUS ? (selectedCJFreight?.freight ?? 0) : undefined,
       agencyId:       delivery.agencyId || undefined,
       address: delivery.type === 'homeDelivery' ? {
         streetName:   delivery.streetName.trim(),
@@ -684,7 +870,7 @@ export default function CheckoutPage() {
       if (!res.ok || !data.success) throw new Error(data.error ?? 'Error al capturar el pago')
       clearCart()
       const oid = data.orderId ?? internalOrderId
-      router.push(`${storeHref}/success?orderId=${oid}`)
+      router.push(`${storeHref}/checkout/success?orderId=${oid}`)
     } catch {
       setError(t('errors.connectionError'))
     } finally {
@@ -760,15 +946,15 @@ export default function CheckoutPage() {
         </div>
         {/* Barra de progreso */}
         <div className="h-1 bg-gray-100">
-          <div className="h-1 bg-violet-500 transition-all duration-300"
-            style={{ width: `${((step + 1) / STEPS.length) * 100}%` }} />
+          <div className="h-1 transition-all duration-300"
+            style={{ width: `${((step + 1) / STEPS.length) * 100}%`, backgroundColor: 'var(--store-primary)' }} />
         </div>
       </header>
 
       {/* Mini-resumen del carrito */}
       <div className="max-w-lg mx-auto px-4 pt-4">
         <div className="bg-white rounded-xl border border-gray-100 px-4 py-3 flex items-center gap-2 text-sm">
-          <Package className="h-4 w-4 text-violet-500 shrink-0" />
+          <Package className="h-4 w-4 shrink-0" style={{ color: 'var(--store-primary)' }} />
           <span className="flex-1 text-gray-700 truncate">
             {items.map(i => i.productName).slice(0, 2).join(', ')}
             {items.length > 2 ? '…' : ''}
@@ -781,12 +967,23 @@ export default function CheckoutPage() {
       <main className="max-w-lg mx-auto px-4 py-5">
         <div className="bg-white rounded-2xl border border-gray-100 p-5">
           {step === 0 && <StepBuyer data={buyer} onChange={setBuyer} isUS={isUS} />}
-          {step === 1 && <StepDelivery data={delivery} onChange={setDelivery} isUS={isUS} />}
+          {step === 1 && (
+            <StepDelivery
+              data={delivery} onChange={setDelivery}
+              isUS={isUS} cjFreightOptions={cjFreightOptions}
+              hasCJItemsWithNoCommonCarrier={
+                isUS &&
+                cjFreightOptions.length === 0 &&
+                items.some(i => (i.freightOptions ?? []).length > 0)
+              }
+            />
+          )}
           {step === 2 && (
             <StepSummary
               buyer={buyer} delivery={delivery}
               items={items} shippingCost={shippingCost}
               gateway={gateway} isUS={isUS}
+              selectedCJFreight={selectedCJFreight}
             />
           )}
         </div>
@@ -804,13 +1001,13 @@ export default function CheckoutPage() {
           {step < STEPS.length - 1 ? (
             /* Continuar → siguiente step */
             <button onClick={handleNext}
-              className="w-full py-3.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm transition-colors shadow-lg shadow-violet-100">
+              className="w-full py-3.5 rounded-xl text-white font-bold text-sm transition-opacity shadow-lg store-btn-primary">
               {t('continue')}
             </button>
           ) : showConfigSpinner ? (
-            /* Esperando config */
+            /* Esperando config de gateway */
             <div className="flex justify-center py-4">
-              <Loader2 className="h-6 w-6 animate-spin text-violet-400" />
+              <Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--store-primary)' }} />
             </div>
           ) : showPayPalButtons ? (
             /* PayPal Smart Buttons */
@@ -828,13 +1025,20 @@ export default function CheckoutPage() {
               />
             </PayPalScriptProvider>
           ) : showMPButton ? (
-            /* MercadoPago */
+            /* MercadoPago / Confirmar */
             <button onClick={handleConfirmMP} disabled={sending}
-              className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:bg-violet-300 text-white font-bold text-sm transition-colors shadow-lg shadow-violet-100">
+              className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl text-white font-bold text-sm transition-opacity shadow-lg store-btn-primary">
               {sending
                 ? <Loader2 className="h-4 w-4 animate-spin" />
                 : <CreditCard className="h-4 w-4" />}
               {sending ? t('processing') : t('pay', { gateway: 'MercadoPago' })}
+            </button>
+          ) : isLastStep && configLoaded ? (
+            /* Fallback: gateway configurado pero sin client_id (o desconocido) */
+            <button onClick={handleConfirmMP} disabled={sending}
+              className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl text-white font-bold text-sm transition-opacity shadow-lg store-btn-primary">
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+              {sending ? t('processing') : t('confirm')}
             </button>
           ) : null}
         </div>

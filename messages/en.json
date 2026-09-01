@@ -61,6 +61,9 @@
     "cashTransfer": "Cash / Bank Transfer",
     "listPrice": "Regular price",
     "creditCards": "Credit cards",
+    "creditDebitCard": "Credit / Debit Card",
+    "secureCheckout": "Secure checkout with SSL encryption",
+    "buyNowPayLater": "Buy now, pay later",
     "shippingSection": "Shipping & pickup",
     "shippingContact": "Contact us on WhatsApp for shipping & pickup options",
     "calculateShipping": "Calculate shipping cost",
@@ -98,7 +101,7 @@
       "phonePlaceholder": "555 123 4567",
       "phoneHint": "US phone number without country code",
       "email": "Email",
-      "emailOptional": "(optional)"
+      "emailOptional": ""
     },
     "delivery": {
       "title": "How do you want to receive your order?",
@@ -155,6 +158,7 @@
       "agencyPickup": "Pickup location"
     },
     "continue": "Continue",
+    "confirm": "Confirm order",
     "pay": "Pay with {gateway}",
     "processing": "Processing…",
     "totalWithShipping": "Total with shipping: {total}",
@@ -162,6 +166,8 @@
       "nameRequired": "Please enter your full name",
       "phoneRequired": "Please enter your phone number",
       "phoneInvalid": "Phone number doesn't look valid",
+      "emailRequired": "Please enter your email to receive order confirmation",
+      "emailInvalid": "Email address doesn't look valid",
       "provinceRequired": "Please select a state",
       "streetRequired": "Please enter a street",
       "numberRequired": "Please enter a street number",
