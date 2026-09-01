@@ -2056,9 +2056,12 @@ interface PaymentConfig {
   mp_public_key:            string | null
   paypal_client_id:         string | null
   paypal_mode:              string
+  paypal_fop_id:            number | null
   mp_access_token_set:      boolean
   paypal_client_secret_set: boolean
 }
+
+interface FopOption { id: number; name: string; use_for_sales: boolean }
 
 function PagosTab() {
   const [cfg,     setCfg    ] = useState<PaymentConfig | null>(null)
@@ -2074,15 +2077,19 @@ function PagosTab() {
   const [paypalClientId,      setPaypalClientId     ] = useState('')
   const [paypalClientSecret,  setPaypalClientSecret ] = useState('')     // vacío = no cambiar
   const [paypalMode,          setPaypalMode         ] = useState('sandbox')
+  const [paypalFopId,         setPaypalFopId        ] = useState<number | null>(null)
+  const [fopsList,            setFopsList           ] = useState<FopOption[]>([])
 
   // Visibilidad de campos secretos
   const [showMpToken,  setShowMpToken ] = useState(false)
   const [showPpSecret, setShowPpSecret] = useState(false)
 
   useEffect(() => {
-    fetch('/api/settings/payment')
-      .then(r => r.json())
-      .then((d: PaymentConfig) => {
+    Promise.all([
+      fetch('/api/settings/payment').then(r => r.json()),
+      fetch('/api/fops').then(r => r.json()),
+    ])
+      .then(([d, fops]: [PaymentConfig, FopOption[]]) => {
         setCfg(d)
         setGateway(d.payment_gateway)
         setCurrency(d.currency)
@@ -2090,6 +2097,8 @@ function PagosTab() {
         setMpPublicKey(d.mp_public_key ?? '')
         setPaypalClientId(d.paypal_client_id ?? '')
         setPaypalMode(d.paypal_mode ?? 'sandbox')
+        setPaypalFopId(d.paypal_fop_id ?? null)
+        setFopsList(Array.isArray(fops) ? fops : [])
       })
       .catch(() => toast.error('Error al cargar configuración de pagos'))
       .finally(() => setLoading(false))
@@ -2110,6 +2119,7 @@ function PagosTab() {
           paypal_client_id:     paypalClientId.trim()     || null,
           paypal_client_secret: paypalClientSecret.trim() || null,   // null = mantener
           paypal_mode:          paypalMode,
+          paypal_fop_id:        paypalFopId,
         }),
       })
       if (!res.ok) throw new Error((await res.json()).error)
@@ -2327,6 +2337,32 @@ function PagosTab() {
                 <SelectItem value="live">Live — producción</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          {/* FOP para registrar pagos PayPal en transactions */}
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-2">
+              Forma de pago en el libro
+              <span className="text-[10px] font-normal text-gray-400">(para reportes)</span>
+            </Label>
+            <Select
+              value={paypalFopId != null ? String(paypalFopId) : '__none__'}
+              onValueChange={v => setPaypalFopId(v === '__none__' ? null : parseInt(v))}
+            >
+              <SelectTrigger className="text-sm">
+                <SelectValue placeholder="Sin asignar" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">— Sin asignar —</SelectItem>
+                {fopsList.map(f => (
+                  <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-400">
+              Seleccioná la forma de pago que representa PayPal en tu libro de movimientos.
+              Los pagos aprobados se registrarán automáticamente en Transacciones.
+            </p>
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 text-xs text-blue-700">

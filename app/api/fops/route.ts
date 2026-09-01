@@ -1,5 +1,30 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { requireBusinessId } from '@/lib/get-business-id'
+
+/**
+ * GET /api/fops
+ *
+ * Devuelve todas las formas de pago (fops) del negocio autenticado,
+ * uniendo con accounts para filtrar por business_id.
+ * Usado en PagosTab para mapear PayPal → FOP.
+ */
+export async function GET() {
+  const result = await requireBusinessId()
+  if (result instanceof NextResponse) return result
+  const { businessId } = result
+
+  const { rows } = await pool.query<{ id: number; name: string; use_for_sales: boolean; account_id: number }>(
+    `SELECT f.id, f.name, f.use_for_sales, f.account_id
+     FROM fops f
+     JOIN accounts a ON a.id = f.account_id
+     WHERE a.business_id = $1
+     ORDER BY f.id`,
+    [businessId],
+  )
+
+  return NextResponse.json(rows)
+}
 
 /** POST /api/fops — crea una nueva forma de pago dentro de una cuenta */
 export async function POST(req: Request) {

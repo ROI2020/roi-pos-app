@@ -32,7 +32,7 @@ export async function GET() {
        AND key = ANY(ARRAY[
          'payment_gateway','currency','locale',
          'mp_access_token','mp_public_key',
-         'paypal_client_id','paypal_client_secret','paypal_mode'
+         'paypal_client_id','paypal_client_secret','paypal_mode','paypal_fop_id'
        ]::text[])`,
     [businessId],
   )
@@ -54,6 +54,7 @@ export async function GET() {
     mp_public_key:            map.mp_public_key            ?? null,
     paypal_client_id:         map.paypal_client_id         ?? null,
     paypal_mode:              map.paypal_mode              ?? 'sandbox',
+    paypal_fop_id:            map.paypal_fop_id            ? parseInt(map.paypal_fop_id) : null,
     mp_access_token_set:      isSet.mp_access_token        ?? false,
     paypal_client_secret_set: isSet.paypal_client_secret   ?? false,
   })
@@ -93,6 +94,7 @@ export async function PUT(req: Request) {
     paypal_client_id?:      string | null
     paypal_client_secret?:  string | null
     paypal_mode?:           string
+    paypal_fop_id?:         number | null
   }
 
   // Campos públicos — siempre se escriben
@@ -103,6 +105,7 @@ export async function PUT(req: Request) {
     ['mp_public_key',   body.mp_public_key?.trim()   || null],
     ['paypal_client_id', body.paypal_client_id?.trim() || null],
     ['paypal_mode',     body.paypal_mode?.trim()     || null],
+    ['paypal_fop_id',   body.paypal_fop_id != null ? String(body.paypal_fop_id) : null],
   ]
 
   // Campos secretos — solo se escriben si tienen valor
@@ -119,7 +122,9 @@ export async function PUT(req: Request) {
     await client.query('BEGIN')
 
     for (const [key, value] of publicFields) {
-      if (value === null && key !== 'mp_public_key' && key !== 'paypal_client_id') continue // skip nulls for optional
+      // Siempre escribir los campos opcionales (null elimina el valor)
+      // Solo saltamos nulls de campos obligatorios como gateway/currency/locale
+      if (value === null && !['mp_public_key', 'paypal_client_id', 'paypal_fop_id'].includes(key)) continue
       await client.query(
         `INSERT INTO settings (business_id, key, value, is_secret)
          VALUES ($1, $2, $3, false)

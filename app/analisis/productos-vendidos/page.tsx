@@ -8,6 +8,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { DateRangeFilter, useDateRange } from '@/components/date-range-filter'
+import { useAdminCurrency } from '@/hooks/use-admin-currency'
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 interface ProductRow {
@@ -37,11 +38,7 @@ interface CategoryGroup {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-const fmt = (n: number) =>
-  new Intl.NumberFormat('es-AR', {
-    style: 'currency', currency: 'ARS', maximumFractionDigits: 0,
-  }).format(n)
-
+// fmt se obtiene desde useAdminCurrency() dentro del componente (ver abajo)
 const fmtN   = (n: number) => new Intl.NumberFormat('es-AR').format(n)
 const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`
 
@@ -134,6 +131,7 @@ function CostEditor({ productId, cost, qtySold, onUpdated }: {
 
 // ── Componente principal ───────────────────────────────────────────────────────
 export default function ProductosVendidosPage() {
+  const { fmt } = useAdminCurrency()
   const dateRange = useDateRange('month')
 
   const [rows,     setRows    ] = useState<ProductRow[] | null>(null)

@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner"
 import { provinceName } from "@/lib/correo/provinces"
 import { imprimirTicket } from "@/lib/print-ticket"
+import { useAdminCurrency } from "@/hooks/use-admin-currency"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -101,8 +102,7 @@ const DELIVERY_LABEL: Record<string, string> = {
   locker:       'Locker CA',
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n)
+// fmt se obtiene desde useAdminCurrency() dentro del componente (ver abajo)
 
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -126,6 +126,7 @@ function OrderDetailModal({ orderId, onClose, onRefresh }: {
   onClose:   () => void
   onRefresh: () => void
 }) {
+  const { fmt } = useAdminCurrency()
   const [order,           setOrder          ] = useState<OrderDetail | null>(null)
   const [loading,         setLoading        ] = useState(true)
   const [confirming,      setConfirming     ] = useState(false)
@@ -682,6 +683,7 @@ function OrderDetailModal({ orderId, onClose, onRefresh }: {
 // ── Página principal ──────────────────────────────────────────────────────────
 
 export default function PedidosPage() {
+  const { fmt } = useAdminCurrency()
   const [tab,     setTab    ] = useState<OrderStatus | ''>('')
   const [orders,  setOrders ] = useState<OrderRow[]>([])
   const [loading, setLoading] = useState(true)

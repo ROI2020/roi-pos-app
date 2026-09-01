@@ -46,9 +46,10 @@ export async function POST(req: Request) {
     const dbTotal = orderRows[0].total
 
     // ── Obtener credenciales PayPal del negocio ────────────────────────────────
-    const pubSettings = await getPublicSettingsByKeys(businessId, ['paypal_client_id', 'paypal_mode'])
+    const pubSettings = await getPublicSettingsByKeys(businessId, ['paypal_client_id', 'paypal_mode', 'paypal_fop_id'])
     const clientId    = pubSettings.paypal_client_id
     const mode        = pubSettings.paypal_mode ?? 'sandbox'
+    const paypalFopId = pubSettings.paypal_fop_id ? parseInt(pubSettings.paypal_fop_id) : null
 
     if (!clientId) {
       return NextResponse.json({ error: 'PayPal no configurado' }, { status: 503 })
@@ -105,6 +106,20 @@ export async function POST(req: Request) {
        WHERE id = $4 AND business_id = $5`,
       [captureId, capturedAmount, capturedCurrency, internalOrderId, businessId],
     )
+
+    // ── Registrar en transactions (libro unificado) ───────────────────────────
+    // No bloquea la respuesta; si falla, logueamos pero el pago ya está aprobado.
+    if (paypalFopId) {
+      pool.query(
+        `INSERT INTO transactions (business_id, branch_id, fop_id, type, type_id, currency, amount)
+         VALUES ($1, NULL, $2, 'online', $3, $4, $5)`,
+        [businessId, paypalFopId, internalOrderId, capturedCurrency ?? 'USD', capturedAmount],
+      ).catch(e => console.error('[capture-order] transactions insert error:', e))
+    } else {
+      console.log(
+        `[capture-order] paypal_fop_id no configurado — orderId=${internalOrderId} NO registrado en transactions`
+      )
+    }
 
     // Auto-fulfillment CJ (no bloquea la respuesta si falla)
     // En sandbox no enviamos a CJ — solo en live se crea la orden real.
