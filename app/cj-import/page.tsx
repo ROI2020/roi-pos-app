@@ -83,17 +83,23 @@ export default function CJImportPage() {
   const [page,      setPage     ] = useState(1)
   const [searching, setSearching] = useState(false)
 
-  // Filtros
+  // Filtros API (se envían al buscar)
   const [warehouse, setWarehouse] = useState<'all' | 'US' | 'CN'>('all')
   const [inStock,   setInStock  ] = useState(false)
   const [minPrice,  setMinPrice ] = useState('')
   const [maxPrice,  setMaxPrice ] = useState('')
+
+  // Filtros client-side (aplican sobre los resultados ya cargados)
+  const [minListed, setMinListed] = useState('')   // popularidad mínima
+  const [maxListed, setMaxListed] = useState('')   // popularidad máxima
 
   const [selected,      setSelected     ] = useState<CJProductDetail | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
 
   const [freight,        setFreight       ] = useState<CJFreightOption[]>([])
   const [loadingFreight, setLoadingFreight] = useState(false)
+  /** PIDs sin método de envío disponible (detectado al abrir el modal) */
+  const [noShippingPids, setNoShippingPids] = useState<Set<string>>(new Set())
 
   const [markup,      setMarkup     ] = useState('30')
   const [nameEdit,    setNameEdit   ] = useState('')   // nombre corto curado por admin
@@ -214,6 +220,10 @@ export default function CJImportPage() {
           await delay(1200)
           const fallback = await tryFetch(fallbackFrom)
           setFreight(fallback)
+          // Ningún warehouse tiene envío → marcar el pid
+          if (fallback.length === 0) {
+            setNoShippingPids(prev => new Set(prev).add(data.pid))
+          }
         }).finally(() => setLoadingFreight(false))
       }
     } catch (err) {
@@ -492,13 +502,52 @@ export default function CJImportPage() {
                 className="h-8 w-28 text-xs"
               />
             </div>
+
+            {/* Popularidad mínima */}
+            <div className="space-y-1">
+              <Label className="text-xs text-gray-500">Popularidad mín. ★</Label>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                placeholder="0"
+                value={minListed}
+                onChange={e => setMinListed(e.target.value)}
+                className="h-8 w-24 text-xs"
+              />
+            </div>
+
+            {/* Popularidad máxima */}
+            <div className="space-y-1">
+              <Label className="text-xs text-gray-500">Popularidad máx. ★</Label>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                placeholder="sin límite"
+                value={maxListed}
+                onChange={e => setMaxListed(e.target.value)}
+                className="h-8 w-28 text-xs"
+              />
+            </div>
           </div>
         </div>
 
         {/* Resultados */}
-        {results.length > 0 && (
+        {results.length > 0 && (() => {
+          // Filtro client-side por popularidad (listedNum)
+          const minL = minListed !== '' ? parseInt(minListed) : null
+          const maxL = maxListed !== '' ? parseInt(maxListed) : null
+          const visibleResults = results.filter(p => {
+            if (minL !== null && p.listedNum < minL) return false
+            if (maxL !== null && p.listedNum > maxL) return false
+            return true
+          })
+          const filteredOut = results.length - visibleResults.length
+
+          return (
           <>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <p className="text-sm text-gray-500">
                 {total.toLocaleString()} resultados para <strong>"{query}"</strong>
                 {warehouse !== 'all' && (
@@ -509,6 +558,11 @@ export default function CJImportPage() {
                 {inStock && (
                   <Badge variant="outline" className="ml-1 text-[10px] text-green-700 border-green-300">
                     Con stock
+                  </Badge>
+                )}
+                {filteredOut > 0 && (
+                  <Badge variant="outline" className="ml-1 text-[10px] text-amber-700 border-amber-300">
+                    {filteredOut} ocultado{filteredOut !== 1 ? 's' : ''} por popularidad
                   </Badge>
                 )}
               </p>
@@ -533,8 +587,17 @@ export default function CJImportPage() {
               )}
             </div>
 
+            {visibleResults.length === 0 ? (
+              <div className="text-center py-12 text-gray-400">
+                <p className="text-sm">Ningún resultado en el rango de popularidad {minListed}–{maxListed}</p>
+                <button className="text-xs text-violet-500 hover:underline mt-1"
+                  onClick={() => { setMinListed(''); setMaxListed('') }}>
+                  Limpiar filtro
+                </button>
+              </div>
+            ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-              {results.map(p => (
+              {visibleResults.map(p => (
                 <button
                   key={p.pid}
                   onClick={() => handleOpenDetail(p.pid)}
@@ -555,6 +618,20 @@ export default function CJImportPage() {
                         <CheckCircle2 className="h-10 w-10 text-white" />
                       </div>
                     )}
+                    {/* Badge sin envío (detectado al abrir el modal) */}
+                    {noShippingPids.has(p.pid) && !imported.has(p.pid) && (
+                      <div className="absolute top-1 left-1 bg-red-600/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                        ✕ Sin envío
+                      </div>
+                    )}
+                    {/* Badge popularidad */}
+                    {p.listedNum > 0 && (
+                      <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full">
+                        ★ {p.listedNum >= 1000
+                          ? `${(p.listedNum / 1000).toFixed(p.listedNum >= 10000 ? 0 : 1)}k`
+                          : p.listedNum}
+                      </div>
+                    )}
                   </div>
                   <div className="p-2.5 space-y-1">
                     <p className="text-xs text-gray-800 font-medium line-clamp-2 leading-tight">
@@ -566,8 +643,10 @@ export default function CJImportPage() {
                 </button>
               ))}
             </div>
+            )}
           </>
-        )}
+          )
+        })()}
 
         {/* Estado vacío */}
         {results.length === 0 && !searching && (
@@ -710,9 +789,14 @@ export default function CJImportPage() {
                 </div>
 
                 {!loadingFreight && freight.length === 0 && (
-                  <p className="text-xs text-gray-400 pl-6">
-                    Sin datos de envío disponibles para esta variante.
-                  </p>
+                  <div className="pl-6 space-y-1">
+                    <p className="text-xs text-red-500 font-medium">
+                      ✕ Sin método de envío disponible
+                    </p>
+                    <p className="text-[11px] text-gray-400">
+                      CJ no ofrece envío para este producto desde ningún almacén. No es posible importarlo al catálogo.
+                    </p>
+                  </div>
                 )}
 
                 {freight.length > 0 && (
@@ -843,13 +927,22 @@ export default function CJImportPage() {
               >
                 Ver en CJ <ExternalLink className="h-3.5 w-3.5" />
               </a>
-              <Button onClick={handleImport} disabled={importing} className="gap-2">
-                {importing
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : <Plus className="h-4 w-4" />
-                }
-                Importar al catálogo
-              </Button>
+              {selected && noShippingPids.has(selected.pid) && !loadingFreight ? (
+                <div title="Este producto no tiene método de envío disponible en CJ">
+                  <Button disabled className="gap-2 opacity-50 cursor-not-allowed">
+                    <Plus className="h-4 w-4" />
+                    Sin envío — no importable
+                  </Button>
+                </div>
+              ) : (
+                <Button onClick={handleImport} disabled={importing || loadingFreight} className="gap-2">
+                  {importing
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Plus className="h-4 w-4" />
+                  }
+                  {loadingFreight ? 'Verificando envío…' : 'Importar al catálogo'}
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

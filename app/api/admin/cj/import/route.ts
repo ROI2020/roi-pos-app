@@ -232,8 +232,84 @@ export async function POST(req: Request) {
 
   } catch (err) {
     await client.query('ROLLBACK')
-    // Si el error es que cj_data no existe (migration pendiente), reintentar sin ese campo
-    if (String(err).includes('cj_data') && String(err).includes('column')) {
+    const errStr = String(err)
+
+    // Columnas de migrations pendientes — reintentar sin el campo faltante
+    if (errStr.includes('long_name') && errStr.includes('column')) {
+      console.warn('[POST /api/admin/cj/import] long_name no existe — ejecutar 20260902_products_long_name.sql')
+      // Reintento sin long_name
+      const client2 = await pool.connect()
+      try {
+        await client2.query('BEGIN')
+        const basePrice  = parseFloat(product.sellPrice) || 0
+        const finalPrice = basePrice * (1 + markup / 100)
+        const productName = (nameOverride?.trim() || product.productName).slice(0, 150)
+        const { rows: [prod2] } = await client2.query<{ id: number; created: boolean }>(
+          `INSERT INTO products
+             (business_id, name, description, base_price, general_image_url,
+              weight_grams, cj_pid, cj_last_sync, exportable_web,
+              cj_data, cj_cost_usd, markup_pct, cuotas)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), true, $8, $9, $10, 0)
+           ON CONFLICT (business_id, cj_pid) WHERE cj_pid IS NOT NULL
+           DO UPDATE SET
+             description       = EXCLUDED.description,
+             base_price        = EXCLUDED.base_price,
+             general_image_url = EXCLUDED.general_image_url,
+             weight_grams      = EXCLUDED.weight_grams,
+             cj_last_sync      = NOW(),
+             cj_data           = EXCLUDED.cj_data,
+             cj_cost_usd       = EXCLUDED.cj_cost_usd,
+             markup_pct        = EXCLUDED.markup_pct
+           RETURNING id, (xmax = 0) AS created`,
+          [
+            businessId, productName,
+            product.productDescription ? stripHtml(product.productDescription).slice(0, 2000) : null,
+            finalPrice.toFixed(2),
+            product.productImages?.[0] ?? product.productImage ?? null,
+            product.productWeight ? Math.round(parseFloat(product.productWeight)) : null,
+            product.pid, JSON.stringify(product), basePrice.toFixed(2), markup,
+          ],
+        )
+        for (const variant of product.variants) {
+          const vp = parseFloat(variant.variantSellPrice) || finalPrice
+          const vfp = vp * (1 + markup / 100)
+          const sku = variant.variantSku || `CJ-${product.pid}-${variant.vid}`
+          await client2.query(
+            `INSERT INTO product_variants (product_id, sku, color, size, specific_image_url, cj_vid)
+             VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (sku) DO NOTHING`,
+            [prod2.id, sku.slice(0,100), (variant.variantColor||'').slice(0,50),
+             (variant.variantSize||'').slice(0,50), variant.variantImage||null, variant.vid],
+          )
+        }
+        await client2.query(
+          `INSERT INTO cj_sync_log (business_id, sync_type, product_id, status, detail)
+           VALUES ($1,'import',$2,'ok',$3)`,
+          [businessId, prod2.id, JSON.stringify({ cjPid: product.pid, action: prod2.created ? 'created' : 'updated', note: 'fallback_no_long_name' })],
+        )
+        await client2.query('COMMIT')
+        return NextResponse.json(
+          { productId: prod2.id, action: prod2.created ? 'created' : 'updated', warning: 'long_name no disponible — ejecutar migración 20260902_products_long_name.sql' },
+          { status: prod2.created ? 201 : 200 }
+        )
+      } catch (err2) {
+        await client2.query('ROLLBACK')
+        console.error('[POST /api/admin/cj/import] fallback sin long_name también falló:', err2)
+        return NextResponse.json({ error: String(err2) }, { status: 500 })
+      } finally {
+        client2.release()
+      }
+    }
+
+    // 42P10: no existe el índice único para ON CONFLICT
+    if ((err as { code?: string }).code === '42P10') {
+      console.warn('[POST /api/admin/cj/import] Índice único faltante — ejecutar 20260901_products_cj_pid_unique.sql')
+      return NextResponse.json(
+        { error: 'Migration pendiente: ejecutar db/migrations/20260901_products_cj_pid_unique.sql en Supabase (CREATE UNIQUE INDEX products_business_cj_pid_uidx)' },
+        { status: 500 }
+      )
+    }
+
+    if (errStr.includes('cj_data') && errStr.includes('column')) {
       console.warn('[POST /api/admin/cj/import] cj_data no existe en DB — ejecutar 20260831_cj_data.sql')
       return NextResponse.json(
         { error: 'Migration pendiente: ejecutar db/migrations/20260831_cj_data.sql en Supabase' },
