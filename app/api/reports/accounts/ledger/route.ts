@@ -56,6 +56,10 @@ export async function GET(req: Request) {
            END
          WHEN 'purchase' THEN
            COALESCE('Compra a ' || sup.company_name, CONCAT('Compra #', p.id))
+         WHEN 'online' THEN
+           CONCAT('Pedido online #', oo.id,
+             CASE WHEN oo.buyer_name IS NOT NULL AND oo.buyer_name <> ''
+               THEN ' — ' || oo.buyer_name ELSE '' END)
        END              AS description,
        COALESCE(uv.name, ue.name, ux.name, ut.name) AS user_name
      FROM transactions t
@@ -76,6 +80,7 @@ export async function GET(req: Request) {
      LEFT JOIN branches tbr       ON tbr.id = ct.from_branch_id
      LEFT JOIN purchases p        ON t.type = 'purchase'  AND p.id = t.type_id
      LEFT JOIN suppliers sup      ON sup.id = p.supplier_id
+     LEFT JOIN online_orders oo   ON t.type = 'online'   AND oo.id = t.type_id
      WHERE f.account_id = $1
        AND t.created_at::date BETWEEN $2::date AND $3::date
        AND t.business_id = $4

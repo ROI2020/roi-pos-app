@@ -10,6 +10,7 @@ import { Input }  from "@/components/ui/input"
 import { Badge }  from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ReceiptDialog, type ReceiptData, type ReceiptSettings } from "@/components/receipt-dialog"
+import { useAdminCurrency } from "@/hooks/use-admin-currency"
 import { useFacturacion } from "@/hooks/useFacturacion"
 import type { FacturacionOutput } from "@/lib/facturacion/types"
 
@@ -49,9 +50,6 @@ interface Props {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-const fmt = (n: number) =>
-  new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n)
-
 const fmtDate = (iso: string) => {
   const d = new Date(iso)
   return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
@@ -137,6 +135,8 @@ function FacturaIcono({
 
 // ══════════════════════════════════════════════════════════════════════════════
 export default function SalesReportTab({ fromYMD, toYMD }: Props) {
+  const { fmt } = useAdminCurrency()
+
   const [rows,           setRows          ] = useState<SaleRow[]>([])
   const [loading,        setLoading       ] = useState(false)
   const [search,         setSearch        ] = useState('')

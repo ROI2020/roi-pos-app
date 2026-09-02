@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
 import {
   Loader2, ChevronDown, ChevronRight, Wallet, Landmark, Building2,
-  TrendingUp, TrendingDown, RefreshCw, ArrowDownUp, ShoppingBag,
+  TrendingUp, TrendingDown, RefreshCw, ArrowDownUp, ShoppingBag, Globe,
 } from "lucide-react"
+import { useAdminCurrency } from "@/hooks/use-admin-currency"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Account {
@@ -20,7 +21,7 @@ interface Account {
 interface LedgerEntry {
   id:           number
   created_at:   string
-  type:         'sale' | 'expense' | 'exchange' | 'transfer' | 'purchase'
+  type:         'sale' | 'expense' | 'exchange' | 'transfer' | 'purchase' | 'online'
   type_id:      number
   amount:       number
   fop_name:     string
@@ -34,9 +35,6 @@ interface Props {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-const fmt = (n: number) =>
-  new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n)
-
 const fmtDateTime = (iso: string) => {
   const d = new Date(iso)
   return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
@@ -48,6 +46,7 @@ const TYPE_CONFIG: Record<LedgerEntry['type'], { label: string; Icon: React.Elem
   exchange: { label: 'Cambio',  Icon: RefreshCw,    color: 'text-violet-700' },
   transfer: { label: 'Mov.',    Icon: ArrowDownUp,  color: 'text-amber-700'  },
   purchase: { label: 'Compra',  Icon: ShoppingBag,  color: 'text-orange-700' },
+  online:   { label: 'Online',  Icon: Globe,        color: 'text-blue-600'   },
 }
 
 const ACCOUNT_ICON: Record<string, React.ElementType> = {
@@ -57,6 +56,8 @@ const ACCOUNT_ICON: Record<string, React.ElementType> = {
 
 // ══════════════════════════════════════════════════════════════════════════════
 export default function AccountsReportTab({ fromYMD, toYMD }: Props) {
+  const { fmt } = useAdminCurrency()
+
   const [accounts,      setAccounts     ] = useState<Account[]>([])
   const [loadingAccts,  setLoadingAccts ] = useState(false)
   const [expandedId,    setExpandedId   ] = useState<number | null>(null)

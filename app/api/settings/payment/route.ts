@@ -31,7 +31,7 @@ export async function GET() {
      WHERE business_id = $1
        AND key = ANY(ARRAY[
          'payment_gateway','currency','locale',
-         'mp_access_token','mp_public_key',
+         'mp_access_token','mp_public_key','mp_fop_id',
          'paypal_client_id','paypal_client_secret','paypal_mode','paypal_fop_id'
        ]::text[])`,
     [businessId],
@@ -52,6 +52,7 @@ export async function GET() {
     currency:                 map.currency                 ?? 'ARS',
     locale:                   map.locale                   ?? 'es-AR',
     mp_public_key:            map.mp_public_key            ?? null,
+    mp_fop_id:                map.mp_fop_id                ? parseInt(map.mp_fop_id) : null,
     paypal_client_id:         map.paypal_client_id         ?? null,
     paypal_mode:              map.paypal_mode              ?? 'sandbox',
     paypal_fop_id:            map.paypal_fop_id            ? parseInt(map.paypal_fop_id) : null,
@@ -91,6 +92,7 @@ export async function PUT(req: Request) {
     locale?:                string
     mp_public_key?:         string | null
     mp_access_token?:       string | null
+    mp_fop_id?:             number | null
     paypal_client_id?:      string | null
     paypal_client_secret?:  string | null
     paypal_mode?:           string
@@ -103,6 +105,7 @@ export async function PUT(req: Request) {
     ['currency',        body.currency?.trim()        || null],
     ['locale',          body.locale?.trim()           || null],
     ['mp_public_key',   body.mp_public_key?.trim()   || null],
+    ['mp_fop_id',       body.mp_fop_id   != null ? String(body.mp_fop_id)   : null],
     ['paypal_client_id', body.paypal_client_id?.trim() || null],
     ['paypal_mode',     body.paypal_mode?.trim()     || null],
     ['paypal_fop_id',   body.paypal_fop_id != null ? String(body.paypal_fop_id) : null],
@@ -124,7 +127,7 @@ export async function PUT(req: Request) {
     for (const [key, value] of publicFields) {
       // Siempre escribir los campos opcionales (null elimina el valor)
       // Solo saltamos nulls de campos obligatorios como gateway/currency/locale
-      if (value === null && !['mp_public_key', 'paypal_client_id', 'paypal_fop_id'].includes(key)) continue
+      if (value === null && !['mp_public_key', 'mp_fop_id', 'paypal_client_id', 'paypal_fop_id'].includes(key)) continue
       await client.query(
         `INSERT INTO settings (business_id, key, value, is_secret)
          VALUES ($1, $2, $3, false)

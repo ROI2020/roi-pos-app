@@ -2054,6 +2054,7 @@ interface PaymentConfig {
   currency:                 string
   locale:                   string
   mp_public_key:            string | null
+  mp_fop_id:                number | null
   paypal_client_id:         string | null
   paypal_mode:              string
   paypal_fop_id:            number | null
@@ -2077,6 +2078,7 @@ function PagosTab() {
   const [paypalClientId,      setPaypalClientId     ] = useState('')
   const [paypalClientSecret,  setPaypalClientSecret ] = useState('')     // vacío = no cambiar
   const [paypalMode,          setPaypalMode         ] = useState('sandbox')
+  const [mpFopId,             setMpFopId            ] = useState<number | null>(null)
   const [paypalFopId,         setPaypalFopId        ] = useState<number | null>(null)
   const [fopsList,            setFopsList           ] = useState<FopOption[]>([])
 
@@ -2095,6 +2097,7 @@ function PagosTab() {
         setCurrency(d.currency)
         setLocale(d.locale)
         setMpPublicKey(d.mp_public_key ?? '')
+        setMpFopId(d.mp_fop_id ?? null)
         setPaypalClientId(d.paypal_client_id ?? '')
         setPaypalMode(d.paypal_mode ?? 'sandbox')
         setPaypalFopId(d.paypal_fop_id ?? null)
@@ -2116,6 +2119,7 @@ function PagosTab() {
           locale:               locale.trim(),
           mp_public_key:        mpPublicKey.trim()        || null,
           mp_access_token:      mpAccessToken.trim()      || null,    // null = mantener
+          mp_fop_id:            mpFopId,
           paypal_client_id:     paypalClientId.trim()     || null,
           paypal_client_secret: paypalClientSecret.trim() || null,   // null = mantener
           paypal_mode:          paypalMode,
@@ -2262,6 +2266,32 @@ function PagosTab() {
             </div>
             <p className="text-xs text-gray-400">
               Dejá vacío para mantener el token existente. Solo completá si querés reemplazarlo.
+            </p>
+          </div>
+
+          {/* FOP para registrar cobros MP online en transactions */}
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-2">
+              Forma de pago en el libro
+              <span className="text-[10px] font-normal text-gray-400">(para reportes)</span>
+            </Label>
+            <Select
+              value={mpFopId != null ? String(mpFopId) : '__none__'}
+              onValueChange={v => setMpFopId(v === '__none__' ? null : parseInt(v))}
+            >
+              <SelectTrigger className="text-sm">
+                <SelectValue placeholder="Sin asignar" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">— Sin asignar —</SelectItem>
+                {fopsList.map(f => (
+                  <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-400">
+              Forma de pago que representa MercadoPago en tu libro de movimientos.
+              Los pedidos online confirmados se registrarán automáticamente en Transacciones.
             </p>
           </div>
 

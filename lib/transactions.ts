@@ -44,7 +44,7 @@ export async function insertTransaction(
     businessId: number
     branchId:   number | null
     fopId:      number
-    type:       'sale' | 'purchase' | 'exchange' | 'expense' | 'transfer'
+    type:       'sale' | 'purchase' | 'exchange' | 'expense' | 'transfer' | 'online'
     typeId:     number
     amount:     number
     currency?:  string   // ISO 4217 — default 'ARS' para negocios ARG existentes
@@ -62,6 +62,10 @@ export async function insertTransaction(
  * Inserta una o varias transactions para una venta, según tenga forma de
  * pago única o combinada (payment_split). amountByMethod ya viene resuelto
  * (un solo método con el total, o el split completo).
+ *
+ * Retorna true si se insertó al menos una fila; false si ningún método
+ * tuvo fop_id resuelto (cuenta no configurada en esa sucursal).
+ * En ese caso loguea un warning para facilitar el diagnóstico.
  */
 export async function insertSaleTransactions(
   client: PoolClient,
@@ -72,11 +76,18 @@ export async function insertSaleTransactions(
     amountByMethod: Record<string, number>
     currency?:  string   // ISO 4217 — default 'ARS' para negocios ARG existentes
   }
-) {
+): Promise<boolean> {
+  let inserted = false
   for (const [method, amount] of Object.entries(params.amountByMethod)) {
     if (!amount) continue
     const fopId = await getFopId(client, params.branchId, method)
-    if (!fopId) continue
+    if (!fopId) {
+      console.warn(
+        `[insertSaleTransactions] fop_id no encontrado para método='${method}' ` +
+        `branchId=${params.branchId} — transaction omitida para sale #${params.saleId}`
+      )
+      continue
+    }
     await insertTransaction(client, {
       businessId: params.businessId,
       branchId:   params.branchId,
@@ -86,5 +97,7 @@ export async function insertSaleTransactions(
       amount,
       currency:   params.currency,
     })
+    inserted = true
   }
+  return inserted
 }

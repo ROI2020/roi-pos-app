@@ -3,6 +3,8 @@ import pool from '@/lib/db'
 import { requireBusinessId } from '@/lib/get-business-id'
 import { createOrder as paqarCreateOrder } from '@/lib/correo/correoArgentino'
 import { calcBulkDimensions } from '@/lib/correo/dimensions'
+import { insertTransaction } from '@/lib/transactions'
+import { getPublicSettingsByKeys } from '@/lib/settings'
 
 /**
  * PATCH /api/orders/online/:id/confirm
@@ -28,6 +30,17 @@ export async function PATCH(
   const orderId = parseInt(id)
 
   try {
+    // ── Leer mp_fop_id de settings (antes de la TX, no bloquea) ────────────
+    const pubSettings = await getPublicSettingsByKeys(businessId, ['mp_fop_id'])
+    const mpFopId     = pubSettings.mp_fop_id ? parseInt(pubSettings.mp_fop_id) : null
+
+    if (!mpFopId) {
+      console.warn(
+        `[confirm order ${orderId}] mp_fop_id no configurado — ` +
+        'la venta NO se registrará en transactions. Configurarlo en Ajustes → Pagos.'
+      )
+    }
+
     // ── Cargar pedido ───────────────────────────────────────────────────────
     const { rows: orderRows } = await pool.query<{
       id: number; status: string; delivery_type: string; agency_id: string | null
@@ -138,7 +151,7 @@ export async function PATCH(
                 oo.customer_id,
                 $2, 0, $3,
                 $4,
-                'online_pending',
+                'mp_online',
                 $5
          FROM online_orders oo WHERE oo.id = $6
          RETURNING id`,
@@ -174,6 +187,20 @@ export async function PATCH(
          WHERE id = $2`,
         [saleId, orderId]
       )
+
+      // ── Registrar en transactions (misma TX para atomicidad) ──────────────
+      // Usa el fop_id configurado en Ajustes → Pagos → "Forma de pago en el libro".
+      // Si no está configurado, la venta queda sin fila en transactions (ya se logueó).
+      if (mpFopId) {
+        await insertTransaction(client, {
+          businessId,
+          branchId,
+          fopId:  mpFopId,
+          type:   'sale',
+          typeId: saleId,
+          amount: order.total,
+        })
+      }
 
       await client.query('COMMIT')
     } catch (err) {
