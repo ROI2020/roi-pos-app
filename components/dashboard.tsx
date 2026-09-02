@@ -13,8 +13,9 @@ import { PlanGate } from "@/components/PlanGate"
 import {
   LayoutDashboard, Package, Warehouse, AlertTriangle,
   TrendingUp, ShoppingCart, Loader2, RefreshCw, Tag,
-  CheckCircle2,
+  CheckCircle2, Globe,
 } from "lucide-react"
+import { useAdminCurrency } from "@/hooks/use-admin-currency"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 
@@ -49,9 +50,12 @@ interface DashboardData {
   by_season: ClassificationRow[]
   by_gender: ClassificationRow[]
   by_branch: ClassificationRow[]
-  sales_today: SalesSummary
-  sales_week: SalesSummary
-  sales_month: SalesSummary
+  sales_today:  SalesSummary
+  sales_week:   SalesSummary
+  sales_month:  SalesSummary
+  online_today: SalesSummary
+  online_week:  SalesSummary
+  online_month: SalesSummary
 }
 
 // ── Formateo ───────────────────────────────────────────────────────────────────
@@ -581,6 +585,7 @@ function RoiRangePanel() {
 
 // ── Componente principal ───────────────────────────────────────────────────────
 export default function Dashboard() {
+  const { fmt } = useAdminCurrency()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -635,7 +640,7 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto space-y-6">
 
         {/* ── Ventas del período ── */}
-        <h1 className="text-2xl font-bold text-gray-900">Ventas</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Ventas POS</h1>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
             { label: 'Hoy', data: data.sales_today, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
@@ -648,8 +653,32 @@ export default function Dashboard() {
               </div>
               <div>
                 <p className="text-xs text-gray-500 font-medium">{label}</p>
-                <p className={`text-xl font-bold ${color}`}>{fmtCurrency(d.total)}</p>
+                <p className={`text-xl font-bold ${color}`}>{fmt(d.total)}</p>
                 <p className="text-xs text-gray-400">{d.count} venta{d.count !== 1 ? 's' : ''}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Ventas Online del período ── */}
+        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <Globe className="h-6 w-6 text-sky-500" />
+          Ventas Online
+        </h1>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[
+            { label: 'Hoy', data: data.online_today, color: 'text-sky-600', bg: 'bg-sky-50', border: 'border-sky-200' },
+            { label: 'Esta semana', data: data.online_week, color: 'text-cyan-600', bg: 'bg-cyan-50', border: 'border-cyan-200' },
+            { label: 'Este mes', data: data.online_month, color: 'text-teal-600', bg: 'bg-teal-50', border: 'border-teal-200' },
+          ].map(({ label, data: d, color, bg, border }) => (
+            <div key={label} className={`${bg} border ${border} rounded-xl p-4 flex items-center gap-4`}>
+              <div className={`p-2.5 rounded-lg bg-white shadow-sm shrink-0`}>
+                <Globe className={`h-5 w-5 ${color}`} />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 font-medium">{label}</p>
+                <p className={`text-xl font-bold ${color}`}>{fmt(d.total)}</p>
+                <p className="text-xs text-gray-400">{d.count} pedido{d.count !== 1 ? 's' : ''}</p>
               </div>
             </div>
           ))}

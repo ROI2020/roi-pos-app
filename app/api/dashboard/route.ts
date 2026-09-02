@@ -53,7 +53,7 @@ export async function GET() {
   const weekStart  = `date_trunc('week',  ${BA_NOW})`  // lunes 00:00
   const monthStart = `date_trunc('month', ${BA_NOW})`  // día 1 00:00
 
-  // Ventas: count + total en un período
+  // Ventas POS: count + total en un período
   const salesQueryFrom = (fromExpr: string) => pool.query(`
     SELECT
       COUNT(*)::int                          AS count,
@@ -63,8 +63,20 @@ export async function GET() {
       AND business_id = $1
   `, [businessId])
 
+  // Ventas online: count + total en un período (pedidos aprobados/confirmados/etc.)
+  const onlineQueryFrom = (fromExpr: string) => pool.query(`
+    SELECT
+      COUNT(*)::int                    AS count,
+      COALESCE(SUM(total), 0)::float   AS total
+    FROM online_orders
+    WHERE (updated_at AT TIME ZONE 'America/Argentina/Buenos_Aires') >= ${fromExpr}
+      AND business_id = $1
+      AND status IN ('approved', 'confirmed', 'preparing', 'delivered')
+  `, [businessId])
+
   const [summary, byCategory, byAgeGroup, bySeason, byGender, byBranch, unclassified,
-         salesToday, salesWeek, salesMonth] =
+         salesToday, salesWeek, salesMonth,
+         onlineToday, onlineWeek, onlineMonth] =
     await Promise.all([
 
       // ── Resumen global ───────────────────────────────────────────────────
@@ -173,10 +185,15 @@ export async function GET() {
           AND business_id = $1
       `, [businessId]),
 
-      // ── Ventas por período (count + total) ───────────────────────────────
+      // ── Ventas POS por período (count + total) ──────────────────────────
       salesQueryFrom(todayStart),
       salesQueryFrom(weekStart),
       salesQueryFrom(monthStart),
+
+      // ── Ventas online por período ────────────────────────────────────────
+      onlineQueryFrom(todayStart),
+      onlineQueryFrom(weekStart),
+      onlineQueryFrom(monthStart),
     ])
 
   const s = summary.rows[0]
@@ -197,8 +214,11 @@ export async function GET() {
     by_season:    bySeason.rows,
     by_gender:    byGender.rows,
     by_branch:    byBranch.rows,
-    sales_today:  { count: salesToday.rows[0].count, total: salesToday.rows[0].total },
-    sales_week:   { count: salesWeek.rows[0].count,  total: salesWeek.rows[0].total  },
-    sales_month:  { count: salesMonth.rows[0].count, total: salesMonth.rows[0].total },
+    sales_today:   { count: salesToday.rows[0].count,  total: salesToday.rows[0].total  },
+    sales_week:    { count: salesWeek.rows[0].count,   total: salesWeek.rows[0].total   },
+    sales_month:   { count: salesMonth.rows[0].count,  total: salesMonth.rows[0].total  },
+    online_today:  { count: onlineToday.rows[0].count, total: onlineToday.rows[0].total },
+    online_week:   { count: onlineWeek.rows[0].count,  total: onlineWeek.rows[0].total  },
+    online_month:  { count: onlineMonth.rows[0].count, total: onlineMonth.rows[0].total },
   })
 }
