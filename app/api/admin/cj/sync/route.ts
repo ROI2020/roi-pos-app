@@ -126,20 +126,46 @@ export async function POST(req: Request) {
       const detail = await getCJProductDetail(token, prod.cj_pid)
 
       // ── 2. Producto discontinuado ────────────────────────────────────────
-      if (detail.listedNum === 0) {
+      // productStatus: 3 = On Sale, 2 = Off Sale (discontinuado).
+      // Valores fuera de {2,3}: registrar en log para analizar en docs de CJ.
+      const STATUS_ON_SALE      = 3
+      const STATUS_DISCONTINUED = 2
+
+      if (detail.productStatus !== STATUS_ON_SALE && detail.productStatus !== STATUS_DISCONTINUED) {
+        console.warn(
+          `[CJ sync] productStatus desconocido: ${detail.productStatus} — pid=${prod.cj_pid}`,
+          '→ revisar documentación CJ'
+        )
+        await pool.query(
+          `INSERT INTO cj_sync_log (business_id, sync_type, product_id, status, detail)
+           VALUES ($1, 'sync_unknown_status', $2, 'warn', $3)`,
+          [businessId, prod.id, JSON.stringify({
+            cjPid: prod.cj_pid, productStatus: detail.productStatus, listedNum: detail.listedNum,
+          })]
+        )
+        // No interrumpir — continuar actualizando el producto
+      }
+
+      if (detail.productStatus === STATUS_DISCONTINUED) {
+        // Apagar TODOS los canales; no basta con exportable_web
         await pool.query(
           `UPDATE products
-           SET exportable_web = false,
-               cj_last_sync   = NOW()
+           SET exportable_web       = false,
+               exportable_whatsapp  = false,
+               exportable_instagram = false,
+               exportable_facebook  = false,
+               cj_last_sync         = NOW()
            WHERE id = $1`,
           [prod.id],
         )
         discontinued++
-        console.log(`[CJ sync] Discontinuado: pid=${prod.cj_pid} (id=${prod.id})`)
+        console.log(`[CJ sync] Discontinuado (status=2): pid=${prod.cj_pid} (id=${prod.id})`)
         await pool.query(
           `INSERT INTO cj_sync_log (business_id, sync_type, product_id, status, detail)
            VALUES ($1, 'sync_discontinued', $2, 'ok', $3)`,
-          [businessId, prod.id, JSON.stringify({ cjPid: prod.cj_pid, listedNum: 0 })]
+          [businessId, prod.id, JSON.stringify({
+            cjPid: prod.cj_pid, productStatus: detail.productStatus, listedNum: detail.listedNum,
+          })]
         )
         continue
       }

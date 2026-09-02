@@ -1269,18 +1269,35 @@ function DSEditDialog({
 
           {/* Info CJ */}
           {cjData && (
-            <div className="grid grid-cols-3 gap-2 text-sm">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
               <div className="bg-sky-50 rounded-lg p-2.5">
                 <p className="text-xs text-sky-500">Costo CJ</p>
                 <p className="font-bold text-sky-800">{fmtUsd(product.cj_cost_usd ?? 0)}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-2.5">
-                <p className="text-xs text-gray-400">Variantes CJ</p>
-                <p className="font-bold text-gray-900">{cjData.variants?.length ?? '—'}</p>
-              </div>
               <div className="bg-violet-50 rounded-lg p-2.5">
-                <p className="text-xs text-violet-500">Precio actual</p>
+                <p className="text-xs text-violet-500">Precio venta</p>
                 <p className="font-bold text-violet-800">{fmt(product.base_price)}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-2.5">
+                <p className="text-xs text-gray-400">Popularidad</p>
+                <p className="font-bold text-gray-900 flex items-center gap-1">
+                  {cjData.listedNum?.toLocaleString('es-AR') ?? '—'}
+                  <span className="text-[9px] font-normal text-gray-400">tiendas</span>
+                </p>
+              </div>
+              <div className={`rounded-lg p-2.5 ${
+                cjData.productStatus === 3 ? 'bg-green-50' :
+                cjData.productStatus === 2 ? 'bg-red-50' : 'bg-amber-50'
+              }`}>
+                <p className="text-xs text-gray-400">Estado CJ</p>
+                <p className={`font-bold text-sm ${
+                  cjData.productStatus === 3 ? 'text-green-700' :
+                  cjData.productStatus === 2 ? 'text-red-700' : 'text-amber-700'
+                }`}>
+                  {cjData.productStatus === 3 ? '● On Sale' :
+                   cjData.productStatus === 2 ? '● Off Sale' :
+                   `? Status ${cjData.productStatus}`}
+                </p>
               </div>
             </div>
           )}

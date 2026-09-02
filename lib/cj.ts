@@ -118,9 +118,18 @@ export interface CJProductSummary {
   productImage:  string
   sellPrice:     string   // string decimal, ej "12.99"
   productUnit:   string   // "pieces"
-  listedNum:     number   // qty en stock (estimado)
+  /** Cantidad de tiendas DS que tienen este producto listado — métrica de popularidad.
+   *  NO indica stock ni disponibilidad. */
+  listedNum:     number
   categoryId:    string
   categoryName:  string
+  /**
+   * Estado de disponibilidad comercial del producto en CJ:
+   *   3 = On Sale (activo / en venta)
+   *   2 = Off Sale (descontinuado / fuera de venta)
+   *   Otros valores: registrar para analizar en documentación CJ.
+   */
+  productStatus: number
 }
 
 export interface CJVariant {
@@ -382,6 +391,7 @@ export async function getCJProductDetail(
     sellPrice:          String(raw.sellPrice    ?? '0'),
     productUnit:        String(raw.productUnit  ?? ''),
     listedNum:          Number(raw.listedNum    ?? 0),
+    productStatus:      Number(raw.productStatus ?? 3),   // 3 = On Sale por defecto
     categoryId:         String(raw.categoryId   ?? ''),
     categoryName:       String(raw.categoryName ?? ''),
     productDescription: String(raw.description  ?? raw.productDescription ?? ''),
