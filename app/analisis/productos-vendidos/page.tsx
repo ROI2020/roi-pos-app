@@ -40,20 +40,26 @@ interface CategoryGroup {
 
 // ── Tipos Online ───────────────────────────────────────────────────────────────
 interface OnlineProductRow {
-  category:     string
-  gender:       string
-  product_id:   number
-  product_name: string
-  is_cj:        boolean
-  qty_sold:     number
-  revenue:      number
+  category:      string
+  gender:        string
+  product_id:    number
+  product_name:  string
+  is_cj:         boolean
+  qty_sold:      number
+  revenue:       number
+  cost_currency: string | null  // ISO 4217 o null si no hay costo
+  cost:          number | null  // null si no hay unit_cost snapsheado
+  margin:        number | null
 }
 
 interface OnlineCategoryGroup {
-  category:  string
-  qty_sold:  number
-  revenue:   number
-  products:  OnlineProductRow[]
+  category:      string
+  qty_sold:      number
+  revenue:       number
+  cost_currency: string | null
+  cost:          number | null
+  margin:        number | null
+  products:      OnlineProductRow[]
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -245,11 +251,19 @@ export default function ProductosVendidosPage() {
 
     for (const r of onlineRows) {
       if (!map.has(r.category)) {
-        map.set(r.category, { category: r.category, qty_sold: 0, revenue: 0, products: [] })
+        map.set(r.category, {
+          category: r.category, qty_sold: 0, revenue: 0,
+          cost_currency: null, cost: null, margin: null, products: [],
+        })
       }
       const g = map.get(r.category)!
       g.qty_sold += r.qty_sold
       g.revenue  += r.revenue
+      if (r.cost != null) {
+        g.cost_currency = r.cost_currency
+        g.cost   = (g.cost ?? 0) + r.cost
+        g.margin = (g.margin ?? 0) + (r.margin ?? 0)
+      }
       g.products.push(r)
     }
 
@@ -277,8 +291,13 @@ export default function ProductosVendidosPage() {
   // ── Totales Online ─────────────────────────────────────────────────────────
   const onlineTotals = useMemo(() => {
     return onlineGroups.reduce(
-      (acc, g) => ({ qty: acc.qty + g.qty_sold, revenue: acc.revenue + g.revenue }),
-      { qty: 0, revenue: 0 }
+      (acc, g) => ({
+        qty:     acc.qty + g.qty_sold,
+        revenue: acc.revenue + g.revenue,
+        cost:    g.cost != null ? (acc.cost ?? 0) + g.cost : acc.cost,
+        margin:  g.margin != null ? (acc.margin ?? 0) + g.margin : acc.margin,
+      }),
+      { qty: 0, revenue: 0, cost: null as number | null, margin: null as number | null }
     )
   }, [onlineGroups])
 
@@ -576,21 +595,40 @@ export default function ProductosVendidosPage() {
           <>
             {/* KPIs Online */}
             {onlineRows !== null && onlineRows.length > 0 && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className={`grid gap-4 ${onlineTotals.cost != null ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-2'}`}>
                 {[
                   {
-                    label: 'Unidades vendidas',
+                    label: 'Unidades',
                     value: fmtN(onlineTotals.qty),
                     Icon:  Package,
                     color: 'text-sky-600 bg-sky-50',
+                    show: true,
                   },
                   {
-                    label: 'Ingresos online',
+                    label: 'Ingresos',
                     value: fmt(onlineTotals.revenue),
                     Icon:  Globe,
                     color: 'text-teal-600 bg-teal-50',
+                    show: true,
                   },
-                ].map(c => (
+                  {
+                    label: 'Costo',
+                    value: onlineTotals.cost != null ? fmt(onlineTotals.cost) : '—',
+                    Icon:  TrendingUp,
+                    color: 'text-amber-600 bg-amber-50',
+                    show: onlineTotals.cost != null,
+                  },
+                  {
+                    label: 'Margen',
+                    value: onlineTotals.margin != null ? fmt(onlineTotals.margin) : '—',
+                    sub:   onlineTotals.margin != null && onlineTotals.revenue > 0
+                      ? `${fmtPct(onlineTotals.margin / onlineTotals.revenue)} sobre ingresos`
+                      : null,
+                    Icon:  BadgeDollarSign,
+                    color: 'text-emerald-600 bg-emerald-50',
+                    show: onlineTotals.margin != null,
+                  },
+                ].filter(c => c.show).map(c => (
                   <div key={c.label} className="bg-white rounded-xl border shadow-sm p-4 flex items-center gap-3">
                     <div className={`p-2 rounded-lg ${c.color.split(' ')[1]} flex-shrink-0`}>
                       <c.Icon className={`h-5 w-5 ${c.color.split(' ')[0]}`} />
@@ -598,6 +636,9 @@ export default function ProductosVendidosPage() {
                     <div className="min-w-0">
                       <p className="text-xs text-gray-500 truncate">{c.label}</p>
                       <p className="text-base font-bold text-gray-900 truncate">{c.value}</p>
+                      {'sub' in c && c.sub && (
+                        <p className="text-xs text-gray-400 truncate">{c.sub}</p>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -633,6 +674,10 @@ export default function ProductosVendidosPage() {
                         <th className="px-3 py-3 text-center">Tipo</th>
                         <th className="px-3 py-3 text-right">Unidades</th>
                         <th className="px-3 py-3 text-right font-semibold text-gray-700">Ingresos</th>
+                        <th className="px-3 py-3 text-right">Costo</th>
+                        <th className="px-3 py-3 text-right text-gray-400 text-[11px] normal-case font-normal tracking-normal">moneda proveedor</th>
+                        <th className="px-3 py-3 text-right">Margen</th>
+                        <th className="px-3 py-3 text-right text-gray-400">%</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -664,6 +709,21 @@ export default function ProductosVendidosPage() {
                               <td className="px-3 py-3 text-right text-gray-800 font-semibold tabular-nums">
                                 {fmt(g.revenue)}
                               </td>
+                              <td className="px-3 py-3 text-right text-gray-500 tabular-nums">
+                                {g.cost != null ? fmt(g.cost) : '—'}
+                              </td>
+                              <td className="px-3 py-3 text-right">
+                                {g.cost_currency
+                                  ? <span className="text-[10px] font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{g.cost_currency}</span>
+                                  : <span className="text-gray-300">—</span>
+                                }
+                              </td>
+                              <td className={`px-3 py-3 text-right tabular-nums ${g.margin != null ? marginColor(g.revenue > 0 ? g.margin / g.revenue : 0) : 'text-gray-300'}`}>
+                                {g.margin != null ? fmt(g.margin) : '—'}
+                              </td>
+                              <td className={`px-3 py-3 text-right text-xs tabular-nums ${g.margin != null ? marginColor(g.revenue > 0 ? g.margin / g.revenue : 0) : 'text-gray-300'}`}>
+                                {g.margin != null && g.revenue > 0 ? fmtPct(g.margin / g.revenue) : '—'}
+                              </td>
                             </tr>
 
                             {/* ── Filas de productos (drill-down) ── */}
@@ -694,6 +754,21 @@ export default function ProductosVendidosPage() {
                                 <td className="px-3 py-2.5 text-right text-gray-800 font-medium tabular-nums">
                                   {fmt(p.revenue)}
                                 </td>
+                                <td className="px-3 py-2.5 text-right text-gray-500 tabular-nums">
+                                  {p.cost != null ? fmt(p.cost) : '—'}
+                                </td>
+                                <td className="px-3 py-2.5 text-right">
+                                  {p.cost_currency
+                                    ? <span className="text-[10px] font-mono bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{p.cost_currency}</span>
+                                    : <span className="text-gray-300">—</span>
+                                  }
+                                </td>
+                                <td className={`px-3 py-2.5 text-right tabular-nums ${p.margin != null ? marginColor(p.revenue > 0 ? p.margin / p.revenue : 0) : 'text-gray-300'}`}>
+                                  {p.margin != null ? fmt(p.margin) : '—'}
+                                </td>
+                                <td className={`px-3 py-2.5 text-right text-xs tabular-nums ${p.margin != null ? marginColor(p.revenue > 0 ? p.margin / p.revenue : 0) : 'text-gray-300'}`}>
+                                  {p.margin != null && p.revenue > 0 ? fmtPct(p.margin / p.revenue) : '—'}
+                                </td>
                               </tr>
                             ))}
                           </React.Fragment>
@@ -711,6 +786,17 @@ export default function ProductosVendidosPage() {
                         <td className="px-3 py-3" />
                         <td className="px-3 py-3 text-right">{fmtN(onlineTotals.qty)}</td>
                         <td className="px-3 py-3 text-right tabular-nums">{fmt(onlineTotals.revenue)}</td>
+                        <td className="px-3 py-3 text-right text-gray-500 font-normal tabular-nums">
+                          {onlineTotals.cost != null ? fmt(onlineTotals.cost) : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-right font-normal" />
+                        <td className={`px-3 py-3 text-right tabular-nums ${onlineTotals.margin != null ? marginColor(onlineTotals.revenue > 0 ? onlineTotals.margin / onlineTotals.revenue : 0) : 'text-gray-300'}`}>
+                          {onlineTotals.margin != null ? fmt(onlineTotals.margin) : '—'}
+                        </td>
+                        <td className={`px-3 py-3 text-right text-xs tabular-nums ${onlineTotals.margin != null ? marginColor(onlineTotals.revenue > 0 ? onlineTotals.margin / onlineTotals.revenue : 0) : 'text-gray-300'}`}>
+                          {onlineTotals.margin != null && onlineTotals.revenue > 0
+                            ? fmtPct(onlineTotals.margin / onlineTotals.revenue) : '—'}
+                        </td>
                       </tr>
                     </tfoot>
                   </table>

@@ -101,15 +101,22 @@ export async function POST(req: Request) {
     // Para productos físicos: deben tener al menos 1 fila en branch_inventory.
     // Para productos CJ Dropshipping (cj_pid NOT NULL): stock virtual ilimitado,
     //   no requieren branch_inventory (CJ gestiona el fulfillment).
-    const { rows: stockRows } = await pool.query<{ product_variant_id: number }>(
-      `SELECT DISTINCT bi.product_variant_id
+    // También traemos cj_cost_usd para snapshotear el costo al momento del pedido.
+    const { rows: stockRows } = await pool.query<{
+      product_variant_id: number
+      unit_cost: number | null
+    }>(
+      `SELECT DISTINCT bi.product_variant_id,
+              NULL::numeric AS unit_cost
        FROM branch_inventory bi
        JOIN product_variants pv ON pv.id = bi.product_variant_id
        JOIN products p          ON p.id  = pv.product_id
        WHERE bi.product_variant_id = ANY($1::int4[])
          AND p.business_id = $2
        UNION
-       SELECT DISTINCT pv.id
+       -- CJ: cost in USD (same currency as unit_price for CJ products)
+       SELECT DISTINCT pv.id,
+              p.cj_cost_usd AS unit_cost
        FROM product_variants pv
        JOIN products p ON p.id = pv.product_id
        WHERE pv.id = ANY($1::int4[])
@@ -118,6 +125,10 @@ export async function POST(req: Request) {
       [variantIds, businessId]
     )
     const inStock = new Set(stockRows.map(r => r.product_variant_id))
+    // Mapa variantId → unit_cost (solo para variantes CJ; NULL para físicos)
+    const costByVariant = new Map<number, number | null>(
+      stockRows.map(r => [r.product_variant_id, r.unit_cost])
+    )
     const outOfStock = variantIds.filter(id => !inStock.has(id))
 
     if (outOfStock.length > 0) {
@@ -214,15 +225,21 @@ export async function POST(req: Request) {
       )
       orderId = orderRows[0].id
 
-      // Crear items
+      // Crear items — se snapshotean unit_cost + cost_currency para P&L histórico.
+      // Para CJ: unit_cost = products.cj_cost_usd, cost_currency = 'USD'.
+      // Para físicos: ambos NULL (costo via sale_details → purchase_details).
       for (const item of body.items) {
+        const unitCost = costByVariant.get(item.variantId) ?? null
+        const costCurrency = unitCost != null ? 'USD' : null  // CJ siempre USD
         await client.query(
           `INSERT INTO online_order_items
              (online_order_id, product_variant_id, unit_price, quantity,
-              product_name, variant_sku, variant_color, variant_size)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+              product_name, variant_sku, variant_color, variant_size,
+              unit_cost, cost_currency)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
           [orderId, item.variantId, item.unitPrice, item.quantity ?? 1,
-           item.productName, item.variantSku, item.color, item.size]
+           item.productName, item.variantSku, item.color, item.size,
+           unitCost, costCurrency]
         )
       }
 

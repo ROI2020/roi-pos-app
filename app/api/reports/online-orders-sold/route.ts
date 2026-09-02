@@ -41,8 +41,28 @@ export async function GET(req: Request) {
       p.name                                   AS product_name,
       (p.cj_pid IS NOT NULL)                   AS is_cj,
 
-      COUNT(oi.id)::int                        AS qty_sold,
-      COALESCE(SUM(oi.unit_price), 0)::float   AS revenue
+      COUNT(oi.id)::int                                     AS qty_sold,
+      COALESCE(SUM(oi.unit_price * oi.quantity), 0)::float  AS revenue,
+
+      -- Moneda del costo (todos los ítems de un producto deberían tener la misma)
+      MAX(oi.cost_currency)                                  AS cost_currency,
+
+      -- Costo total: unit_cost × quantity (NULL si no hay costo snapsheado)
+      CASE
+        WHEN COUNT(oi.unit_cost) > 0
+        THEN COALESCE(SUM(oi.unit_cost * oi.quantity), 0)::float
+        ELSE NULL
+      END                                                    AS cost,
+
+      -- Margen: NULL si no hay costo disponible
+      CASE
+        WHEN COUNT(oi.unit_cost) > 0
+        THEN (
+          COALESCE(SUM(oi.unit_price * oi.quantity), 0)
+          - COALESCE(SUM(oi.unit_cost  * oi.quantity), 0)
+        )::float
+        ELSE NULL
+      END                                                    AS margin
 
     FROM online_order_items oi
     JOIN  online_orders oo    ON oo.id  = oi.online_order_id
