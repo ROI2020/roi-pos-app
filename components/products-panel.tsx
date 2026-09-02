@@ -7,9 +7,10 @@ import {
   LayoutGrid, List, Search, SlidersHorizontal, Pencil, Upload,
   ImageOff, Loader2, X, ChevronDown, Package, Plus, Rows3,
   Globe, CheckCircle2, Circle, History, Calendar, ShoppingCart,
-  Tag, ArrowLeftRight,
+  Tag, ArrowLeftRight, Truck, RefreshCw, ExternalLink,
 } from "lucide-react"
 import { toast } from "sonner"
+import { useAdminCurrency } from "@/hooks/use-admin-currency"
 import { Button }   from "@/components/ui/button"
 import { Input }    from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -27,10 +28,16 @@ interface LookupItem  { id: number; name: string }
 interface Product {
   id:           number
   name:         string
+  long_name:    string | null  // nombre completo CJ (null para físicos)
   description:  string | null
   base_price:   number
   cuotas:       number
   photo_url:    string | null
+  // DS / Dropshipping (CJ)
+  cj_pid:           string | null   // no null = producto DS
+  cj_cost_usd:      number | null   // costo en USD desde CJ
+  markup_pct:       number | null
+  general_image_url: string | null  // imagen CDN de CJ
   category_id:  number | null; category_name:  string | null
   age_group_id: number | null; age_group_name: string | null
   season_id:    number | null; season_name:    string | null
@@ -87,9 +94,11 @@ const EXPORT_KEYS = [
 ] as const
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-const fmt = (n: number) =>
-  new Intl.NumberFormat('es-AR', {
-    style: 'currency', currency: 'ARS', maximumFractionDigits: 0,
+
+/** Formato USD simple para costos CJ — siempre USD, sin depender de la moneda del negocio */
+const fmtUsd = (n: number) =>
+  new Intl.NumberFormat('en-US', {
+    style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2,
   }).format(n)
 
 const fmtDate = (iso: string) => {
@@ -235,6 +244,7 @@ function PhotoUploadButton({
 function VariantsDialog({
   product, onClose,
 }: { product: Product; onClose: () => void }) {
+  const { fmt } = useAdminCurrency()
   const [variants, setVariants] = useState<Variant[]>([])
   const [loading,  setLoading]  = useState(true)
 
@@ -360,6 +370,7 @@ const EVENT_CFG = {
 function ProductHistoryDialog({
   product, onClose,
 }: { product: Product; onClose: () => void }) {
+  const { fmt } = useAdminCurrency()
   const [events,  setEvents ] = useState<HistoryEvent[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -499,6 +510,7 @@ function ProductCard({
   onVariants: () => void
   onHistory:  () => void
 }) {
+  const { fmt } = useAdminCurrency()
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
 
@@ -555,12 +567,22 @@ function ProductCard({
     product.season_name,   product.gender_name,
   ].filter(Boolean)
 
+  const isDS   = Boolean(product.cj_pid)
+  // Para DS: mostrar imagen CJ proxied; para físicos: foto local
+  const imgSrc = isDS
+    ? (product.general_image_url ? `/api/images/proxy?url=${encodeURIComponent(product.general_image_url)}` : null)
+    : product.photo_url
+
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col">
+    <div className={`bg-white rounded-xl border shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col
+      ${isDS ? 'border-sky-200' : 'border-gray-200'}`}>
       {/* Foto */}
-      <div className="relative aspect-square bg-gray-50 cursor-pointer group" onClick={handlePhotoClick}>
-        {product.photo_url
-          ? <img src={product.photo_url} alt={product.name} className="w-full h-full object-cover" />
+      <div
+        className={`relative aspect-square bg-gray-50 ${isDS ? '' : 'cursor-pointer group'}`}
+        onClick={isDS ? undefined : handlePhotoClick}
+      >
+        {imgSrc
+          ? <img src={imgSrc} alt={product.name} className="w-full h-full object-cover" />
           : (
             <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-gray-300">
               <ImageOff className="h-8 w-8" />
@@ -568,14 +590,22 @@ function ProductCard({
             </div>
           )
         }
-        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1">
-          {uploading
-            ? <Loader2 className="h-8 w-8 text-white animate-spin" />
-            : <Upload  className="h-8 w-8 text-white" />
-          }
-          {!uploading && <span className="text-white text-xs drop-shadow">JPG/PNG · máx. 20 MB</span>}
-        </div>
-        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+        {/* Badge DS */}
+        {isDS && (
+          <span className="absolute top-1.5 left-1.5 flex items-center gap-0.5 bg-sky-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow">
+            <Truck className="h-2.5 w-2.5" /> DS
+          </span>
+        )}
+        {!isDS && (
+          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1">
+            {uploading
+              ? <Loader2 className="h-8 w-8 text-white animate-spin" />
+              : <Upload  className="h-8 w-8 text-white" />
+            }
+            {!uploading && <span className="text-white text-xs drop-shadow">JPG/PNG · máx. 20 MB</span>}
+          </div>
+        )}
+        {!isDS && <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />}
       </div>
 
       {/* Info */}
@@ -583,6 +613,12 @@ function ProductCard({
         <div>
           <p className="font-semibold text-sm text-gray-900 leading-tight line-clamp-2">{product.name}</p>
           <p className="text-base font-bold text-violet-700 mt-0.5">{fmt(product.base_price)}</p>
+          {isDS && product.cj_cost_usd != null && (
+            <p className="text-[10px] text-sky-600 mt-0.5">
+              Costo CJ: {fmtUsd(product.cj_cost_usd)}
+              {product.markup_pct != null && <span className="text-gray-400 ml-1">· {product.markup_pct}% markup</span>}
+            </p>
+          )}
         </div>
 
         {badges.length > 0 && (
@@ -594,29 +630,32 @@ function ProductCard({
         )}
 
         <p className="text-[11px] text-gray-400">
-          {product.variant_count} var · {product.stock_count} en stock
+          {product.variant_count} var
+          {!isDS && ` · ${product.stock_count} en stock`}
         </p>
 
-        <RedesToggle product={product} onToggle={handleRedesToggle} />
+        {!isDS && <RedesToggle product={product} onToggle={handleRedesToggle} />}
 
         <div className="flex gap-1 mt-auto">
           <Button variant="ghost" size="sm"
             className="gap-1 text-xs text-gray-500 hover:text-violet-700 h-7 px-1 flex-1 justify-start"
             onClick={onEdit}>
-            <Pencil className="h-3.5 w-3.5" /> Editar
+            <Pencil className="h-3.5 w-3.5" /> {isDS ? 'Ver / Editar' : 'Editar'}
           </Button>
-          {product.variant_count > 0 && (
+          {!isDS && product.variant_count > 0 && (
             <Button variant="ghost" size="sm"
               className="gap-1 text-xs text-gray-400 hover:text-violet-700 h-7 px-1 flex-1 justify-start"
               onClick={onVariants}>
               <Rows3 className="h-3.5 w-3.5" /> Variantes
             </Button>
           )}
-          <Button variant="ghost" size="icon"
-            className="h-7 w-7 text-gray-400 hover:text-violet-700 shrink-0"
-            title="Ver historial" onClick={onHistory}>
-            <History className="h-3.5 w-3.5" />
-          </Button>
+          {!isDS && (
+            <Button variant="ghost" size="icon"
+              className="h-7 w-7 text-gray-400 hover:text-violet-700 shrink-0"
+              title="Ver historial" onClick={onHistory}>
+              <History className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </div>
     </div>
@@ -633,6 +672,7 @@ function ProductRow({
   onVariants: () => void
   onHistory:  () => void
 }) {
+  const { fmt } = useAdminCurrency()
   const handleRedesToggle = async (updates: Partial<Product>) => {
     onUpdate(updates)
     try {
@@ -657,13 +697,31 @@ function ProductRow({
 
   const anyActive = EXPORT_KEYS.some(k => product[k])
 
+  const isDS   = Boolean(product.cj_pid)
+  const imgSrc = isDS
+    ? (product.general_image_url ? `/api/images/proxy?url=${encodeURIComponent(product.general_image_url)}` : null)
+    : product.photo_url
+
   return (
     <tr className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
       <td className="pl-4 pr-2 py-2.5">
-        <PhotoThumb url={product.photo_url} size={44} />
+        <div className="relative">
+          <PhotoThumb url={imgSrc} size={44} />
+          {isDS && (
+            <span className="absolute -top-1 -right-1 flex items-center bg-sky-600 text-white text-[8px] font-bold px-1 py-0.5 rounded-full">
+              DS
+            </span>
+          )}
+        </div>
       </td>
       <td className="px-2 py-2.5">
         <p className="font-medium text-sm text-gray-900">{product.name}</p>
+        {isDS && product.cj_cost_usd != null && (
+          <p className="text-[10px] text-sky-600">
+            Costo: {fmtUsd(product.cj_cost_usd)}
+            {product.markup_pct != null && <span className="text-gray-400"> · {product.markup_pct}% markup</span>}
+          </p>
+        )}
         {badges.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-0.5">
             {badges.map(b => (
@@ -676,26 +734,29 @@ function ProductRow({
         {fmt(product.base_price)}
       </td>
       <td className="px-2 py-2.5 text-xs text-gray-500 whitespace-nowrap hidden sm:table-cell">
-        {product.stock_count} / {product.variant_count}
+        {isDS ? `${product.variant_count} var` : `${product.stock_count} / ${product.variant_count}`}
       </td>
       <td className="px-2 py-2.5">
-        <RedesToggle product={product} onToggle={handleRedesToggle} compact />
+        {!isDS && <RedesToggle product={product} onToggle={handleRedesToggle} compact />}
+        {isDS && <span className="text-[10px] text-sky-600 font-medium px-1.5 py-0.5 bg-sky-50 rounded border border-sky-100">Dropshipping</span>}
       </td>
       <td className="px-3 py-2.5">
         <div className="flex items-center gap-1 justify-end">
-          <PhotoUploadButton product={product} onUploaded={url => onUpdate({ photo_url: url })} />
-          {product.variant_count > 0 && (
+          {!isDS && <PhotoUploadButton product={product} onUploaded={url => onUpdate({ photo_url: url })} />}
+          {!isDS && product.variant_count > 0 && (
             <Button variant="ghost" size="icon"
               className="h-7 w-7 text-gray-400 hover:text-violet-700"
               title="Ver variantes" onClick={onVariants}>
               <Rows3 className="h-3.5 w-3.5" />
             </Button>
           )}
-          <Button variant="ghost" size="icon"
-            className="h-7 w-7 text-gray-400 hover:text-violet-700"
-            title="Ver historial" onClick={onHistory}>
-            <History className="h-3.5 w-3.5" />
-          </Button>
+          {!isDS && (
+            <Button variant="ghost" size="icon"
+              className="h-7 w-7 text-gray-400 hover:text-violet-700"
+              title="Ver historial" onClick={onHistory}>
+              <History className="h-3.5 w-3.5" />
+            </Button>
+          )}
           <Button variant="ghost" size="icon"
             className="h-7 w-7 text-gray-400 hover:text-violet-700"
             title="Editar" onClick={onEdit}>
@@ -1098,6 +1159,230 @@ function EditProductDialog({
   )
 }
 
+// ── Diálogo de edición de producto DS (Dropshipping CJ) ──────────────────────
+/**
+ * Abre el mismo layout que el modal de importación CJ pero en modo edición.
+ * Permite editar name, long_name, markup y precio.
+ * El botón "Actualizar desde CJ" hace un sync individual del producto.
+ */
+function DSEditDialog({
+  product, onSaved, onClose,
+}: {
+  product: Product
+  onSaved: (p: Partial<Product>) => void
+  onClose: () => void
+}) {
+  const { fmt } = useAdminCurrency()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [cjData,    setCjData   ] = useState<Record<string, any> | null>(null)
+  const [nameEdit,  setNameEdit ] = useState(product.name)
+  const [longEdit,  setLongEdit ] = useState(product.long_name ?? product.name)
+  const [markup,    setMarkup   ] = useState(String(product.markup_pct ?? 30))
+  const [price,     setPrice    ] = useState(String(product.base_price))
+  const [saving,    setSaving   ] = useState(false)
+  const [syncing,   setSyncing  ] = useState(false)
+  const [loadingData, setLoadingData] = useState(true)
+
+  useEffect(() => {
+    // Cargar cj_data del producto desde la API
+    fetch(`/api/products/${product.id}`)
+      .then(r => r.json())
+      .then(d => { if (d.cj_data) setCjData(d.cj_data) })
+      .catch(() => {})
+      .finally(() => setLoadingData(false))
+  }, [product.id])
+
+  const images: string[] = cjData?.productImages ?? (cjData?.productImage ? [cjData.productImage] : [])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const markupPct = parseFloat(markup) || 0
+      const cjCost    = product.cj_cost_usd ?? 0
+      const newPrice  = parseFloat(price) || (cjCost * (1 + markupPct / 100))
+      const res = await fetch(`/api/products/${product.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name:       nameEdit.trim(),
+          long_name:  longEdit.trim() || null,
+          markup_pct: markupPct,
+          base_price: newPrice,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('Producto actualizado')
+      onSaved({ name: nameEdit.trim(), long_name: longEdit.trim() || null, markup_pct: markupPct, base_price: newPrice })
+    } catch (err) {
+      toast.error(String(err))
+    } finally { setSaving(false) }
+  }
+
+  const handleSyncOne = async () => {
+    if (!product.cj_pid) return
+    setSyncing(true)
+    try {
+      const res = await fetch(`/api/admin/cj/sync`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId: product.id }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Error al sincronizar')
+      const data = await res.json()
+      toast.success('Producto actualizado desde CJ')
+      // Refrescar cj_data local
+      fetch(`/api/products/${product.id}`)
+        .then(r => r.json())
+        .then(d => { if (d.cj_data) setCjData(d.cj_data); if (d.cj_cost_usd) onSaved({ cj_cost_usd: d.cj_cost_usd }) })
+        .catch(() => {})
+      if (data.newPrice) { setPrice(String(data.newPrice)); onSaved({ base_price: data.newPrice }) }
+    } catch (err) {
+      toast.error(String(err))
+    } finally { setSyncing(false) }
+  }
+
+  return (
+    <Dialog open onOpenChange={v => !v && onClose()}>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Truck className="h-5 w-5 text-sky-600" />
+            Editar producto DS
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          {/* Galería de imágenes CJ */}
+          {loadingData ? (
+            <div className="flex items-center justify-center h-20 text-gray-400 gap-2">
+              <Loader2 className="h-5 w-5 animate-spin" /> Cargando datos CJ…
+            </div>
+          ) : images.length > 0 ? (
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {images.slice(0, 6).map((img, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={i} src={img} alt={`Vista ${i + 1}`}
+                  className="w-20 h-20 object-cover rounded-lg flex-shrink-0 border"
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {/* Info CJ */}
+          {cjData && (
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div className="bg-sky-50 rounded-lg p-2.5">
+                <p className="text-xs text-sky-500">Costo CJ</p>
+                <p className="font-bold text-sky-800">{fmtUsd(product.cj_cost_usd ?? 0)}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-2.5">
+                <p className="text-xs text-gray-400">Variantes CJ</p>
+                <p className="font-bold text-gray-900">{cjData.variants?.length ?? '—'}</p>
+              </div>
+              <div className="bg-violet-50 rounded-lg p-2.5">
+                <p className="text-xs text-violet-500">Precio actual</p>
+                <p className="font-bold text-violet-800">{fmt(product.base_price)}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Nombres */}
+          <div className="space-y-3 border rounded-lg p-3 bg-gray-50">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Nombres</p>
+            <div className="space-y-1.5">
+              <Label className="text-xs">
+                Nombre corto <span className="text-gray-400 font-normal">(visible en tienda)</span>
+              </Label>
+              <Input
+                value={nameEdit}
+                onChange={e => setNameEdit(e.target.value)}
+                maxLength={150}
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">
+                Nombre completo CJ <span className="text-gray-400 font-normal">(se muestra debajo del nombre cuando difiere)</span>
+              </Label>
+              <Input
+                value={longEdit}
+                onChange={e => setLongEdit(e.target.value)}
+                maxLength={300}
+                className="text-sm text-gray-600"
+              />
+            </div>
+          </div>
+
+          {/* Markup y precio */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">
+                Markup sobre costo CJ
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number" min={0} max={500}
+                  value={markup}
+                  onChange={e => {
+                    setMarkup(e.target.value)
+                    const pct  = parseFloat(e.target.value) || 0
+                    const cost = product.cj_cost_usd ?? 0
+                    if (cost > 0) setPrice((cost * (1 + pct / 100)).toFixed(2))
+                  }}
+                  className="w-24 text-sm"
+                />
+                <span className="text-sm text-gray-500">%</span>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">
+                Precio de lista
+              </Label>
+              <Input
+                type="number" min={0} step="0.01"
+                value={price}
+                onChange={e => setPrice(e.target.value)}
+                className="text-sm"
+              />
+            </div>
+          </div>
+
+          {/* PID */}
+          {product.cj_pid && (
+            <div className="bg-gray-50 rounded-lg p-2.5">
+              <p className="text-xs text-gray-400 mb-1">CJ Product ID</p>
+              <code className="text-xs font-mono text-gray-700 break-all select-all">{product.cj_pid}</code>
+              <a
+                href={`https://app.cjdropshipping.com/product-detail.html?id=${product.cj_pid}`}
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 ml-3 text-xs text-violet-600 hover:underline"
+              >
+                Ver en CJ <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-between pt-2">
+          <Button
+            variant="outline" size="sm" className="gap-1.5 text-sky-600 border-sky-200 hover:bg-sky-50"
+            onClick={handleSyncOne} disabled={syncing || saving}
+          >
+            {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Actualizar desde CJ
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose}>Cancelar</Button>
+            <Button onClick={handleSave} disabled={saving} className="gap-2">
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              Guardar cambios
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Componente principal
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1121,10 +1406,13 @@ export default function ProductsPanel() {
   const [filterGender, setFilterGender] = useState('__all__')
   const [filterExport, setFilterExport] = useState('__all__')
   const [filterPhoto,  setFilterPhoto ] = useState('__all__')
+  /** Físico/DS filter: '__all__' | 'fisico' | 'ds' */
+  const [filterDS,     setFilterDS    ] = useState<'__all__' | 'fisico' | 'ds'>('__all__')
   const [showFilters,  setShowFilters ] = useState(false)
 
   const [view,           setView          ] = useState<View>('grid')
   const [editTarget,     setEditTarget    ] = useState<Product | null>(null)
+  const [dsEditTarget,   setDsEditTarget  ] = useState<Product | null>(null)
   const [variantsTarget, setVariantsTarget] = useState<Product | null>(null)
   const [historyTarget,  setHistoryTarget ] = useState<Product | null>(null)
 
@@ -1155,8 +1443,9 @@ export default function ProductsPanel() {
     if (filterExport !== '__all__') qs.set('exportable',   filterExport)
     if (filterPhoto  === 'yes')     qs.set('has_photo',    'true')
     if (filterPhoto  === 'no')      qs.set('has_photo',    'false')
+    if (filterDS     !== '__all__') qs.set('ds_filter',    filterDS)
     return qs.toString()
-  }, [debouncedQ, sort, filterCat, filterAge, filterSeason, filterGender, filterExport, filterPhoto])
+  }, [debouncedQ, sort, filterCat, filterAge, filterSeason, filterGender, filterExport, filterPhoto, filterDS])
 
   useEffect(() => {
     setLoading(true); setOffset(0)
@@ -1190,6 +1479,7 @@ export default function ProductsPanel() {
   const activeFilterCount = [
     filterCat !== '__all__', filterAge !== '__all__', filterSeason !== '__all__',
     filterGender !== '__all__', filterExport !== '__all__', filterPhoto !== '__all__',
+    filterDS !== '__all__',
   ].filter(Boolean).length
 
   const sinFotoActive = filterPhoto === 'no'
@@ -1231,6 +1521,33 @@ export default function ProductsPanel() {
                   <X className="h-3.5 w-3.5" />
                 </button>
               )}
+            </div>
+
+            {/* Filtro DS / Físico */}
+            <div className="flex rounded-md overflow-hidden border border-gray-200">
+              {([
+                ['__all__', 'Todos',   ''],
+                ['fisico',  'Físico',  'hover:bg-gray-100'],
+                ['ds',      'DS',      'hover:bg-sky-50'],
+              ] as [typeof filterDS, string, string][]).map(([val, label, extra]) => (
+                <button
+                  key={val}
+                  onClick={() => setFilterDS(val)}
+                  className={`flex items-center gap-1 px-3 h-9 text-xs font-medium transition-colors border-r last:border-r-0
+                    ${filterDS === val
+                      ? val === 'ds'
+                        ? 'bg-sky-600 text-white'
+                        : val === 'fisico'
+                        ? 'bg-gray-700 text-white'
+                        : 'bg-gray-100 text-gray-700'
+                      : `bg-white text-gray-500 ${extra}`
+                    }`}
+                >
+                  {val === 'ds' && <Truck className="h-3 w-3" />}
+                  {val === 'fisico' && <Package className="h-3 w-3" />}
+                  {label}
+                </button>
+              ))}
             </div>
 
             {/* Botón rápido Sin foto */}
@@ -1331,7 +1648,7 @@ export default function ProductsPanel() {
               <Button variant="outline" size="sm" onClick={() => {
                 setQ(''); setFilterCat('__all__'); setFilterAge('__all__')
                 setFilterSeason('__all__'); setFilterGender('__all__')
-                setFilterExport('__all__'); setFilterPhoto('__all__')
+                setFilterExport('__all__'); setFilterPhoto('__all__'); setFilterDS('__all__')
               }}>
                 Limpiar filtros
               </Button>
@@ -1343,7 +1660,7 @@ export default function ProductsPanel() {
               <ProductCard
                 key={p.id} product={p}
                 onUpdate={patch => updateProduct(p.id, patch)}
-                onEdit={() => setEditTarget(p)}
+                onEdit={() => p.cj_pid ? setDsEditTarget(p) : setEditTarget(p)}
                 onVariants={() => setVariantsTarget(p)}
                 onHistory={() => setHistoryTarget(p)}
               />
@@ -1358,7 +1675,7 @@ export default function ProductsPanel() {
                   <th className="px-2 py-2.5 text-left">Producto</th>
                   <th className="px-2 py-2.5 text-left">Precio</th>
                   <th className="px-2 py-2.5 text-left hidden sm:table-cell">Stock</th>
-                  <th className="px-2 py-2.5 text-left">Redes</th>
+                  <th className="px-2 py-2.5 text-left">Tipo</th>
                   <th className="px-3 py-2.5" />
                 </tr>
               </thead>
@@ -1367,7 +1684,7 @@ export default function ProductsPanel() {
                   <ProductRow
                     key={p.id} product={p}
                     onUpdate={patch => updateProduct(p.id, patch)}
-                    onEdit={() => setEditTarget(p)}
+                    onEdit={() => p.cj_pid ? setDsEditTarget(p) : setEditTarget(p)}
                     onVariants={() => setVariantsTarget(p)}
                     onHistory={() => setHistoryTarget(p)}
                   />
@@ -1387,13 +1704,22 @@ export default function ProductsPanel() {
         )}
       </div>
 
-      {/* Diálogo de edición */}
+      {/* Diálogo de edición — producto físico */}
       {editTarget && (
         <EditProductDialog
           product={editTarget} categories={categories} ageGroups={ageGroups}
           seasons={seasons} genders={genders}
           onSaved={patch => { updateProduct(editTarget.id, patch); setEditTarget(null) }}
           onClose={() => setEditTarget(null)}
+        />
+      )}
+
+      {/* Diálogo de edición — producto DS (Dropshipping CJ) */}
+      {dsEditTarget && (
+        <DSEditDialog
+          product={dsEditTarget}
+          onSaved={patch => { updateProduct(dsEditTarget.id, patch); setDsEditTarget(null) }}
+          onClose={() => setDsEditTarget(null)}
         />
       )}
 

@@ -43,6 +43,7 @@ export async function GET(req: Request) {
     type CatalogRow = {
       product_id:          number
       product_name:        string
+      long_name:           string | null
       description:         string | null
       price:               number
       cuotas:              number
@@ -70,10 +71,20 @@ export async function GET(req: Request) {
     }
 
     // Query base — siempre funciona (campos cj_* con fallback graceful en try/catch)
+    // BASE_SELECT_CORE: campos sin long_name (para fallbacks que no saben si existe la col)
+    const BASE_SELECT_CORE = `
+       SELECT
+         p.id                                                      AS product_id,
+         p.name                                                    AS product_name,
+         NULL::text                                                AS long_name,
+         p.description,`
+
+    // long_name puede no existir si migration 20260902 no se ejecutó — el catch lo maneja con CORE
     const BASE_SELECT = `
        SELECT
          p.id                                                      AS product_id,
          p.name                                                    AS product_name,
+         p.long_name,
          p.description,
          p.base_price::float                                       AS price,
          p.cuotas,
@@ -135,12 +146,12 @@ export async function GET(req: Request) {
       rows = result.rows
     } catch (err) {
       const errStr = String(err)
-      // Fallback 1: columna cj_shipping_usd / cj_data no existen (migration 20260831 pendiente)
-      if (errStr.includes('cj_shipping_usd') || errStr.includes('cj_data')) {
+      // Fallback 1: columna cj_shipping_usd / cj_data / long_name no existen (migration pendiente)
+      if (errStr.includes('cj_shipping_usd') || errStr.includes('cj_data') || errStr.includes('long_name')) {
         console.warn('[catalog] Columnas cj_shipping_usd/cj_data no existen. Ejecutar 20260831_cj_data.sql')
         try {
           const result = await pool.query<CatalogRow>(
-            BASE_SELECT + `,
+            BASE_SELECT_CORE + `,
              p.cj_pid,
              NULL::float                                             AS cj_shipping_usd,
              NULL                                                    AS cj_gallery,
@@ -169,7 +180,7 @@ export async function GET(req: Request) {
         // Fallback 2: cj_pid no existe (migration 20260828 pendiente)
         console.warn('[catalog] cj_pid no existe en DB. Ejecutar migration 20260828_cj_dropshipping.sql')
         const result = await pool.query<CatalogRow>(
-          BASE_SELECT + `,
+          BASE_SELECT_CORE + `,
            NULL                                                      AS cj_pid,
            NULL::float                                               AS cj_shipping_usd,
            NULL                                                      AS cj_gallery,
@@ -254,6 +265,7 @@ export async function GET(req: Request) {
     const productMap = new Map<number, {
       id:               number
       name:             string
+      long_name:        string | null
       description:      string | null
       price:            number
       cuotas:           number
@@ -293,6 +305,7 @@ export async function GET(req: Request) {
         productMap.set(row.product_id, {
           id:              row.product_id,
           name:            row.product_name,
+          long_name:       row.long_name ?? null,
           description:     row.description,
           price:           row.price,
           cuotas:          row.cuotas,

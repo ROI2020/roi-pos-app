@@ -31,6 +31,8 @@ export async function GET(req: Request) {
   const unclassified    = searchParams.get('unclassified') === 'true'
   const hasPhoto        = searchParams.get('has_photo')
   const exportable      = searchParams.get('exportable')
+  /** 'ds' = solo dropshipping (cj_pid IS NOT NULL); 'fisico' = solo físicos; omitido = todos */
+  const dsFilter        = searchParams.get('ds_filter')
   const sort            = searchParams.get('sort') ?? 'name_asc'
   const limit           = Math.min(parseInt(searchParams.get('limit') ?? '52'), 2000)
   const offset          = parseInt(searchParams.get('offset') ?? '0')
@@ -62,6 +64,8 @@ export async function GET(req: Request) {
   if (exportable === 'instagram') conditions.push(`p.exportable_instagram = true`)
   if (exportable === 'facebook')  conditions.push(`p.exportable_facebook  = true`)
   if (exportable === 'web')       conditions.push(`p.exportable_web       = true`)
+  if (dsFilter === 'ds')     conditions.push(`p.cj_pid IS NOT NULL`)
+  if (dsFilter === 'fisico') conditions.push(`p.cj_pid IS NULL`)
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
 
@@ -79,10 +83,15 @@ export async function GET(req: Request) {
     SELECT
       p.id,
       p.name,
+      p.long_name,
       p.description,
       p.base_price::float,
       p.cuotas,
       p.photo_url,
+      p.cj_pid,
+      p.cj_cost_usd::float,
+      p.markup_pct,
+      p.general_image_url,
       p.exportable_whatsapp,
       p.exportable_instagram,
       p.exportable_facebook,

@@ -43,12 +43,16 @@ export async function POST(req: Request) {
   const { businessId } = result
 
   const body = await req.json() as {
-    product:     CJProductDetail
+    product:    CJProductDetail
     categoryId?: number
     markup?:     number
+    /** Nombre corto curado por el admin (por defecto: primeras 150 chars del nombre CJ) */
+    name?:       string
+    /** Nombre completo de CJ (por defecto: nombre CJ completo, max 300 chars) */
+    long_name?:  string
   }
 
-  const { product, categoryId, markup = 0 } = body
+  const { product, categoryId, markup = 0, name: nameOverride, long_name: longNameOverride } = body
   if (!product?.pid) {
     return NextResponse.json({ error: 'product.pid es requerido' }, { status: 400 })
   }
@@ -57,36 +61,53 @@ export async function POST(req: Request) {
   try {
     await client.query('BEGIN')
 
-    const basePrice = parseFloat(product.sellPrice) || 0
+    const basePrice  = parseFloat(product.sellPrice) || 0
     const finalPrice = basePrice * (1 + markup / 100)
 
-    // ── 1. Crear producto local ───────────────────────────────────────────────
-    // cj_data: guardamos el JSON completo para preservar galería, atributos, etc.
-    // general_image_url: primera imagen (fallback rápido sin necesitar cj_data)
-    const { rows: [prod] } = await client.query<{ id: number }>(
+    // name: nombre curado por el admin (puede llegar en el body o se genera del nombre CJ)
+    // long_name: nombre completo de CJ (siempre actualiza en re-import)
+    const productName  = (nameOverride?.trim()     || product.productName).slice(0, 150)
+    const productLong  = (longNameOverride?.trim()  || product.productName).slice(0, 300)
+
+    // ── 1. Crear o actualizar producto local ─────────────────────────────────
+    // ON CONFLICT (business_id, cj_pid): si ya existe, actualiza datos CJ y precio.
+    // Esto hace el import idempotente — re-importar no crea duplicados.
+    // IMPORTANTE: en DO UPDATE NO se toca `name` — el admin puede haberlo personalizado.
+    // long_name sí se actualiza porque refleja el nombre actual de CJ.
+    const { rows: [prod] } = await client.query<{ id: number; created: boolean }>(
       `INSERT INTO products
-         (business_id, name, description, base_price, general_image_url,
+         (business_id, name, long_name, description, base_price, general_image_url,
           weight_grams, cj_pid, cj_last_sync, exportable_web,
           cj_data, cj_cost_usd, markup_pct, cuotas)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), true, $8, $9, $10, 0)
-       RETURNING id`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), true, $9, $10, $11, 0)
+       ON CONFLICT (business_id, cj_pid) WHERE cj_pid IS NOT NULL
+       DO UPDATE SET
+         long_name         = EXCLUDED.long_name,
+         description       = EXCLUDED.description,
+         base_price        = EXCLUDED.base_price,
+         general_image_url = EXCLUDED.general_image_url,
+         weight_grams      = EXCLUDED.weight_grams,
+         cj_last_sync      = NOW(),
+         cj_data           = EXCLUDED.cj_data,
+         cj_cost_usd       = EXCLUDED.cj_cost_usd,
+         markup_pct        = EXCLUDED.markup_pct
+       RETURNING id, (xmax = 0) AS created`,
       [
         businessId,
-        product.productName.slice(0, 150),
+        productName,
+        productLong,
         product.productDescription ? stripHtml(product.productDescription).slice(0, 2000) : null,
         finalPrice.toFixed(2),
         product.productImages?.[0] ?? product.productImage ?? null,
         product.productWeight ? Math.round(parseFloat(product.productWeight)) : null,
         product.pid,
-        // cj_data: JSON completo (galería, shipping, atributos). Columna requerida (20260831).
         JSON.stringify(product),
-        // cj_cost_usd: precio CJ sin markup — se usa en sync para recalcular base_price
         basePrice.toFixed(2),
-        // markup_pct: porcentaje de markup guardado para que el sync pueda replicarlo
         markup,
       ],
     )
     const productId = prod.id
+    const isNew     = prod.created   // true = insert, false = update
 
     // Asignar categoría: primero la provista por el admin; si no, auto-match por nombre CJ
     let resolvedCategoryId: number | null = categoryId ?? null
@@ -198,12 +219,16 @@ export async function POST(req: Request) {
           productName:  product.productName,
           variantCount: product.variants.length,
           markup,
+          action:       isNew ? 'created' : 'updated',
         }),
       ],
     )
 
     await client.query('COMMIT')
-    return NextResponse.json({ productId }, { status: 201 })
+    return NextResponse.json(
+      { productId, action: isNew ? 'created' : 'updated' },
+      { status: isNew ? 201 : 200 }
+    )
 
   } catch (err) {
     await client.query('ROLLBACK')

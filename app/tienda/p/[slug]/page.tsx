@@ -42,7 +42,7 @@ export async function generateMetadata(
     const page = await getPage(businessId, slug)
     const s    = await getPublicSettingsByKeys(businessId, ['business_name'])
     return {
-      title: page ? `${page.title} — ${s.business_name ?? ''}` : 'Página no encontrada',
+      title: page ? `${page.title} — ${s.business_name ?? ''}` : 'Page not found',
     }
   } catch {
     return { title: 'Tienda' }
@@ -82,7 +82,7 @@ export default async function StorePage(
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3">
           <a href="/tienda" className="flex items-center gap-1.5 text-sm store-text-muted store-hover-primary transition-colors">
             <ArrowLeft className="h-4 w-4" />
-            Volver a la tienda
+            Back to store
           </a>
           {s.business_logo && (
             <img src={s.business_logo} alt={s.business_name ?? ''} className="h-7 object-contain ml-auto" />
@@ -97,7 +97,7 @@ export default async function StorePage(
         <div className="mb-8 pb-6 border-b">
           <h1 className="text-3xl font-bold tracking-tight">{page.title}</h1>
           <p className="mt-2 text-sm store-text-muted">
-            Última actualización: {updatedDate}
+            Last update: {updatedDate}
           </p>
         </div>
 

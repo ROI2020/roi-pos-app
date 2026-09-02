@@ -14,7 +14,10 @@ export interface Variant {
   specific_image_url: string | null; in_stock: boolean; stock_count: number
 }
 export interface Product {
-  id: number; name: string; description: string | null
+  id: number; name: string
+  /** Nombre completo de CJ. Se muestra bajo name en tienda cuando existe y difiere. */
+  long_name: string | null
+  description: string | null
   price: number; cuotas: number; category: string | null; age_group: string | null
   has_image: boolean
   /** URL principal de imagen, ya proxied. Para CJ = general_image_url via /api/images/proxy. */

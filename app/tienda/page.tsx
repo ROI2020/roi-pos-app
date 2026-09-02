@@ -122,6 +122,9 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
           <h3 className="text-sm font-semibold leading-tight line-clamp-2 store-hover-primary transition-colors">
             {product.name}
           </h3>
+          {product.long_name && product.long_name !== product.name && (
+            <p className="text-[10px] text-gray-400 mt-0.5 leading-snug line-clamp-1">{product.long_name}</p>
+          )}
           {product.description && (
             <div>
               <p className={`text-xs text-gray-400 mt-0.5 leading-relaxed ${descExpanded ? '' : 'line-clamp-2'}`}>

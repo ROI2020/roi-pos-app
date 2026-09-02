@@ -95,9 +95,11 @@ export default function CJImportPage() {
   const [freight,        setFreight       ] = useState<CJFreightOption[]>([])
   const [loadingFreight, setLoadingFreight] = useState(false)
 
-  const [markup,    setMarkup   ] = useState('30')
-  const [importing, setImporting] = useState(false)
-  const [imported,  setImported ] = useState<Set<string>>(new Set())
+  const [markup,      setMarkup     ] = useState('30')
+  const [nameEdit,    setNameEdit   ] = useState('')   // nombre corto curado por admin
+  const [longNameEdit,setLongNameEdit] = useState('')  // nombre completo de CJ
+  const [importing,   setImporting  ] = useState(false)
+  const [imported,    setImported   ] = useState<Set<string>>(new Set())
 
   // ── Sync ──────────────────────────────────────────────────────────────────
   const [syncing,      setSyncing     ] = useState(false)
@@ -186,6 +188,9 @@ export default function CJImportPage() {
       const data = await res.json() as CJProductDetail | { error: string }
       if ('error' in data) throw new Error(data.error)
       setSelected(data)
+      // Pre-cargar nombres editables con el nombre de CJ
+      setNameEdit(data.productName.slice(0, 150))
+      setLongNameEdit(data.productName.slice(0, 300))
 
       // Cargar flete en paralelo (no bloquea la apertura del modal).
       // Intenta CN primero; si no hay opciones, prueba US (warehouses distintos).
@@ -227,7 +232,12 @@ export default function CJImportPage() {
       const res = await fetch('/api/admin/cj/import', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ product: selected, markup: parseFloat(markup) || 0 }),
+        body:    JSON.stringify({
+          product:   selected,
+          markup:    parseFloat(markup) || 0,
+          name:      nameEdit.trim() || undefined,
+          long_name: longNameEdit.trim() || undefined,
+        }),
       })
       const data = await res.json() as { productId: number } | { error: string }
       if ('error' in data) throw new Error(data.error)
@@ -763,6 +773,35 @@ export default function CJImportPage() {
                     })()}
                   </div>
                 )}
+              </div>
+
+              {/* Nombres editables */}
+              <div className="space-y-3 border rounded-lg p-3 bg-gray-50">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Nombres del producto</p>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">
+                    Nombre corto <span className="text-gray-400 font-normal">(visible en tienda · podés editarlo)</span>
+                  </Label>
+                  <Input
+                    value={nameEdit}
+                    onChange={e => setNameEdit(e.target.value)}
+                    maxLength={150}
+                    className="text-sm"
+                    placeholder="Nombre curado para la tienda"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">
+                    Nombre completo CJ <span className="text-gray-400 font-normal">(se muestra debajo del nombre en tienda cuando difiere)</span>
+                  </Label>
+                  <Input
+                    value={longNameEdit}
+                    onChange={e => setLongNameEdit(e.target.value)}
+                    maxLength={300}
+                    className="text-sm text-gray-600"
+                    placeholder="Nombre tal como lo muestra CJ"
+                  />
+                </div>
               </div>
 
               {/* Markup */}

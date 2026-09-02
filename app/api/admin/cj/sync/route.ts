@@ -159,16 +159,16 @@ export async function POST(req: Request) {
       try {
         await pool.query(
           `UPDATE products
-           SET name               = $1,
-               base_price         = $2,
-               cj_cost_usd        = $3,
-               markup_pct         = $4,
-               general_image_url  = $5,
-               cj_data            = $6,
-               cj_last_sync       = NOW()
+           SET long_name         = $1,
+               base_price        = $2,
+               cj_cost_usd       = $3,
+               markup_pct        = $4,
+               general_image_url = $5,
+               cj_data           = $6,
+               cj_last_sync      = NOW()
            WHERE id = $7`,
           [
-            detail.productName.slice(0, 150),
+            detail.productName.slice(0, 300),  // long_name: nombre completo de CJ
             newBasePrice.toFixed(2),
             cjCostUsd.toFixed(2),
             markupPct,
@@ -178,15 +178,14 @@ export async function POST(req: Request) {
           ],
         )
       } catch (updateErr) {
-        if (String(updateErr).match(/cj_data|cj_cost_usd|markup_pct/)) {
+        if (String(updateErr).match(/cj_data|cj_cost_usd|markup_pct|long_name/)) {
           console.warn(`[CJ sync] Migration pendiente, sync parcial para id=${prod.id}`)
           await pool.query(
             `UPDATE products
-             SET name         = $1,
-                 base_price   = $2,
+             SET base_price   = $1,
                  cj_last_sync = NOW()
-             WHERE id = $3`,
-            [detail.productName.slice(0, 150), newBasePrice.toFixed(2), prod.id],
+             WHERE id = $2`,
+            [newBasePrice.toFixed(2), prod.id],
           )
         } else {
           throw updateErr

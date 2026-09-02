@@ -266,6 +266,9 @@ export default function ProductModal({
             {/* Nombre + precio */}
             <div>
               <h1 className="text-xl font-bold leading-tight">{product.name}</h1>
+              {product.long_name && product.long_name !== product.name && (
+                <p className="text-xs text-gray-400 mt-0.5 leading-snug">{product.long_name}</p>
+              )}
 
               {product.today_promo && product.promo_price != null ? (
                 <div className="mt-1 space-y-1.5">
