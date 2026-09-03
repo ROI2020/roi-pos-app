@@ -7,7 +7,7 @@ import {
   LayoutGrid, List, Search, SlidersHorizontal, Pencil, Upload,
   ImageOff, Loader2, X, ChevronDown, Package, Plus, Rows3,
   Globe, CheckCircle2, Circle, History, Calendar, ShoppingCart,
-  Tag, ArrowLeftRight, Truck, RefreshCw, ExternalLink,
+  Tag, ArrowLeftRight, Truck, RefreshCw, ExternalLink, Trash2, AlertTriangle,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useAdminCurrency } from "@/hooks/use-admin-currency"
@@ -502,17 +502,19 @@ function ProductHistoryDialog({
 }
 
 function ProductCard({
-  product, onUpdate, onEdit, onVariants, onHistory,
+  product, onUpdate, onEdit, onVariants, onHistory, onDelete,
 }: {
   product:    Product
   onUpdate:   (patch: Partial<Product>) => void
   onEdit:     () => void
   onVariants: () => void
   onHistory:  () => void
+  onDelete:   () => void
 }) {
   const { fmt } = useAdminCurrency()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [uploading, setUploading] = useState(false)
+  const [uploading,       setUploading      ] = useState(false)
+  const [confirmDelete,   setConfirmDelete  ] = useState(false)
 
   const handlePhotoClick = () => fileRef.current?.click()
 
@@ -634,9 +636,9 @@ function ProductCard({
           {!isDS && ` · ${product.stock_count} en stock`}
         </p>
 
-        {!isDS && <RedesToggle product={product} onToggle={handleRedesToggle} />}
+        <RedesToggle product={product} onToggle={handleRedesToggle} />
 
-        <div className="flex gap-1 mt-auto">
+        <div className="flex gap-1 mt-auto items-center">
           <Button variant="ghost" size="sm"
             className="gap-1 text-xs text-gray-500 hover:text-violet-700 h-7 px-1 flex-1 justify-start"
             onClick={onEdit}>
@@ -656,6 +658,21 @@ function ProductCard({
               <History className="h-3.5 w-3.5" />
             </Button>
           )}
+          {/* Borrar */}
+          {confirmDelete ? (
+            <button
+              onClick={onDelete}
+              className="text-[10px] font-semibold text-red-600 border border-red-300 rounded px-1.5 py-0.5 bg-red-50 hover:bg-red-100 whitespace-nowrap"
+            >
+              ¿Confirmar?
+            </button>
+          ) : (
+            <Button variant="ghost" size="icon"
+              className="h-7 w-7 text-gray-300 hover:text-red-500 shrink-0"
+              title="Borrar producto" onClick={() => setConfirmDelete(true)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </div>
     </div>
@@ -664,15 +681,17 @@ function ProductCard({
 
 // ── Fila de producto (vista lista) ────────────────────────────────────────────
 function ProductRow({
-  product, onUpdate, onEdit, onVariants, onHistory,
+  product, onUpdate, onEdit, onVariants, onHistory, onDelete,
 }: {
   product:    Product
   onUpdate:   (patch: Partial<Product>) => void
   onEdit:     () => void
   onVariants: () => void
   onHistory:  () => void
+  onDelete:   () => void
 }) {
   const { fmt } = useAdminCurrency()
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const handleRedesToggle = async (updates: Partial<Product>) => {
     onUpdate(updates)
     try {
@@ -737,8 +756,7 @@ function ProductRow({
         {isDS ? `${product.variant_count} var` : `${product.stock_count} / ${product.variant_count}`}
       </td>
       <td className="px-2 py-2.5">
-        {!isDS && <RedesToggle product={product} onToggle={handleRedesToggle} compact />}
-        {isDS && <span className="text-[10px] text-sky-600 font-medium px-1.5 py-0.5 bg-sky-50 rounded border border-sky-100">Dropshipping</span>}
+        <RedesToggle product={product} onToggle={handleRedesToggle} compact />
       </td>
       <td className="px-3 py-2.5">
         <div className="flex items-center gap-1 justify-end">
@@ -762,6 +780,21 @@ function ProductRow({
             title="Editar" onClick={onEdit}>
             <Pencil className="h-3.5 w-3.5" />
           </Button>
+          {/* Borrar */}
+          {confirmDelete ? (
+            <button
+              onClick={onDelete}
+              className="text-[10px] font-bold text-red-600 border border-red-300 rounded px-1.5 py-0.5 bg-red-50 hover:bg-red-100 whitespace-nowrap"
+            >
+              ¿Sí?
+            </button>
+          ) : (
+            <Button variant="ghost" size="icon"
+              className="h-7 w-7 text-gray-300 hover:text-red-500"
+              title="Borrar producto" onClick={() => setConfirmDelete(true)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </td>
     </tr>
@@ -1166,11 +1199,12 @@ function EditProductDialog({
  * El botón "Actualizar desde CJ" hace un sync individual del producto.
  */
 function DSEditDialog({
-  product, onSaved, onClose,
+  product, onSaved, onClose, onDelete,
 }: {
-  product: Product
-  onSaved: (p: Partial<Product>) => void
-  onClose: () => void
+  product:  Product
+  onSaved:  (p: Partial<Product>) => void
+  onClose:  () => void
+  onDelete: () => void
 }) {
   const { fmt } = useAdminCurrency()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1179,9 +1213,15 @@ function DSEditDialog({
   const [longEdit,  setLongEdit ] = useState(product.long_name ?? product.name)
   const [markup,    setMarkup   ] = useState(String(product.markup_pct ?? 30))
   const [price,     setPrice    ] = useState(String(product.base_price))
-  const [saving,    setSaving   ] = useState(false)
-  const [syncing,   setSyncing  ] = useState(false)
-  const [loadingData, setLoadingData] = useState(true)
+  const [saving,         setSaving        ] = useState(false)
+  const [syncing,        setSyncing       ] = useState(false)
+  const [loadingData,    setLoadingData   ] = useState(true)
+  const [confirmDelete,  setConfirmDelete ] = useState(false)
+  // Exportable channels — local state para toggle inmediato
+  const [exportWeb,      setExportWeb     ] = useState(product.exportable_web)
+  const [exportWa,       setExportWa      ] = useState(product.exportable_whatsapp)
+  const [exportIg,       setExportIg      ] = useState(product.exportable_instagram)
+  const [exportFb,       setExportFb      ] = useState(product.exportable_facebook)
 
   useEffect(() => {
     // Cargar cj_data del producto desde la API
@@ -1363,6 +1403,55 @@ function DSEditDialog({
             </div>
           </div>
 
+          {/* Canales de exposición */}
+          {(() => {
+            const channels = [
+              { key: 'web',       label: 'Web',       val: exportWeb, set: setExportWeb },
+              { key: 'whatsapp',  label: 'WhatsApp',  val: exportWa,  set: setExportWa  },
+              { key: 'instagram', label: 'Instagram', val: exportIg,  set: setExportIg  },
+              { key: 'facebook',  label: 'Facebook',  val: exportFb,  set: setExportFb  },
+            ]
+            const handleChannelToggle = async (k: string, newVal: boolean) => {
+              const fieldKey = `exportable_${k}` as keyof Product
+              const patch: Partial<Product> = { [fieldKey]: newVal } as Partial<Product>
+              try {
+                const res = await fetch(`/api/products/${product.id}`, {
+                  method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(patch),
+                })
+                if (!res.ok) throw new Error((await res.json()).error)
+                onSaved(patch)
+              } catch (err) {
+                toast.error(String(err))
+              }
+            }
+            return (
+              <div className="border rounded-lg p-3 bg-gray-50 space-y-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                  <Globe className="h-3.5 w-3.5" /> Exponer en canales
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {channels.map(ch => (
+                    <button
+                      key={ch.key}
+                      onClick={() => {
+                        ch.set(!ch.val)
+                        handleChannelToggle(ch.key, !ch.val)
+                      }}
+                      className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                        ch.val
+                          ? 'bg-violet-100 text-violet-700 border-violet-300'
+                          : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      {ch.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
+
           {/* PID */}
           {product.cj_pid && (
             <div className="bg-gray-50 rounded-lg p-2.5">
@@ -1379,14 +1468,33 @@ function DSEditDialog({
           )}
         </div>
 
-        <div className="flex justify-between pt-2">
-          <Button
-            variant="outline" size="sm" className="gap-1.5 text-sky-600 border-sky-200 hover:bg-sky-50"
-            onClick={handleSyncOne} disabled={syncing || saving}
-          >
-            {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            Actualizar desde CJ
-          </Button>
+        <div className="flex justify-between pt-2 gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline" size="sm" className="gap-1.5 text-sky-600 border-sky-200 hover:bg-sky-50"
+              onClick={handleSyncOne} disabled={syncing || saving}
+            >
+              {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Actualizar desde CJ
+            </Button>
+            {/* Borrar */}
+            {confirmDelete ? (
+              <button
+                onClick={onDelete}
+                className="text-xs font-bold text-red-600 border border-red-300 rounded-md px-3 py-1.5 bg-red-50 hover:bg-red-100 flex items-center gap-1.5"
+              >
+                <AlertTriangle className="h-3.5 w-3.5" /> ¿Confirmar borrado?
+              </button>
+            ) : (
+              <Button
+                variant="ghost" size="sm"
+                className="gap-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50"
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Borrar
+              </Button>
+            )}
+          </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={onClose}>Cancelar</Button>
             <Button onClick={handleSave} disabled={saving} className="gap-2">
@@ -1492,6 +1600,29 @@ export default function ProductsPanel() {
     setProducts(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
     if (editTarget?.id === id) setEditTarget(prev => prev ? { ...prev, ...patch } : prev)
   }, [editTarget])
+
+  const handleDelete = useCallback(async (id: number) => {
+    try {
+      const res = await fetch(`/api/products/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Error al borrar')
+      const data = await res.json() as { deleted: boolean; soft?: boolean; sales?: number }
+      if (data.deleted) {
+        setProducts(prev => prev.filter(p => p.id !== id))
+        setEditTarget(null); setDsEditTarget(null)
+        toast.success('Producto eliminado')
+      } else {
+        // Soft delete: actualizar en lista
+        updateProduct(id, {
+          exportable_web: false, exportable_whatsapp: false,
+          exportable_instagram: false, exportable_facebook: false,
+        })
+        setEditTarget(null); setDsEditTarget(null)
+        toast.success(`Producto ocultado de todos los canales (${data.sales} venta${data.sales !== 1 ? 's' : ''} registrada${data.sales !== 1 ? 's' : ''})`)
+      }
+    } catch (err) {
+      toast.error(String(err))
+    }
+  }, [updateProduct])
 
   const activeFilterCount = [
     filterCat !== '__all__', filterAge !== '__all__', filterSeason !== '__all__',
@@ -1680,6 +1811,7 @@ export default function ProductsPanel() {
                 onEdit={() => p.cj_pid ? setDsEditTarget(p) : setEditTarget(p)}
                 onVariants={() => setVariantsTarget(p)}
                 onHistory={() => setHistoryTarget(p)}
+                onDelete={() => handleDelete(p.id)}
               />
             ))}
           </div>
@@ -1704,6 +1836,7 @@ export default function ProductsPanel() {
                     onEdit={() => p.cj_pid ? setDsEditTarget(p) : setEditTarget(p)}
                     onVariants={() => setVariantsTarget(p)}
                     onHistory={() => setHistoryTarget(p)}
+                    onDelete={() => handleDelete(p.id)}
                   />
                 ))}
               </tbody>
@@ -1737,6 +1870,7 @@ export default function ProductsPanel() {
           product={dsEditTarget}
           onSaved={patch => { updateProduct(dsEditTarget.id, patch); setDsEditTarget(null) }}
           onClose={() => setDsEditTarget(null)}
+          onDelete={() => handleDelete(dsEditTarget.id)}
         />
       )}
 

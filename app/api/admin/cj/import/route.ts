@@ -113,7 +113,9 @@ export async function POST(req: Request) {
     let resolvedCategoryId: number | null = categoryId ?? null
 
     if (!resolvedCategoryId && product.categoryName) {
-      const cjCatName = product.categoryName.trim().slice(0, 100)
+      // CJ devuelve rutas como "Bags & Shoes / Women's Bags / Totes"
+      // Nos quedamos con el primer segmento (categoría raíz más representativa)
+      const cjCatName = product.categoryName.split('/')[0].trim().slice(0, 100)
       const catMatch = await client.query<{ id: number }>(
         `SELECT id FROM categories WHERE business_id = $1 AND LOWER(name) = LOWER($2) LIMIT 1`,
         [businessId, cjCatName],
@@ -122,11 +124,20 @@ export async function POST(req: Request) {
         resolvedCategoryId = catMatch.rows[0].id
       } else if (cjCatName) {
         // Crear categoría automáticamente con el nombre de CJ
+        // long_name = nombre original CJ; name = igual al principio (admin puede curar después)
         const newCat = await client.query<{ id: number }>(
-          `INSERT INTO categories (business_id, name) VALUES ($1, $2) RETURNING id`,
-          [businessId, cjCatName],
+          `INSERT INTO categories (business_id, name, long_name) VALUES ($1, $2, $3)
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [businessId, cjCatName, cjCatName],
+        ).catch(() =>
+          // Fallback si long_name no existe todavía
+          client.query<{ id: number }>(
+            `INSERT INTO categories (business_id, name) VALUES ($1, $2) RETURNING id`,
+            [businessId, cjCatName],
+          )
         )
-        resolvedCategoryId = newCat.rows[0].id
+        resolvedCategoryId = newCat.rows[0]?.id ?? null
       }
     }
 

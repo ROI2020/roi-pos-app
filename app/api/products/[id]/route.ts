@@ -96,3 +96,89 @@ export async function PATCH(
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
 }
+
+/**
+ * DELETE /api/products/[id]
+ *
+ * Dos modos según si el producto tuvo movimientos:
+ *  • Sin ventas ni compras: borrado físico (DELETE). Limpia variantes y stock.
+ *  • Con ventas/compras:    borrado suave — deshabilita todos los canales de exposición.
+ *
+ * Responde:
+ *  { deleted: true }                         → borrado físico
+ *  { deleted: false, soft: true, sales: n }  → ocultado de todos los canales
+ */
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const authResult = await requireBusinessId()
+    if (authResult instanceof NextResponse) return authResult
+    const { businessId } = authResult
+
+    const { id } = await params
+
+    // Verificar que el producto pertenece al negocio
+    const { rows: [product] } = await pool.query<{ id: number }>(
+      'SELECT id FROM products WHERE id = $1 AND business_id = $2',
+      [id, businessId]
+    )
+    if (!product) return NextResponse.json({ error: 'Producto no encontrado' }, { status: 404 })
+
+    // Contar ventas que referencian variantes de este producto
+    const { rows: [{ sales }] } = await pool.query<{ sales: number }>(
+      `SELECT COUNT(*)::int AS sales
+       FROM sale_items si
+       JOIN product_variants pv ON pv.id = si.variant_id
+       WHERE pv.product_id = $1`,
+      [id]
+    )
+
+    if (Number(sales) > 0) {
+      // Tiene ventas → solo ocultamos de todos los canales
+      await pool.query(
+        `UPDATE products
+         SET exportable_web       = false,
+             exportable_whatsapp  = false,
+             exportable_instagram = false,
+             exportable_facebook  = false,
+             updated_at           = NOW()
+         WHERE id = $1`,
+        [id]
+      )
+      return NextResponse.json({ deleted: false, soft: true, sales: Number(sales) })
+    }
+
+    // Sin ventas → borrado físico en orden FK
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      // 1. Stock de sucursales (branch_inventory)
+      await client.query(
+        `DELETE FROM branch_inventory
+         WHERE variant_id IN (SELECT id FROM product_variants WHERE product_id = $1)`,
+        [id]
+      )
+      // 2. Imágenes por color
+      await client.query(
+        `DELETE FROM product_variant_images WHERE product_id = $1`,
+        [id]
+      ).catch(() => {})  // tabla puede no existir en todas las instancias
+      // 3. Variantes
+      await client.query('DELETE FROM product_variants WHERE product_id = $1', [id])
+      // 4. Producto
+      await client.query('DELETE FROM products WHERE id = $1 AND business_id = $2', [id, businessId])
+      await client.query('COMMIT')
+      return NextResponse.json({ deleted: true })
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  } catch (err) {
+    console.error('[DELETE /api/products/:id]', err)
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
+}

@@ -110,7 +110,7 @@ export async function GET(req: Request) {
        JOIN product_variants pv ON pv.product_id = p.id
        WHERE p.exportable_web = true
          AND p.business_id = $1
-       ORDER BY p.id, pv.color, pv.size`
+       ORDER BY p.category_id NULLS LAST, p.name, p.id, pv.color, pv.size`
 
     // Intentar query con soporte CJ completo (requiere migrations 20260828 + 20260831)
     let rows: CatalogRow[]
