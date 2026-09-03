@@ -1,11 +1,13 @@
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
 import { DM_Sans } from 'next/font/google'
+import Script from 'next/script'
 import { Toaster } from '@/components/ui/sonner'
 import Nav from '@/components/nav'
 import { PlanProvider } from '@/contexts/PlanContext'
 import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
+
 
 // ── Fuente del sistema ─────────────────────────────────────────────────────────
 // Para cambiar a Roboto: reemplazá DM_Sans por Roboto y actualizá el nombre.
@@ -44,11 +46,31 @@ export default async function RootLayout({
   // x-store-base lo setea el middleware en todas las requests /tienda/* y /store/*
   // Cuando está presente, estamos sirviendo la tienda pública → sin nav de admin
   const isStore = !!hdrs.get('x-store-base')
+  // GA4 ID por negocio — viene del middleware vía settings.catalog_ga4_measurement_id
+  // Solo se inyecta en producción (localhost no tiene ga4Id para no contaminar métricas)
+  const ga4Id   = hdrs.get('x-ga4-id') ?? null
 
   const showAdminShell = !isFacturaRapida && !isStore
 
   return (
     <html lang="es" suppressHydrationWarning>
+      <head>
+        {/* Google Analytics 4 — por negocio, solo en tienda pública, solo en producción */}
+        {isStore && ga4Id && (
+          <>
+            <Script
+              src={`https://www.googletagmanager.com/gtag/js?id=${ga4Id}`}
+              strategy="afterInteractive"
+            />
+            <Script id="ga4-init" strategy="afterInteractive">{`
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', '${ga4Id}');
+            `}</Script>
+          </>
+        )}
+      </head>
       <body className={`${dmSans.className} antialiased`} suppressHydrationWarning>
         <ThemeProvider
           attribute="class"

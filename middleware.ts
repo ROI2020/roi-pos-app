@@ -26,6 +26,7 @@ interface TenantInfo {
   business_id: number
   business_name: string
   store_path: string   // '/store' (en) | '/tienda' (es)
+  ga4_id: string | null
 }
 
 function parseSession(raw: string | undefined): SessionCookie | null {
@@ -136,10 +137,12 @@ export async function middleware(req: NextRequest) {
   // ── 6. Detección de tenant ───────────────────────────────────────────────────
   let businessId: number | null = null
   let businessName = ''
+  let ga4Id: string | null = null
 
   if (host.includes('localhost') || host.includes('127.0.0.1') || isFacturaRapida) {
     businessId   = session.business_id ?? parseInt(process.env.DEV_BUSINESS_ID ?? '0', 10)
     businessName = isFacturaRapida ? 'ROIFAR' : 'DEV'
+    // En local no inyectamos GA4 para no contaminar métricas de producción
   } else {
     try {
       const res = await fetch(
@@ -152,6 +155,7 @@ export async function middleware(req: NextRequest) {
         const data = await res.json() as TenantInfo
         businessId   = data.business_id
         businessName = data.business_name
+        ga4Id        = data.ga4_id ?? null
       }
     } catch {
       // Error de red — las rutas protegidas fallarán individualmente
@@ -202,6 +206,9 @@ export async function middleware(req: NextRequest) {
   if (businessId !== null) {
     requestHeaders.set('x-business-id',   String(businessId))
     requestHeaders.set('x-business-name', businessName)
+  }
+  if (ga4Id) {
+    requestHeaders.set('x-ga4-id', ga4Id)
   }
   return NextResponse.next({ request: { headers: requestHeaders } })
 }

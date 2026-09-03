@@ -42,18 +42,21 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Tenant no encontrado' }, { status: 404 })
     }
 
-    // Obtener locale del negocio para determinar la ruta pública de la tienda
-    const localeRes = await pool.query<{ value: string }>(
-      `SELECT value FROM settings
-       WHERE business_id = $1 AND key = 'locale' AND is_secret = false
-       LIMIT 1`,
+    // Obtener settings del negocio: locale + GA4 measurement ID
+    const settingsRes = await pool.query<{ key: string; value: string }>(
+      `SELECT key, value FROM settings
+       WHERE business_id = $1
+         AND key IN ('locale', 'catalog_ga4_measurement_id')
+         AND is_secret = false`,
       [rows[0].business_id]
     )
-    const locale     = localeRes.rows[0]?.value ?? 'es-AR'
-    const store_path = locale.startsWith('en') ? '/store' : '/tienda'
+    const settingsMap  = Object.fromEntries(settingsRes.rows.map(r => [r.key, r.value]))
+    const locale       = settingsMap['locale'] ?? 'es-AR'
+    const store_path   = locale.startsWith('en') ? '/store' : '/tienda'
+    const ga4_id       = settingsMap['catalog_ga4_measurement_id'] ?? null
 
     // Cache-Control: el edge puede cachear esta respuesta 5 minutos
-    return NextResponse.json({ ...rows[0], locale, store_path }, {
+    return NextResponse.json({ ...rows[0], locale, store_path, ga4_id }, {
       headers: { 'Cache-Control': 's-maxage=300, stale-while-revalidate=60' },
     })
   } catch (err) {
