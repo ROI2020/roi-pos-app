@@ -881,21 +881,28 @@ function CatalogoTab() {
       key:         'meta',
       label:       'Meta (WhatsApp / Instagram / Facebook)',
       url:         `${base}/api/v1/feeds/meta-catalog.xml?token=${tk}`,
-      description: 'Filtra productos con los flags WA, IG o FB activados.',
+      description: 'Productos con flags WA, IG o FB activados.',
       color:       'border-blue-200 bg-blue-50 text-blue-700',
+    },
+    {
+      key:         'google',
+      label:       'Google Merchant Center',
+      url:         `${base}/api/v1/feeds/google-catalog.xml?token=${tk}`,
+      description: 'Productos con flag Web activado. g:link apunta a la página individual de cada producto.',
+      color:       'border-green-200 bg-green-50 text-green-700',
     },
     {
       key:         'tiktok',
       label:       'TikTok Shop',
       url:         `${base}/api/v1/feeds/tiktok-catalog.xml?token=${tk}`,
-      description: 'Filtra productos con el flag Web activado.',
+      description: 'Productos con flag Web activado (mismo filtro que Google).',
       color:       'border-gray-200 bg-gray-50 text-gray-700',
     },
     {
       key:         'all',
       label:       'Feed completo (todos los exportables)',
       url:         `${base}/api/v1/feeds/all-catalog.xml?token=${tk}`,
-      description: 'Incluye cualquier producto con al menos un flag activo.',
+      description: 'Cualquier producto con al menos un flag activo.',
       color:       'border-violet-200 bg-violet-50 text-violet-700',
     },
   ]
@@ -1263,9 +1270,10 @@ function CatalogoTab() {
       <div className="space-y-3 pt-2 border-t border-gray-100">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">URLs de feeds para registrar en cada plataforma</p>
         <p className="text-xs text-gray-400">
-          En Meta Business Suite → Catálogos → Orígenes de datos → "URL del feed de datos".
-          En TikTok Seller Center → Productos → Catálogo → "Importar por URL".
-          Configurar frecuencia: <strong>1 hora</strong>.
+          <strong>Meta:</strong> Business Suite → Catálogos → Orígenes de datos → "URL del feed de datos".<br />
+          <strong>Google:</strong> Merchant Center → Productos → Feeds → "Scheduled fetch".<br />
+          <strong>TikTok:</strong> Seller Center → Productos → Catálogo → "Importar por URL".<br />
+          Frecuencia recomendada: <strong>1 hora</strong>.
         </p>
 
         <div className="space-y-2">

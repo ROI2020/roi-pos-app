@@ -2,11 +2,14 @@
  * lib/proxy-image.ts
  *
  * Helper para envolver URLs de CDN externas (CJ/AliExpress) en nuestra
- * propia ruta proxy, evitando que el browser vea URLs de alicdn.com
- * y revelando así el proveedor dropshipping.
+ * propia ruta proxy, ocultando la URL de origen al usuario final.
  *
- * Uso: toProxyUrl(cdnUrl)  →  /api/images/proxy?u=BASE64URL
- * URLs que no son de CDN conocidas se devuelven sin modificar.
+ * Uso: toProxyUrl(cdnUrl)  →  /api/images/proxy?u=<base64url>
+ *
+ * Encoding: btoa() + conversión manual a base64url.
+ *   - btoa() es API nativa en browser Y en Node.js 16+: sin polyfills, sin Buffer.
+ *   - base64url oculta la URL de CJ (no es decodificable a simple vista).
+ *   - El route del proxy (server-only) decodifica con Buffer.from(u, 'base64url').
  */
 
 /** Sufijos de host permitidos para proxying */
@@ -26,6 +29,17 @@ function isCDNUrl(url: string): boolean {
 }
 
 /**
+ * Convierte un string a base64url usando btoa (compatible browser + Node.js 16+).
+ * base64url = base64 sin padding, con - en lugar de + y _ en lugar de /
+ */
+function toBase64Url(str: string): string {
+  return btoa(str)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g,  '')
+}
+
+/**
  * Envuelve una URL de CDN en nuestra ruta proxy.
  * Si no es una URL CDN conocida, la devuelve sin modificar.
  * Si es null/undefined, devuelve null.
@@ -33,8 +47,7 @@ function isCDNUrl(url: string): boolean {
 export function toProxyUrl(url: string | null | undefined): string | null {
   if (!url) return null
   if (!isCDNUrl(url)) return url
-  const encoded = Buffer.from(url, 'utf-8').toString('base64url')
-  return `/api/images/proxy?u=${encoded}`
+  return `/api/images/proxy?u=${toBase64Url(url)}`
 }
 
 /**
