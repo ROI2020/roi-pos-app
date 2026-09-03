@@ -190,7 +190,7 @@ export default async function TiendaLayout({
 
       <StorePathProvider basePath={storeBasePath}>
         <CurrencyProvider currency={currency} locale={fullLocale}>
-          <CartProvider>
+          <CartProvider businessId={businessId_}>
             {children}
           </CartProvider>
         </CurrencyProvider>

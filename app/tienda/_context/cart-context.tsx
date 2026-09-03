@@ -37,12 +37,16 @@ interface CartContextValue {
 
 const CartContext = createContext<CartContextValue | null>(null)
 
-const STORAGE_KEY = 'roipos_cart'
+const BASE_KEY = 'roipos_cart'
 
-function readStorage(): CartItem[] {
+function storageKey(businessId?: number | null) {
+  return businessId ? `${BASE_KEY}_${businessId}` : BASE_KEY
+}
+
+function readStorage(key: string): CartItem[] {
   if (typeof window === 'undefined') return []
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(key)
     if (!raw) return []
     const parsed = JSON.parse(raw) as CartItem[]
     // Sanitizar items viejos que no tienen quantity (antes de la implementación de Phase 6)
@@ -54,18 +58,29 @@ function readStorage(): CartItem[] {
   }
 }
 
-function writeStorage(items: CartItem[]) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)) } catch { /* no-op */ }
+function writeStorage(key: string, items: CartItem[]) {
+  try { localStorage.setItem(key, JSON.stringify(items)) } catch { /* no-op */ }
 }
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 
-export function CartProvider({ children }: { children: React.ReactNode }) {
+export function CartProvider({
+  children,
+  businessId,
+}: {
+  children:   React.ReactNode
+  businessId?: number | null
+}) {
   const [items,  setItems ] = useState<CartItem[]>([])
   const [isOpen, setIsOpen] = useState(false)
 
+  // Clave namespaceada por negocio — aísla carritos en dev (localhost compartido)
+  // En prod cada negocio corre en su propio dominio, localStorage ya es independiente.
+  const sKey = storageKey(businessId)
+
   // Leer localStorage al montar (solo cliente)
-  useEffect(() => { setItems(readStorage()) }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setItems(readStorage(sKey)) }, [sKey])
 
   const addItem = useCallback((item: CartItem) => {
     setItems(prev => {
@@ -81,19 +96,19 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       } else {
         next = [...prev, { ...item, quantity: item.quantity ?? 1 }]
       }
-      writeStorage(next)
+      writeStorage(sKey, next)
       return next
     })
     setIsOpen(true)
-  }, [])
+  }, [sKey])
 
   const removeItem = useCallback((variantId: number) => {
     setItems(prev => {
       const next = prev.filter(i => i.variantId !== variantId)
-      writeStorage(next)
+      writeStorage(sKey, next)
       return next
     })
-  }, [])
+  }, [sKey])
 
   const updateQuantity = useCallback((variantId: number, quantity: number) => {
     setItems(prev => {
@@ -107,15 +122,15 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
             : i
         )
       }
-      writeStorage(next)
+      writeStorage(sKey, next)
       return next
     })
-  }, [])
+  }, [sKey])
 
   const clearCart = useCallback(() => {
     setItems([])
-    writeStorage([])
-  }, [])
+    writeStorage(sKey, [])
+  }, [sKey])
 
   const itemCount = items.reduce((s, i) => s + i.quantity, 0)
   const total     = items.reduce((s, i) => s + i.price * i.quantity, 0)
