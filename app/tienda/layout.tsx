@@ -21,12 +21,56 @@ import { CurrencyProvider }   from './_context/currency-context'
 import { StorePathProvider }  from './_context/store-path-context'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
+import StoreJsonLd from './_components/store-jsonld'
 import './store-theme.css'
 
-export const metadata: Metadata = {
-  other: {
-    'p:domain_verify': 'a4275ed5f962b5ca74b4a1049334d769',
-  },
+// ── Metadata dinámica por negocio ──────────────────────────────────────────────
+export async function generateMetadata(): Promise<Metadata> {
+  try {
+    const h    = await headers()
+    const host = h.get('host') ?? 'localhost'
+    const businessId = await resolveBusinessFromHost(host)
+    const s = await getPublicSettingsByKeys(businessId, [
+      'business_name', 'catalog_description', 'catalog_base_url',
+      'business_logo', 'locale', 'catalog_pinterest_verify',
+    ])
+
+    const name      = s['business_name']      ?? 'Tienda'
+    const desc      = s['catalog_description'] ?? `Comprá en ${name} — envíos a todo el país`
+    const locale    = s['locale']             ?? 'es-AR'
+    const storePath = locale.startsWith('en') ? '/store' : '/tienda'
+    const baseUrl   = (s['catalog_base_url'] ?? `https://${host}`).replace(/\/$/, '')
+    const canonical = `${baseUrl}${storePath}`
+    const logo      = s['business_logo'] ?? null
+
+    return {
+      title:       `${name} — tienda online`,
+      description: desc,
+      alternates:  { canonical },
+      openGraph: {
+        type:        'website',
+        url:         canonical,
+        siteName:    name,
+        title:       `${name} — tienda online`,
+        description: desc,
+        locale:      locale.replace('-', '_'),
+        ...(logo && { images: [{ url: logo, alt: name }] }),
+      },
+      twitter: {
+        card:        'summary',
+        title:       `${name} — tienda online`,
+        description: desc,
+        ...(logo && { images: [logo] }),
+      },
+      // Pinterest domain verification — por negocio desde settings
+      ...(s['catalog_pinterest_verify'] && {
+        other: { 'p:domain_verify': s['catalog_pinterest_verify'] },
+      }),
+    }
+  } catch {
+    // Fallback mínimo si el tenant no resuelve
+    return { title: 'Tienda online' }
+  }
 }
 
 export default async function TiendaLayout({
@@ -42,6 +86,8 @@ export default async function TiendaLayout({
   // x-store-base lo inyecta el middleware: '/store' (en) | '/tienda' (es)
   // Si no está (ej: SSR directo sin middleware), lo derivamos del locale.
   let storeBasePath = '/tienda'
+  let businessId_: number | null = null
+  let baseUrl_    = ''
 
   try {
     const h    = await headers()
@@ -51,12 +97,15 @@ export default async function TiendaLayout({
     const headerBase = h.get('x-store-base')
 
     const businessId = await resolveBusinessFromHost(host)
+    businessId_ = businessId
     const s = await getPublicSettingsByKeys(businessId, [
       'locale', 'currency',
+      'catalog_base_url',
       'catalog_color_primary', 'catalog_color_secondary',
       'catalog_color_bg', 'catalog_color_surface', 'catalog_color_text',
       'catalog_color_muted', 'catalog_color_border', 'catalog_font',
     ])
+    baseUrl_ = (s['catalog_base_url'] ?? `https://${host}`).replace(/\/$/, '')
 
     fullLocale = s.locale   ?? 'es-AR'
     currency   = s.currency ?? 'ARS'
@@ -112,6 +161,18 @@ export default async function TiendaLayout({
         // eslint-disable-next-line react/no-danger
         <style dangerouslySetInnerHTML={{ __html: themeStyle }} />
       )}
+
+      {/* JSON-LD structured data: Organization + ItemList de productos */}
+      {businessId_ !== null && (
+        <StoreJsonLd
+          businessId={businessId_}
+          businessName={''}   // se lee internamente desde el name del producto
+          baseUrl={baseUrl_ || `https://localhost`}
+          storePath={storeBasePath}
+          currency={currency}
+        />
+      )}
+
       <StorePathProvider basePath={storeBasePath}>
         <CurrencyProvider currency={currency} locale={fullLocale}>
           <CartProvider>
