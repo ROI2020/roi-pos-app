@@ -38,12 +38,12 @@ const NO_DECIMALS = new Set(['ARS', 'CLP', 'COP', 'PYG', 'UYU', 'BOB', 'VES'])
  * - USD, EUR, etc.: con 2 decimales ($15.99)
  */
 export function createFmt(currency: string, locale: string): (amount: number) => string {
-  const maxFrac = NO_DECIMALS.has(currency.toUpperCase()) ? 0 : 2
+  const frac = NO_DECIMALS.has(currency.toUpperCase()) ? 0 : 2
   const formatter = new Intl.NumberFormat(locale, {
     style:                 'currency',
     currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: maxFrac,
+    minimumFractionDigits: frac,   // USD → siempre 2 decimales ($40.00, $40.10)
+    maximumFractionDigits: frac,   // ARS → siempre 0 decimales ($1.500)
   })
   return (amount: number) => formatter.format(amount)
 }
@@ -53,12 +53,12 @@ export function createFmt(currency: string, locale: string): (amount: number) =>
  * Conveniente para usos aislados; si formateás muchos montos, usá createFmt().
  */
 export function formatCurrency(amount: number, config: CurrencyConfig): string {
-  const maxFrac = NO_DECIMALS.has(config.currency.toUpperCase()) ? 0 : 2
+  const frac = NO_DECIMALS.has(config.currency.toUpperCase()) ? 0 : 2
   return new Intl.NumberFormat(config.locale, {
     style:                 'currency',
     currency:              config.currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: maxFrac,
+    minimumFractionDigits: frac,
+    maximumFractionDigits: frac,
   }).format(amount)
 }
 
