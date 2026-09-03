@@ -94,6 +94,7 @@ export async function generateMetadata({
       ?? `Comprá ${p.name} en ${bizName}`
 
     return {
+      metadataBase: new URL(baseUrl || `https://${host}`),
       title,
       description: desc,
       alternates: { canonical },

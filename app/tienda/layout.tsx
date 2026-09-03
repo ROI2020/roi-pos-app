@@ -50,6 +50,7 @@ export async function generateMetadata(): Promise<Metadata> {
     const faviconUrl = logo || null
 
     return {
+      metadataBase: new URL(baseUrl || `https://${host}`),
       title:       name,   // en la pestaña: "MALEMA" (limpio, sin sufijo)
       description: desc,
       alternates:  { canonical },
