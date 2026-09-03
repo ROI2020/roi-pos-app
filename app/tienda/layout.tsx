@@ -43,11 +43,11 @@ export async function generateMetadata(): Promise<Metadata> {
     const canonical = `${baseUrl}${storePath}`
     const logo      = s['business_logo'] ?? null
 
-    // Favicon: logo del negocio si existe y es URL absoluta;
-    // si es ruta relativa la convertimos a absoluta con baseUrl.
-    const faviconUrl = logo
-      ? (logo.startsWith('http') ? logo : `${baseUrl}${logo}`)
-      : null
+    // Favicon: se usa la URL tal cual está en settings.
+    // - URL absoluta (https://...): funciona en dev y prod.
+    // - Ruta relativa (/api/images/...): el browser la resuelve solo, sin necesitar baseUrl.
+    //   No construir https://localhost:3000/... porque dev corre en http, no https.
+    const faviconUrl = logo || null
 
     return {
       title:       name,   // en la pestaña: "MALEMA" (limpio, sin sufijo)

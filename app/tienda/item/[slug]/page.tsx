@@ -85,9 +85,8 @@ export async function generateMetadata({
     const canonical = `${baseUrl}${stPath}/item/${slug}`
     const imgUrl   = toProxyUrl(p.general_image_url)
     const logo     = s['business_logo'] ?? null
-    const faviconUrl = logo
-      ? (logo.startsWith('http') ? logo : `${baseUrl}${logo}`)
-      : null
+    // Favicon: URL tal cual (absoluta o relativa). Ver tienda/layout.tsx.
+    const faviconUrl = logo || null
 
     const title = `${p.name} — ${bizName}`
     const desc  = p.description?.slice(0, 160)
@@ -145,15 +144,18 @@ export default async function ProductItemPage({
   const s = await getPublicSettingsByKeys(businessId, [
     'business_name', 'catalog_base_url', 'locale', 'currency',
     'whatsapp_number', 'catalog_cuotas',
+    'payment_gateway', 'catalog_envio_info',
   ]).catch(() => ({} as Record<string, string>))
 
-  const locale   = s['locale']   ?? 'es-AR'
-  const currency = s['currency'] ?? 'ARS'
-  const cuotas   = parseInt(s['catalog_cuotas'] ?? '0') || 0
-  const baseUrl  = (s['catalog_base_url'] ?? `https://${host}`).replace(/\/$/, '')
-  const stPath   = locale.startsWith('en') ? '/store' : '/tienda'
-  const waRaw    = s['whatsapp_number'] ?? null
-  const waNumber = waRaw ? waRaw.replace(/\D/g, '') : null
+  const locale          = s['locale']          ?? 'es-AR'
+  const currency        = s['currency']        ?? 'ARS'
+  const cuotas          = parseInt(s['catalog_cuotas'] ?? '0') || 0
+  const baseUrl         = (s['catalog_base_url'] ?? `https://${host}`).replace(/\/$/, '')
+  const stPath          = locale.startsWith('en') ? '/store' : '/tienda'
+  const waRaw           = s['whatsapp_number'] ?? null
+  const waNumber        = waRaw ? waRaw.replace(/\D/g, '') : null
+  const paymentGateway  = (s['payment_gateway'] ?? 'manual') as 'paypal' | 'mercadopago' | 'manual'
+  const shippingInfo    = s['catalog_envio_info'] ?? null
 
   // ── Producto ──────────────────────────────────────────────────────────────
   const prodRes = await pool.query<ProductRow>(
@@ -181,16 +183,30 @@ export default async function ProductItemPage({
   const prod = prodRes.rows[0]
 
   // ── Variantes ─────────────────────────────────────────────────────────────
+  // branch_inventory columna = product_variant_id (no variant_id), sin columna stock.
+  // DS/CJ: in_stock = true siempre (stock gestionado por el proveedor).
+  // Físicos: in_stock = EXISTS fila en branch_inventory.
+  const isDS = !!prod.cj_pid
   const varRes = await pool.query<VariantRow>(
     `SELECT pv.id, pv.sku, pv.color, pv.size, pv.specific_image_url,
-            COALESCE(SUM(bi.stock), 0) > 0 AS in_stock,
-            COALESCE(SUM(bi.stock), 0)::int AS stock_count
+            CASE WHEN $2
+              THEN true
+              ELSE EXISTS (
+                SELECT 1 FROM branch_inventory bi
+                WHERE bi.product_variant_id = pv.id
+              )
+            END AS in_stock,
+            CASE WHEN $2
+              THEN 999
+              ELSE (
+                SELECT COUNT(bi.id)::int FROM branch_inventory bi
+                WHERE bi.product_variant_id = pv.id
+              )
+            END AS stock_count
      FROM product_variants pv
-     LEFT JOIN branch_inventory bi ON bi.variant_id = pv.id
      WHERE pv.product_id = $1
-     GROUP BY pv.id
      ORDER BY pv.color, pv.size`,
-    [prod.id]
+    [prod.id, isDS]
   ).catch(() => ({ rows: [] as VariantRow[] }))
 
   // ── Imágenes de color (fotos locales por color) ───────────────────────────
@@ -288,6 +304,8 @@ export default async function ProductItemPage({
         product={product}
         waNumber={waNumber}
         storePath={storeBase}
+        paymentGateway={paymentGateway}
+        shippingInfo={shippingInfo}
       />
     </>
   )

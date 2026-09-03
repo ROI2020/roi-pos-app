@@ -431,7 +431,7 @@ export default function ProductModal({
             <div className="space-y-3">
               <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">{t('shippingSection')}</p>
 
-              {/* Opciones de envío CJ */}
+              {/* Opciones de envío CJ (si existen) — sino, info manual del negocio */}
               {product.freight_options.length > 0 ? (
                 <div className="space-y-2">
                   {product.freight_options.map((opt, i) => {
