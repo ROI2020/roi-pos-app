@@ -237,7 +237,7 @@ export default function ItemClient({ product, waNumber, storePath, paymentGatewa
               <h1 className="text-3xl lg:text-4xl font-bold leading-tight store-text">
                 {product.name}
               </h1>
-              <hr className="border-[var(--store-border,#e5e7eb)]" />
+              
               {product.long_name && product.long_name !== product.name && (
                 <p className="text-base store-text-muted leading-snug font-medium">
                   {product.long_name}

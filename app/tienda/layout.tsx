@@ -36,8 +36,11 @@ export async function generateMetadata(): Promise<Metadata> {
     ])
 
     const name      = s['business_name']      ?? 'Tienda'
-    const desc      = s['catalog_description'] ?? `Comprá en ${name} — envíos a todo el país`
     const locale    = s['locale']             ?? 'es-AR'
+    const descFallback = locale.startsWith('en')
+      ? `Shop ${name} — fast shipping across the US`
+      : `Comprá en ${name} — envíos a todo el país`
+    const desc      = s['catalog_description'] ?? descFallback
     const storePath = locale.startsWith('en') ? '/store' : '/tienda'
     const baseUrl   = (s['catalog_base_url'] ?? `https://${host}`).replace(/\/$/, '')
     const canonical = `${baseUrl}${storePath}`
