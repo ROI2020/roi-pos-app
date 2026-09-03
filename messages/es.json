@@ -75,7 +75,9 @@
     "colorLine": "Color: {color}",
     "sizeLine": "Talle: {size}",
     "priceLine": "Precio: {price}",
-    "shippingQuery": "¿Cuánto saldría el envío a {city}?"
+    "shippingQuery": "¿Cuánto saldría el envío a {city}?",
+    "prevImage": "Imagen anterior",
+    "nextImage": "Imagen siguiente"
   },
   "Cart": {
     "title": "Carrito",

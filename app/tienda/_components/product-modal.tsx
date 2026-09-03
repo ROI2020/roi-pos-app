@@ -202,14 +202,14 @@ export default function ProductModal({
             {hasGallery && (
               <>
                 <button
-                  aria-label="Imagen anterior"
+                  aria-label={t('prevImage')}
                   onClick={() => setGalIdx(i => (i - 1 + product.gallery.length) % product.gallery.length)}
                   className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center transition-colors"
                 >
                   ‹
                 </button>
                 <button
-                  aria-label="Imagen siguiente"
+                  aria-label={t('nextImage')}
                   onClick={() => setGalIdx(i => (i + 1) % product.gallery.length)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center transition-colors"
                 >

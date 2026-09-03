@@ -159,9 +159,9 @@ export default function ItemClient({ product, waNumber, storePath, paymentGatewa
 
   const handleAddToCart = () => {
     if (isInCart)    { openCart(); return }
-    if (noVariantsDS){ toast.info('Consultá disponibilidad por WhatsApp'); return }
+    if (noVariantsDS){ toast.info(t('whatsapp')); return }
     if (!selectedVariant) {
-      toast.error(sizes.length > 0 ? 'Elegí un talle' : 'Seleccioná una opción')
+      toast.error(t('selectSizeHint'))
       return
     }
     addItem({
@@ -178,16 +178,22 @@ export default function ItemClient({ product, waNumber, storePath, paymentGatewa
       quantity:         1,
       freightOptions:   product.freight_options,
     })
-    toast.success(`${product.name} agregado al carrito`)
+    toast.success(t('added'))
     openCart()
   }
 
   // ── WhatsApp ─────────────────────────────────────────────────────────────────
-  const colorPart = selColor && selColor !== 'Varios' ? ` - ${selColor}` : ''
+  const buildWaMsg = () => {
+    let msg = t('greeting', { name: product.name })
+    if (selColor && selColor !== 'Varios')
+      msg += `\n${t('colorLine', { color: selColor })}`
+    if (selSize && selSize !== 'X')
+      msg += `\n${t('sizeLine',  { size:  selSize  })}`
+    msg += `\n${t('priceLine', { price: fmt(displayPrice) })}`
+    return msg
+  }
   const waHref = waNumber
-    ? `https://wa.me/${waNumber}?text=${encodeURIComponent(
-        `Hi! I'm interested in: ${product.name}${colorPart} — $${displayPrice}`,
-      )}`
+    ? `https://wa.me/${waNumber}?text=${encodeURIComponent(buildWaMsg())}`
     : null
 
   // ── Texto del botón principal ─────────────────────────────────────────────
@@ -196,7 +202,7 @@ export default function ItemClient({ product, waNumber, storePath, paymentGatewa
     : !anyInStock
       ? t('outOfStock')
       : noVariantsDS
-        ? 'Consultar por WhatsApp'
+        ? t('whatsapp')
         : !singleSize && !selSize
           ? t('selectSize')
           : t('addToCart')
@@ -231,11 +237,13 @@ export default function ItemClient({ product, waNumber, storePath, paymentGatewa
               <h1 className="text-3xl lg:text-4xl font-bold leading-tight store-text">
                 {product.name}
               </h1>
+              <hr className="border-[var(--store-border,#e5e7eb)]" />
               {product.long_name && product.long_name !== product.name && (
                 <p className="text-base store-text-muted leading-snug font-medium">
                   {product.long_name}
                 </p>
               )}
+              <hr className="border-[var(--store-border,#e5e7eb)]" />
             </div>
 
             {/* Descripción */}
@@ -281,7 +289,7 @@ export default function ItemClient({ product, waNumber, storePath, paymentGatewa
               {/* Badges */}
               {isUltimas && (
                 <span className="absolute top-3 left-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500 text-white shadow animate-pulse">
-                  ¡Últimas unidades!
+                  {t('lastUnits')}
                 </span>
               )}
               {!isDS && !anyInStock && (
@@ -310,8 +318,9 @@ export default function ItemClient({ product, waNumber, storePath, paymentGatewa
               </div>
             )}
 
-            {/* Precio */}
-            <div className="space-y-1">
+            {/* Precio 
+            <div className="space-y-1">*/}
+            <div className="border-t border-[var(--store-border,#e5e7eb)] pt-4 space-y-2">
               {product.today_promo && product.promo_price != null ? (
                 <>
                   <div className="flex items-baseline gap-2.5">
@@ -379,7 +388,8 @@ export default function ItemClient({ product, waNumber, storePath, paymentGatewa
 
             {/* Talles */}
             {sizes.length > 0 && (
-              <div className="space-y-2">
+              /* <div className="space-y-2"> */
+              <div className="border-t border-[var(--store-border,#e5e7eb)] pt-4 space-y-2">  
                 <p className="text-xs font-semibold uppercase tracking-wide store-text-muted">
                   {t('sizeLabel')}
                   {selSize && (

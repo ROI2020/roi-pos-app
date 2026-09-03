@@ -75,7 +75,9 @@
     "colorLine": "Color: {color}",
     "sizeLine": "Size: {size}",
     "priceLine": "Price: {price}",
-    "shippingQuery": "How much would shipping to {city} cost?"
+    "shippingQuery": "How much would shipping to {city} cost?",
+    "prevImage": "Previous image",
+    "nextImage": "Next image"
   },
   "Cart": {
     "title": "Cart",
