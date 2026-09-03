@@ -43,10 +43,24 @@ export async function generateMetadata(): Promise<Metadata> {
     const canonical = `${baseUrl}${storePath}`
     const logo      = s['business_logo'] ?? null
 
+    // Favicon: logo del negocio si existe y es URL absoluta;
+    // si es ruta relativa la convertimos a absoluta con baseUrl.
+    const faviconUrl = logo
+      ? (logo.startsWith('http') ? logo : `${baseUrl}${logo}`)
+      : null
+
     return {
-      title:       `${name} — tienda online`,
+      title:       name,   // en la pestaña: "MALEMA" (limpio, sin sufijo)
       description: desc,
       alternates:  { canonical },
+      // Favicon por negocio — sobreescribe el /favicon.png del root layout
+      ...(faviconUrl && {
+        icons: {
+          icon:       faviconUrl,
+          shortcut:   faviconUrl,
+          apple:      faviconUrl,
+        },
+      }),
       openGraph: {
         type:        'website',
         url:         canonical,
@@ -69,7 +83,7 @@ export async function generateMetadata(): Promise<Metadata> {
     }
   } catch {
     // Fallback mínimo si el tenant no resuelve
-    return { title: 'Tienda online' }
+    return { title: 'Tienda' }
   }
 }
 

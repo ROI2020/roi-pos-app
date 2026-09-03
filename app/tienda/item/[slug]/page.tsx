@@ -13,22 +13,12 @@ import { notFound }  from 'next/navigation'
 import Script        from 'next/script'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
+import { toProxyUrl } from '@/lib/proxy-image'
 import pool from '@/lib/db'
 import ItemClient, { type ItemProduct } from './_client'
 import CartDrawer from '../../_components/cart-drawer'
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-function toProxyUrl(raw: string | null): string | null {
-  if (!raw) return null
-  try {
-    const u = new URL(raw)
-    if (u.hostname.includes('cjdropshipping')) {
-      return `/api/images/proxy?url=${encodeURIComponent(raw)}`
-    }
-  } catch { /* not a URL */ }
-  return raw
-}
+// toProxyUrl importado desde @/lib/proxy-image (maneja alicdn + cjdropshipping → ?u=BASE64URL)
 
 // ── Tipos DB ──────────────────────────────────────────────────────────────────
 
@@ -75,7 +65,7 @@ export async function generateMetadata({
     const host        = h.get('host') ?? 'localhost'
     const businessId  = await resolveBusinessFromHost(host)
     const s           = await getPublicSettingsByKeys(businessId, [
-      'business_name', 'catalog_base_url', 'locale',
+      'business_name', 'catalog_base_url', 'locale', 'business_logo',
     ])
 
     const { rows } = await pool.query<Pick<ProductRow, 'id' | 'name' | 'long_name' | 'description' | 'base_price' | 'general_image_url'>>(
@@ -93,8 +83,10 @@ export async function generateMetadata({
     const stPath   = locale.startsWith('en') ? '/store' : '/tienda'
     const baseUrl  = (s['catalog_base_url'] ?? `https://${host}`).replace(/\/$/, '')
     const canonical = `${baseUrl}${stPath}/item/${slug}`
-    const imgUrl   = p.general_image_url
-      ? `/api/images/proxy?url=${encodeURIComponent(p.general_image_url)}`
+    const imgUrl   = toProxyUrl(p.general_image_url)
+    const logo     = s['business_logo'] ?? null
+    const faviconUrl = logo
+      ? (logo.startsWith('http') ? logo : `${baseUrl}${logo}`)
       : null
 
     const title = `${p.name} — ${bizName}`
@@ -106,6 +98,9 @@ export async function generateMetadata({
       title,
       description: desc,
       alternates: { canonical },
+      ...(faviconUrl && {
+        icons: { icon: faviconUrl, shortcut: faviconUrl, apple: faviconUrl },
+      }),
       openGraph: {
         type:        'website',
         url:         canonical,
