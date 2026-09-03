@@ -2,16 +2,15 @@
  * GET /api/images/proxy?u=BASE64URL
  *
  * Proxy de imágenes de CDN externas (alicdn.com, cjdropshipping.com).
- * Decodifica la URL del parámetro `u`, valida que sea de un host permitido,
- * descarga la imagen y la sirve con headers de caché agresivos.
+ * Decodifica la URL del parámetro `u` (base64url), valida que sea de un host
+ * permitido, descarga la imagen y la sirve con headers de caché.
  *
- * Objetivo: los browsers de los clientes nunca ven URLs de AliExpress/CJ,
- * evitando revelar el proveedor dropshipping.
+ * Objetivo: el browser del cliente ve /api/images/proxy?u=… — la URL de CJ
+ * queda opaca, no es legible a simple vista en el inspector de red.
  *
  * Seguridad:
  *  - Whitelist de dominios CDN — no se puede usar para proxear URL arbitraria
  *  - No se reenvían headers del cliente al CDN (evita SSRF lateral)
- *  - Cache-Control inmutable (1 año) — las imágenes de CJ no cambian de URL
  */
 
 const ALLOWED_HOSTNAMES = new Set([
@@ -40,6 +39,7 @@ export async function GET(req: Request) {
   }
 
   // Decodificar base64url → URL original
+  // Buffer.from(…, 'base64url') corre solo en Node.js (route server-only) — sin problema.
   let originalUrl: string
   try {
     originalUrl = Buffer.from(encoded, 'base64url').toString('utf-8')

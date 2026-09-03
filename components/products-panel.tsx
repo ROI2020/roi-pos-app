@@ -21,6 +21,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
+import { toProxyUrl } from "@/lib/proxy-image"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface LookupItem  { id: number; name: string }
@@ -572,7 +573,7 @@ function ProductCard({
   const isDS   = Boolean(product.cj_pid)
   // Para DS: mostrar imagen CJ proxied; para físicos: foto local
   const imgSrc = isDS
-    ? (product.general_image_url ? `/api/images/proxy?url=${encodeURIComponent(product.general_image_url)}` : null)
+    ? toProxyUrl(product.general_image_url)
     : product.photo_url
 
   return (
@@ -718,7 +719,7 @@ function ProductRow({
 
   const isDS   = Boolean(product.cj_pid)
   const imgSrc = isDS
-    ? (product.general_image_url ? `/api/images/proxy?url=${encodeURIComponent(product.general_image_url)}` : null)
+    ? toProxyUrl(product.general_image_url)
     : product.photo_url
 
   return (
