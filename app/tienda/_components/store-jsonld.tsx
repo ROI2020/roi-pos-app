@@ -28,6 +28,7 @@ interface ProductRow {
   id:                number
   name:              string
   long_name:         string | null
+  slug:              string | null
   description:       string | null
   base_price:        number
   general_image_url: string | null
@@ -49,6 +50,7 @@ export default async function StoreJsonLd({
        p.id,
        p.name,
        p.long_name,
+       p.slug,
        p.description,
        p.base_price::float,
        p.general_image_url,
@@ -94,6 +96,10 @@ export default async function StoreJsonLd({
         ? p.long_name
         : (p.description ?? undefined)
 
+      const productUrl = p.slug
+        ? `${storeUrl}/item/${p.slug}`
+        : storeUrl
+
       return {
         '@type':    'ListItem',
         position:   i + 1,
@@ -102,12 +108,13 @@ export default async function StoreJsonLd({
           name:          p.name,
           ...(desc          && { description: desc.slice(0, 300) }),
           image,
+          url:           productUrl,
           offers: {
             '@type':        'Offer',
             price:          p.base_price.toFixed(2),
             priceCurrency:  currency,
             availability:   'https://schema.org/InStock',
-            url:            storeUrl,
+            url:            productUrl,
           },
         },
       }

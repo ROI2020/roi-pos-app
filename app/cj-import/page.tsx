@@ -25,6 +25,8 @@ interface CJProduct {
   productImage: string
   sellPrice:    string
   categoryName: string
+  /** Popularidad CJ: número de listados en los que aparece el producto */
+  listedNum?:   number
 }
 
 interface CJVariant {
@@ -539,8 +541,8 @@ export default function CJImportPage() {
           const minL = minListed !== '' ? parseInt(minListed) : null
           const maxL = maxListed !== '' ? parseInt(maxListed) : null
           const visibleResults = results.filter(p => {
-            if (minL !== null && p.listedNum < minL) return false
-            if (maxL !== null && p.listedNum > maxL) return false
+            if (minL !== null && (p.listedNum ?? 0) < minL) return false
+            if (maxL !== null && (p.listedNum ?? 0) > maxL) return false
             return true
           })
           const filteredOut = results.length - visibleResults.length
@@ -625,10 +627,10 @@ export default function CJImportPage() {
                       </div>
                     )}
                     {/* Badge popularidad */}
-                    {p.listedNum > 0 && (
+                    {(p.listedNum ?? 0) > 0 && (
                       <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full">
-                        ★ {p.listedNum >= 1000
-                          ? `${(p.listedNum / 1000).toFixed(p.listedNum >= 10000 ? 0 : 1)}k`
+                        ★ {(p.listedNum ?? 0) >= 1000
+                          ? `${((p.listedNum ?? 0) / 1000).toFixed((p.listedNum ?? 0) >= 10000 ? 0 : 1)}k`
                           : p.listedNum}
                       </div>
                     )}

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
+import { upsertProduct } from '@/lib/products'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -20,8 +21,9 @@ interface ProductGroup {
 }
 
 interface ImportRequest {
-  groups:    ProductGroup[]
-  branch_id: number
+  groups:      ProductGroup[]
+  branch_id:   number
+  business_id: number   // requerido para multi-tenant
 }
 
 // ── Helper: slug de 3 letras del color (igual que en /api/purchases) ──────────
@@ -37,10 +39,11 @@ function colorSlug(color: string): string {
 export async function POST(req: Request) {
   const client = await pool.connect()
   try {
-    const { groups, branch_id }: ImportRequest = await req.json()
+    const { groups, branch_id, business_id }: ImportRequest = await req.json()
 
     if (!groups?.length)  return NextResponse.json({ error: 'Sin datos para importar' }, { status: 400 })
     if (!branch_id)       return NextResponse.json({ error: 'branch_id requerido' },     { status: 400 })
+    if (!business_id)     return NextResponse.json({ error: 'business_id requerido' },   { status: 400 })
 
     await client.query('BEGIN')
 
@@ -73,10 +76,10 @@ export async function POST(req: Request) {
       const key = name.toLowerCase().trim()
       if (catCache.has(key)) return catCache.get(key)!
       const { rows: [cat] } = await client.query(
-        `INSERT INTO categories (name) VALUES ($1)
-         ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+        `INSERT INTO categories (business_id, name) VALUES ($1, $2)
+         ON CONFLICT (business_id, name) DO UPDATE SET name = EXCLUDED.name
          RETURNING id`,
-        [name.trim()]
+        [business_id, name.trim()]
       )
       catCache.set(key, cat.id)
       return cat.id
@@ -93,13 +96,15 @@ export async function POST(req: Request) {
         // 4a. Categoría
         const categoryId = group.category_name ? await getCatId(group.category_name) : null
 
-        // 4b. Producto
-        const { rows: [product] } = await client.query(
-          `INSERT INTO products (name, category_id, description, base_price)
-           VALUES ($1, $2, $3, $4) RETURNING id`,
-          [group.base_name, categoryId, group.description ?? null, group.base_price]
-        )
-        const productId: number = product.id
+        // 4b. Producto (via lib/products — punto único de INSERT)
+        const productRecord = await upsertProduct(client, {
+          businessId:  business_id,
+          name:        group.base_name,
+          description: group.description ?? null,
+          basePrice:   group.base_price,
+          categoryId,
+        })
+        const productId: number = productRecord.id
 
         // 4c. purchase_detail — 1 por grupo
         const { rows: [detail] } = await client.query(

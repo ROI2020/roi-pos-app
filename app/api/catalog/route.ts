@@ -44,6 +44,7 @@ export async function GET(req: Request) {
       product_id:          number
       product_name:        string
       long_name:           string | null
+      slug:                string | null
       description:         string | null
       price:               number
       cuotas:              number
@@ -77,14 +78,16 @@ export async function GET(req: Request) {
          p.id                                                      AS product_id,
          p.name                                                    AS product_name,
          NULL::text                                                AS long_name,
+         NULL::text                                                AS slug,
          p.description,`
 
-    // long_name puede no existir si migration 20260902 no se ejecutó — el catch lo maneja con CORE
+    // long_name y slug requieren migrations 20260902 + 20260903
     const BASE_SELECT = `
        SELECT
          p.id                                                      AS product_id,
          p.name                                                    AS product_name,
          p.long_name,
+         p.slug,
          p.description,
          p.base_price::float                                       AS price,
          p.cuotas,
@@ -266,6 +269,7 @@ export async function GET(req: Request) {
       id:               number
       name:             string
       long_name:        string | null
+      slug:             string | null
       description:      string | null
       price:            number
       cuotas:           number
@@ -306,6 +310,7 @@ export async function GET(req: Request) {
           id:              row.product_id,
           name:            row.product_name,
           long_name:       row.long_name ?? null,
+          slug:            row.slug ?? null,
           description:     row.description,
           price:           row.price,
           cuotas:          row.cuotas,

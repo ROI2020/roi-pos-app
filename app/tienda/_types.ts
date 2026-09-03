@@ -17,6 +17,8 @@ export interface Product {
   id: number; name: string
   /** Nombre completo de CJ. Se muestra bajo name en tienda cuando existe y difiere. */
   long_name: string | null
+  /** Slug SEO para URL individual: /tienda/item/[slug]. Null si el producto aún no tiene slug. */
+  slug: string | null
   description: string | null
   price: number; cuotas: number; category: string | null; age_group: string | null
   has_image: boolean

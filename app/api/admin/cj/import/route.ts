@@ -3,6 +3,7 @@ import pool from '@/lib/db'
 import { requireBusinessId } from '@/lib/get-business-id'
 import { getCJTokenForBusiness, getCJFreight } from '@/lib/cj'
 import type { CJProductDetail } from '@/lib/cj'
+import { upsertProduct } from '@/lib/products'
 
 /**
  * Elimina etiquetas HTML y entidades comunes.
@@ -69,43 +70,26 @@ export async function POST(req: Request) {
     const productName  = (nameOverride?.trim()     || product.productName).slice(0, 150)
     const productLong  = (longNameOverride?.trim()  || product.productName).slice(0, 300)
 
-    // ── 1. Crear o actualizar producto local ─────────────────────────────────
-    // ON CONFLICT (business_id, cj_pid): si ya existe, actualiza datos CJ y precio.
-    // Esto hace el import idempotente — re-importar no crea duplicados.
-    // IMPORTANTE: en DO UPDATE NO se toca `name` — el admin puede haberlo personalizado.
-    // long_name sí se actualiza porque refleja el nombre actual de CJ.
-    const { rows: [prod] } = await client.query<{ id: number; created: boolean }>(
-      `INSERT INTO products
-         (business_id, name, long_name, description, base_price, general_image_url,
-          weight_grams, cj_pid, cj_last_sync, exportable_web,
-          cj_data, cj_cost_usd, markup_pct, cuotas)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), true, $9, $10, $11, 0)
-       ON CONFLICT (business_id, cj_pid) WHERE cj_pid IS NOT NULL
-       DO UPDATE SET
-         long_name         = EXCLUDED.long_name,
-         description       = EXCLUDED.description,
-         base_price        = EXCLUDED.base_price,
-         general_image_url = EXCLUDED.general_image_url,
-         weight_grams      = EXCLUDED.weight_grams,
-         cj_last_sync      = NOW(),
-         cj_data           = EXCLUDED.cj_data,
-         cj_cost_usd       = EXCLUDED.cj_cost_usd,
-         markup_pct        = EXCLUDED.markup_pct
-       RETURNING id, (xmax = 0) AS created`,
-      [
-        businessId,
-        productName,
-        productLong,
-        product.productDescription ? stripHtml(product.productDescription).slice(0, 2000) : null,
-        finalPrice.toFixed(2),
-        product.productImages?.[0] ?? product.productImage ?? null,
-        product.productWeight ? Math.round(parseFloat(product.productWeight)) : null,
-        product.pid,
-        JSON.stringify(product),
-        basePrice.toFixed(2),
-        markup,
-      ],
-    )
+    // ── 1. Crear o actualizar producto local (via lib/products) ─────────────
+    // upsertCJProduct maneja el ON CONFLICT idempotente.
+    // name y slug NO se tocan en re-imports — el admin puede haberlos curado.
+    const prod = await upsertProduct(client, {
+      businessId,
+      name:           productName,
+      longName:       productLong,
+      description:    product.productDescription
+        ? stripHtml(product.productDescription).slice(0, 2000)
+        : null,
+      basePrice:      finalPrice,
+      generalImageUrl: product.productImages?.[0] ?? product.productImage ?? null,
+      weightGrams:    product.productWeight ? Math.round(parseFloat(product.productWeight)) : null,
+      cjPid:          product.pid,
+      cjData:         product,
+      cjCostUsd:      basePrice,
+      markupPct:      markup,
+      exportableWeb:  true,
+      cuotas:         0,
+    })
     const productId = prod.id
     const isNew     = prod.created   // true = insert, false = update
 

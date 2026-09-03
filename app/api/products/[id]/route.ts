@@ -1,15 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireBusinessId } from '@/lib/get-business-id'
-
-const ALLOWED = [
-  'name', 'long_name', 'description', 'base_price', 'cuotas',
-  'markup_pct',
-  'category_id', 'age_group_id', 'season_id', 'gender_id',
-  'photo_url',
-  'exportable_whatsapp', 'exportable_instagram',
-  'exportable_facebook', 'exportable_web',
-]
+import { updateProduct, type ProductUpdateInput } from '@/lib/products'
 
 /**
  * GET /api/products/[id]
@@ -62,35 +54,46 @@ export async function PATCH(
     const { businessId } = authResult
 
     const { id } = await params
-    const body   = await req.json() as Record<string, unknown>
+    // El body viene en camelCase desde el frontend; mapeamos a ProductUpdateInput.
+    // Campos desconocidos son ignorados por TypeScript — no llegan al DB.
+    const raw = await req.json() as Record<string, unknown>
 
-    const updates = Object.entries(body).filter(([k]) => ALLOWED.includes(k))
-    if (updates.length === 0)
-      return NextResponse.json({ error: 'Sin campos para actualizar' }, { status: 400 })
+    const fields: ProductUpdateInput = {
+      ...(raw.name                !== undefined && { name:                String(raw.name) }),
+      ...(raw.long_name           !== undefined && { longName:            raw.long_name as string | null }),
+      ...(raw.longName            !== undefined && { longName:            raw.longName as string | null }),
+      ...(raw.description         !== undefined && { description:         raw.description as string | null }),
+      ...(raw.base_price          !== undefined && { basePrice:           Number(raw.base_price) }),
+      ...(raw.basePrice           !== undefined && { basePrice:           Number(raw.basePrice) }),
+      ...(raw.cuotas              !== undefined && { cuotas:              Number(raw.cuotas) }),
+      ...(raw.markup_pct          !== undefined && { markupPct:           raw.markup_pct as number | null }),
+      ...(raw.markupPct           !== undefined && { markupPct:           raw.markupPct as number | null }),
+      ...(raw.slug                !== undefined && { slug:                raw.slug as string | null }),
+      ...(raw.category_id         !== undefined && { categoryId:          raw.category_id as number | null }),
+      ...(raw.categoryId          !== undefined && { categoryId:          raw.categoryId as number | null }),
+      ...(raw.age_group_id        !== undefined && { ageGroupId:          raw.age_group_id as number | null }),
+      ...(raw.ageGroupId          !== undefined && { ageGroupId:          raw.ageGroupId as number | null }),
+      ...(raw.season_id           !== undefined && { seasonId:            raw.season_id as number | null }),
+      ...(raw.seasonId            !== undefined && { seasonId:            raw.seasonId as number | null }),
+      ...(raw.gender_id           !== undefined && { genderId:            raw.gender_id as number | null }),
+      ...(raw.genderId            !== undefined && { genderId:            raw.genderId as number | null }),
+      ...(raw.photo_url           !== undefined && { photoUrl:            raw.photo_url as string | null }),
+      ...(raw.photoUrl            !== undefined && { photoUrl:            raw.photoUrl as string | null }),
+      ...(raw.exportable_web      !== undefined && { exportableWeb:       Boolean(raw.exportable_web) }),
+      ...(raw.exportableWeb       !== undefined && { exportableWeb:       Boolean(raw.exportableWeb) }),
+      ...(raw.exportable_whatsapp !== undefined && { exportableWhatsapp:  Boolean(raw.exportable_whatsapp) }),
+      ...(raw.exportableWhatsapp  !== undefined && { exportableWhatsapp:  Boolean(raw.exportableWhatsapp) }),
+      ...(raw.exportable_instagram!== undefined && { exportableInstagram: Boolean(raw.exportable_instagram) }),
+      ...(raw.exportableInstagram !== undefined && { exportableInstagram: Boolean(raw.exportableInstagram) }),
+      ...(raw.exportable_facebook !== undefined && { exportableFacebook:  Boolean(raw.exportable_facebook) }),
+      ...(raw.exportableFacebook  !== undefined && { exportableFacebook:  Boolean(raw.exportableFacebook) }),
+    }
 
-    const setClauses = updates.map(([k], i) => `${k} = $${i + 1}`).join(', ')
-    const values     = updates.map(([, v]) => v ?? null)
-    values.push(id)
-    const idParamIdx = values.length
-    values.push(businessId)
-    const bizParamIdx = values.length
+    const result = await updateProduct(pool, parseInt(id), businessId, fields)
+    if (!result)
+      return NextResponse.json({ error: 'Producto no encontrado o sin campos válidos' }, { status: 404 })
 
-    const { rows } = await pool.query(
-      `UPDATE products
-       SET ${setClauses}, updated_at = NOW()
-       WHERE id = $${idParamIdx} AND business_id = $${bizParamIdx}
-       RETURNING
-         id, name, description, base_price::float, cuotas, photo_url,
-         exportable_whatsapp, exportable_instagram,
-         exportable_facebook, exportable_web,
-         category_id, age_group_id, season_id, gender_id`,
-      values
-    )
-
-    if (rows.length === 0)
-      return NextResponse.json({ error: 'Producto no encontrado' }, { status: 404 })
-
-    return NextResponse.json(rows[0])
+    return NextResponse.json(result)
   } catch (err) {
     console.error('[PATCH /api/products/:id]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })

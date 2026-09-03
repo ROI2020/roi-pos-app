@@ -8,9 +8,7 @@
  * Páginas incluidas:
  *  • Home de la tienda              (priority 1.0, daily)
  *  • store_pages publicadas         (priority 0.6, monthly)
- *
- * Nota: Los productos son modal-based (sin URL propia), por lo que no
- * se incluyen como entradas individuales.
+ *  • Productos con slug             (priority 0.8, weekly)
  */
 
 import type { MetadataRoute } from 'next'
@@ -81,6 +79,29 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified:    new Date(page.updated_at),
       changeFrequency: 'monthly',
       priority:        0.6,
+    })
+  }
+
+  // ── 3. Productos con URL individual ─────────────────────────────────────────
+  const { rows: products } = await pool.query<{
+    slug:          string
+    cj_last_sync:  string | null
+  }>(
+    `SELECT slug, cj_last_sync
+     FROM products
+     WHERE business_id    = $1
+       AND exportable_web = true
+       AND slug IS NOT NULL
+     ORDER BY category_id NULLS LAST, name`,
+    [businessId]
+  ).catch(() => ({ rows: [] }))
+
+  for (const p of products) {
+    entries.push({
+      url:             `${baseUrl}${storePath}/item/${p.slug}`,
+      lastModified:    p.cj_last_sync ? new Date(p.cj_last_sync) : new Date(),
+      changeFrequency: 'weekly',
+      priority:        0.8,
     })
   }
 

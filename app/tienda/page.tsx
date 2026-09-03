@@ -10,8 +10,9 @@ import {
 import { toast } from "sonner"
 import type { Product, StoreData, CatalogData } from './_types'
 import { colorToCss, sortSizes, totalStock } from './_utils'
-import { useCart }     from './_context/cart-context'
-import { useCurrency } from './_context/currency-context'
+import { useCart }       from './_context/cart-context'
+import { useCurrency }   from './_context/currency-context'
+import { useStorePath }  from './_context/store-path-context'
 import CartDrawer from './_components/cart-drawer'
 import InfoBar, { parseInfoItems } from './_components/info-bar'
 
@@ -39,8 +40,10 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
   storeCuotas: number
   onSelect:    () => void
 }) {
-  const { fmt } = useCurrency()
-  const t = useTranslations('ProductCard')
+  const { fmt }     = useCurrency()
+  const storePath   = useStorePath()
+  const t           = useTranslations('ProductCard')
+  const itemHref    = product.slug ? `${storePath}/item/${product.slug}` : null
 
   // Solo colores con al menos un talle en stock; filtramos string vacío (sin color diferenciado)
   const colors = [...new Set(product.variants.filter(v => v.in_stock).map(v => v.color).filter(c => c))]
@@ -81,8 +84,12 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
   return (
     <div className="group store-surface rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 flex flex-col">
 
-      {/* Imagen */}
-      <div className="relative aspect-[3/4] bg-gray-100 overflow-hidden cursor-pointer" onClick={onSelect}>
+      {/* Imagen — href para que Google pueda rastrear la página individual */}
+      <a
+        href={itemHref ?? undefined}
+        onClick={e => { e.preventDefault(); onSelect() }}
+        className="relative aspect-[3/4] bg-gray-100 overflow-hidden cursor-pointer block"
+      >
         {imgSrc ? (
           <img key={imgKey} src={imgSrc} alt={product.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
@@ -114,13 +121,17 @@ function ProductCard({ product, waNumber, storeCuotas, onSelect }: {
             {t('viewDetails')}
           </span>
         </div>
-      </div>
+      </a>
 
       {/* Info */}
       <div className="p-4 flex flex-col gap-2.5 flex-1">
         <div className="cursor-pointer" onClick={onSelect}>
           <h3 className="text-sm font-semibold leading-tight line-clamp-2 store-hover-primary transition-colors">
-            {product.name}
+            {itemHref ? (
+              <a href={itemHref} onClick={e => { e.preventDefault(); onSelect() }} className="hover:underline">
+                {product.name}
+              </a>
+            ) : product.name}
           </h3>
           {product.long_name && product.long_name !== product.name && (
             <p className="text-[10px] text-gray-400 mt-0.5 leading-snug line-clamp-1">{product.long_name}</p>

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireBusinessId } from '@/lib/get-business-id'
+import { upsertProduct } from '@/lib/products'
 
 /**
  * GET /api/products
@@ -129,14 +130,13 @@ export async function POST(req: Request) {
     if (!name?.trim())
       return NextResponse.json({ error: 'El nombre es obligatorio' }, { status: 400 })
 
-    const { rows } = await pool.query(
-      `INSERT INTO products (name, description, base_price, business_id)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, name, description, base_price::float,
-                 category_id, age_group_id, season_id, gender_id`,
-      [name.trim(), description?.trim() || null, parseFloat(base_price) || 0, businessId]
-    )
-    return NextResponse.json(rows[0], { status: 201 })
+    const product = await upsertProduct(pool, {
+      businessId,
+      name:        name.trim(),
+      description: description?.trim() || null,
+      basePrice:   parseFloat(base_price) || 0,
+    })
+    return NextResponse.json(product, { status: 201 })
   } catch (err) {
     console.error('[POST /api/products]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
