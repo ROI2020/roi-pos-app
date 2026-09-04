@@ -1628,6 +1628,7 @@ interface MLCategory {
   categoryId:   string
   categoryName: string
   domainName:   string
+  pathFromRoot: string[]   // ["Ropa y Accesorios", "Ropa para Bebés", "Buzos y Camperas"]
   predictedAttributes: Array<{ id: string; name: string; value: string }>
 }
 
@@ -1933,7 +1934,13 @@ function MLPublishModal({
                     }`}
                   >
                     <div className="font-medium text-gray-800">{cat.categoryName}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">{cat.domainName} · {cat.categoryId}</div>
+                    {/* Ruta completa — lo más útil para elegir bien */}
+                    {cat.pathFromRoot?.length > 1 && (
+                      <div className="text-xs text-blue-600 mt-0.5 leading-snug">
+                        {cat.pathFromRoot.join(' › ')}
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-400 mt-0.5">{cat.domainName} · {cat.categoryId}</div>
                     {cat.predictedAttributes.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1.5">
                         {cat.predictedAttributes.slice(0, 4).map(a => (
@@ -2017,7 +2024,14 @@ function MLPublishModal({
               {/* Resumen + Fee preview */}
               <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600 space-y-1 border mt-2">
                 <p><span className="font-medium">Producto:</span> {product.name}</p>
-                <p><span className="font-medium">Categoría:</span> {selCategory.categoryName} ({selCategory.categoryId})</p>
+                <p>
+                  <span className="font-medium">Categoría:</span>{' '}
+                  {selCategory.pathFromRoot?.length > 1
+                    ? selCategory.pathFromRoot.join(' › ')
+                    : selCategory.categoryName}
+                  {' '}
+                  <span className="text-gray-400">({selCategory.categoryId})</span>
+                </p>
                 <p>
                   <span className="font-medium">Tipo:</span>{' '}
                   {LISTING_TYPES.find(l => l.value === listingType)?.label}

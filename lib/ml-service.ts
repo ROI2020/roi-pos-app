@@ -191,12 +191,18 @@ export async function createListing(
     if (v.color) attributeCombinations.push({ id: 'COLOR', value_name: v.color })
     if (v.size)  attributeCombinations.push({ id: 'SIZE',  value_name: v.size  })
 
-    // Atributos de variante: GTIN si hay barcode, EMPTY_GTIN_REASON si no
-    const varAttributes: Array<{ id: string; value_name: string }> = []
+    // Atributos de variante: GTIN si hay barcode, EMPTY_GTIN_REASON si no.
+    // value_id es obligatorio para atributos de catálogo en ML (no alcanza con value_name).
+    // 27111453 = "El producto no tiene código de barras" en ML Argentina.
+    const varAttributes: Array<{ id: string; value_id?: string; value_name: string }> = []
     if (v.barcode?.trim()) {
       varAttributes.push({ id: 'GTIN', value_name: v.barcode.trim() })
     } else {
-      varAttributes.push({ id: 'EMPTY_GTIN_REASON', value_name: 'El producto no tiene código registrado' })
+      varAttributes.push({
+        id:         'EMPTY_GTIN_REASON',
+        value_id:   '27111453',
+        value_name: 'El producto no tiene código de barras',
+      })
     }
     if (v.sku?.trim()) {
       varAttributes.push({ id: 'SELLER_SKU', value_name: v.sku.trim() })
@@ -214,31 +220,29 @@ export async function createListing(
 
   // Precio base = mínimo entre variantes (ML lo requiere)
   const basePrice = Math.min(...params.variations.map(v => v.price))
-  // Stock total = suma de variantes
-  const totalStock = params.variations.reduce((s, v) => s + v.availableQuantity, 0)
 
   const body: Record<string, unknown> = {
-    title:            params.title,
-    category_id:      params.categoryId,
-    price:            basePrice,
-    currency_id:      params.currency,
-    available_quantity: totalStock,
-    buying_mode:      'buy_it_now',
-    listing_type_id:  params.listingType,
-    condition:        params.condition,
-    pictures:         params.pictureIds.map(id => ({ id })),
-    attributes: [
-      ...(params.extraAttributes ?? []),
-    ],
+    title:          params.title,
+    category_id:    params.categoryId,
+    price:          basePrice,
+    currency_id:    params.currency,
+    buying_mode:    'buy_it_now',
+    listing_type_id: params.listingType,
+    condition:      params.condition,
+    pictures:       params.pictureIds.map(id => ({ id })),
+    attributes:     [...(params.extraAttributes ?? [])],
     ...(params.description && {
       description: { plain_text: params.description.slice(0, 50000) },
     }),
   }
 
-  // family_name es obligatorio cuando hay variantes — agrupa color/talle del mismo producto
+  // Con variations: ML ignora available_quantity del root y lo suma de las variantes.
+  // Sin variations: hay que ponerlo (ítem sin variantes).
   if (variations.length > 0) {
-    body.variations   = variations
-    body.family_name  = params.title   // ML lo usa como nombre de familia/modelo
+    body.variations = variations
+    // NO incluir available_quantity en el root — ML lo suma de las variantes
+  } else {
+    body.available_quantity = params.variations[0]?.availableQuantity ?? 0
   }
 
   const result = await mlFetch<{ id: string; permalink: string }>(

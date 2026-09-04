@@ -28,6 +28,12 @@ interface MLDomainResult {
   }>
 }
 
+interface MLCategoryDetail {
+  id:             string
+  name:           string
+  path_from_root: Array<{ id: string; name: string }>
+}
+
 export async function GET(req: Request) {
   const result = await requireBusinessId()
   if (result instanceof NextResponse) return result
@@ -61,21 +67,40 @@ export async function GET(req: Request) {
 
     // Deduplicar por category_id (ML puede devolver el mismo cat con distinto domain)
     const seen = new Set<string>()
-    const categories = data
-      .filter(d => {
-        if (seen.has(d.category_id)) return false
-        seen.add(d.category_id)
-        return true
-      })
-      .map(d => ({
-        categoryId:   d.category_id,
-        categoryName: d.category_name,
-        domainName:   d.domain_name,
-        // Atributos pre-predichos para este título en esta categoría
-        predictedAttributes: (d.attributes ?? [])
-          .filter(a => a.value_name)
-          .map(a => ({ id: a.id, name: a.name, value: a.value_name! })),
-      }))
+    const unique = data.filter(d => {
+      if (seen.has(d.category_id)) return false
+      seen.add(d.category_id)
+      return true
+    })
+
+    // Traer path_from_root de cada categoría en paralelo
+    const paths = await Promise.all(
+      unique.map(async d => {
+        try {
+          const r = await fetch(
+            `${ML_API_BASE}/categories/${d.category_id}`,
+            { headers: { Authorization: `Bearer ${token}` } },
+          )
+          if (!r.ok) return []
+          const detail = await r.json() as MLCategoryDetail
+          return detail.path_from_root?.map(p => p.name) ?? []
+        } catch {
+          return []
+        }
+      }),
+    )
+
+    const categories = unique.map((d, i) => ({
+      categoryId:   d.category_id,
+      categoryName: d.category_name,
+      domainName:   d.domain_name,
+      // Ruta completa: ["Ropa y Accesorios", "Ropa para Bebés", "Buzos y Camperas"]
+      pathFromRoot: paths[i],
+      // Atributos pre-predichos para este título en esta categoría
+      predictedAttributes: (d.attributes ?? [])
+        .filter(a => a.value_name)
+        .map(a => ({ id: a.id, name: a.name, value: a.value_name! })),
+    }))
 
     return NextResponse.json({ categories, siteId })
 
