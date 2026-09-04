@@ -1716,6 +1716,27 @@ interface MLFeeData {
   currency: string
 }
 
+interface MLRequiredAttr {
+  id:         string
+  name:       string
+  values:     Array<{ id: string; name: string }>
+  value_type: string
+}
+
+/**
+ * Mapea género+edad de ROIPOS a los valores exactos que usa ML.
+ * Todos los age_groups son infantiles (Bebés, Peques, Kids, Teens)
+ * → siempre cae en la rama kids de ML.
+ */
+function mapGenderToML(genderName: string | null, _ageGroupName: string | null): string {
+  switch (genderName) {
+    case 'Varón':  return 'Niños'
+    case 'Nena':   return 'Niñas'
+    case 'Unisex': return 'Sin género infantil'
+    default:       return ''
+  }
+}
+
 function MLPublishModal({
   product, onClose, onPublished,
 }: {
@@ -1725,7 +1746,17 @@ function MLPublishModal({
 }) {
   const { fmt } = useAdminCurrency()
 
-  const [searchQuery,    setSearchQuery   ] = useState(product.name)
+  // Query enriquecido con metadatos del producto para mejor predicción de categoría ML
+  // age_group_name puede venir como "Bebés | 0-24 meses" → tomamos solo el nombre principal
+  const ageLabel = product.age_group_name?.split('|')[0].trim() ?? null
+  const enrichedQuery = [
+    product.name,
+    ageLabel,
+    product.gender_name,
+    product.season_name,
+  ].filter(Boolean).join(' - ')
+
+  const [searchQuery,    setSearchQuery   ] = useState(enrichedQuery)
   const [searching,      setSearching     ] = useState(false)
   const [categories,     setCategories    ] = useState<MLCategory[]>([])
   const [selCategory,    setSelCategory   ] = useState<MLCategory | null>(null)
@@ -1734,6 +1765,31 @@ function MLPublishModal({
   const [searched,       setSearched      ] = useState(false)
   const [feeData,        setFeeData       ] = useState<MLFeeData | null>(null)
   const [loadingFee,     setLoadingFee    ] = useState(false)
+  const [reqAttrs,       setReqAttrs      ] = useState<MLRequiredAttr[]>([])
+  const [attrValues,     setAttrValues    ] = useState<Record<string, string>>({})
+
+  // Cargar atributos requeridos cuando cambia la categoría
+  useEffect(() => {
+    if (!selCategory) { setReqAttrs([]); setAttrValues({}); return }
+    fetch(`/api/ml/category-attributes?categoryId=${selCategory.categoryId}`)
+      .then(r => r.json())
+      .then((attrs: MLRequiredAttr[] | { error?: string }) => {
+        if (!Array.isArray(attrs)) return
+        setReqAttrs(attrs)
+        // Pre-llenar valores derivados del producto (el usuario puede editarlos)
+        const prefill: Record<string, string> = {}
+        attrs.forEach(a => {
+          if (a.id === 'MODEL') prefill[a.id] = product.name
+          if (a.id === 'BRAND') prefill[a.id] = 'GENERICO'
+          if (a.id === 'GENDER') {
+            const g = mapGenderToML(product.gender_name, product.age_group_name)
+            if (g) prefill[a.id] = g
+          }
+        })
+        setAttrValues(prev => ({ ...prefill, ...prev }))
+      })
+      .catch(() => {/* silencioso */})
+  }, [selCategory, product.name, product.gender_name, product.age_group_name])
 
   // Actualizar fee preview cada vez que cambia categoría o tipo de publicación
   useEffect(() => {
@@ -1777,6 +1833,19 @@ function MLPublishModal({
 
   const handlePublish = async () => {
     if (!selCategory) { toast.error('Seleccioná una categoría'); return }
+
+    // Validar que todos los atributos requeridos tengan valor
+    const missing = reqAttrs.filter(a => !attrValues[a.id]?.trim())
+    if (missing.length) {
+      toast.error(`Completá: ${missing.map(a => a.name).join(', ')}`)
+      return
+    }
+
+    // Construir extraAttributes desde los valores ingresados
+    const extraAttributes = reqAttrs
+      .filter(a => attrValues[a.id]?.trim())
+      .map(a => ({ id: a.id, value_name: attrValues[a.id].trim() }))
+
     setPublishing(true)
     try {
       const res  = await fetch('/api/ml/items', {
@@ -1787,6 +1856,7 @@ function MLPublishModal({
           categoryId:  selCategory.categoryId,
           listingType,
           condition:   'new',
+          extraAttributes,
         }),
       })
       const data = await res.json() as { mlItemId?: string; permalink?: string; error?: string }
@@ -1899,6 +1969,50 @@ function MLPublishModal({
                   </button>
                 ))}
               </div>
+
+              {/* Atributos requeridos por la categoría */}
+              {reqAttrs.length > 0 && (
+                <div className="space-y-2 border rounded-lg p-3 bg-amber-50 border-amber-200">
+                  <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Datos requeridos por ML para esta categoría
+                  </p>
+                  {reqAttrs.map(attr => {
+                    // BRAND: siempre texto libre — ML acepta cualquier valor
+                    const forceText = attr.id === 'BRAND'
+                    return (
+                      <div key={attr.id} className="space-y-1">
+                        <label className="text-xs font-medium text-gray-700">
+                          {attr.name}
+                          {attr.id === 'BRAND' && (
+                            <span className="ml-1 text-gray-400 font-normal">(podés escribir la marca o dejar GENERICO)</span>
+                          )}
+                        </label>
+                        {!forceText && attr.values.length > 0 ? (
+                          <select
+                            value={attrValues[attr.id] ?? ''}
+                            onChange={e => setAttrValues(prev => ({ ...prev, [attr.id]: e.target.value }))}
+                            className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-yellow-400 bg-white"
+                          >
+                            <option value="">Seleccioná {attr.name}…</option>
+                            {attr.values.map(v => (
+                              <option key={v.id} value={v.name}>{v.name}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            value={attrValues[attr.id] ?? ''}
+                            onChange={e => setAttrValues(prev => ({ ...prev, [attr.id]: e.target.value }))}
+                            placeholder={`Ingresá ${attr.name}`}
+                            className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
 
               {/* Resumen + Fee preview */}
               <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600 space-y-1 border mt-2">

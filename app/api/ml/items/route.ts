@@ -37,6 +37,7 @@ interface VariantRow {
   color:              string | null
   size:               string | null
   sku:                string
+  barcode:            string | null
   specific_image_url: string | null
   stock_count:        number
 }
@@ -47,13 +48,14 @@ export async function POST(req: Request) {
   const { businessId } = result
 
   const body = await req.json() as {
-    productId:   number
-    categoryId:  string
-    listingType: 'free' | 'bronze' | 'gold_special' | 'gold_pro'
-    condition:   'new' | 'used'
+    productId:        number
+    categoryId:       string
+    listingType:      'free' | 'bronze' | 'gold_special' | 'gold_pro'
+    condition:        'new' | 'used'
+    extraAttributes?: Array<{ id: string; value_name: string }>
   }
 
-  const { productId, categoryId, listingType, condition } = body
+  const { productId, categoryId, listingType, condition, extraAttributes } = body
 
   if (!productId || !categoryId) {
     return NextResponse.json({ error: 'productId y categoryId son requeridos' }, { status: 400 })
@@ -77,7 +79,7 @@ export async function POST(req: Request) {
 
     // ── 2. Cargar variantes con stock ───────────────────────────────────────
     const { rows: variants } = await pool.query<VariantRow>(
-      `SELECT pv.id, pv.color, pv.size, pv.sku,
+      `SELECT pv.id, pv.color, pv.size, pv.sku, pv.barcode,
               pv.specific_image_url,
               COUNT(bi.id)::int AS stock_count
        FROM product_variants pv
@@ -136,25 +138,27 @@ export async function POST(req: Request) {
 
     // ── 4. Construir variantes ML ──────────────────────────────────────────
     const mlVariations: MLVariationParams[] = variants.map(v => ({
-      color:             v.color  ?? undefined,
-      size:              v.size   ?? undefined,
+      color:             v.color   ?? undefined,
+      size:              v.size    ?? undefined,
       availableQuantity: v.stock_count,
       price:             prod.base_price,
-      sku:               v.sku,
+      sku:               v.sku     || undefined,
+      barcode:           v.barcode ?? undefined,
       pictureId:         v.color ? colorPictureMap[v.color] : pictureIds[0],
     }))
 
     // ── 5. Crear publicación en ML ─────────────────────────────────────────
     const listing = await createListing(businessId, {
-      title:       prod.name,
+      title:           prod.name,
       categoryId,
-      currency:    'ARS',
+      currency:        'ARS',
       listingType,
       condition,
-      basePrice:   prod.base_price,
-      description: prod.description ?? undefined,
+      basePrice:       prod.base_price,
+      description:     prod.description ?? undefined,
       pictureIds,
-      variations:  mlVariations,
+      variations:      mlVariations,
+      extraAttributes: extraAttributes ?? [],
     })
 
     // ── 6. Guardar vínculo en ml_items ─────────────────────────────────────

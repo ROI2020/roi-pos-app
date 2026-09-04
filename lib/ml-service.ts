@@ -19,7 +19,7 @@ import { getMLToken, ML_API_BASE } from '@/lib/ml-auth'
 
 // ── Helper: fetch autenticado ─────────────────────────────────────────────────
 
-async function mlFetch<T>(
+export async function mlFetch<T>(
   businessId: number,
   path:       string,
   options:    RequestInit = {},
@@ -51,6 +51,7 @@ export interface MLVariationParams {
   price:             number
   pictureId?:        string  // ml_picture_id para esta variante
   sku?:              string
+  barcode?:          string  // GTIN / código de barras (opcional)
 }
 
 export interface MLListingParams {
@@ -190,12 +191,24 @@ export async function createListing(
     if (v.color) attributeCombinations.push({ id: 'COLOR', value_name: v.color })
     if (v.size)  attributeCombinations.push({ id: 'SIZE',  value_name: v.size  })
 
+    // Atributos de variante: GTIN si hay barcode, EMPTY_GTIN_REASON si no
+    const varAttributes: Array<{ id: string; value_name: string }> = []
+    if (v.barcode?.trim()) {
+      varAttributes.push({ id: 'GTIN', value_name: v.barcode.trim() })
+    } else {
+      varAttributes.push({ id: 'EMPTY_GTIN_REASON', value_name: 'El producto no tiene código registrado' })
+    }
+    if (v.sku?.trim()) {
+      varAttributes.push({ id: 'SELLER_SKU', value_name: v.sku.trim() })
+    }
+
     return {
       attribute_combinations: attributeCombinations,
       price:               v.price,
       available_quantity:  v.availableQuantity,
       ...(v.pictureId && { picture_ids: [v.pictureId] }),
-      ...(v.sku       && { seller_custom_field: v.sku }),
+      ...(v.sku       && { seller_custom_field: v.sku }),   // campo legacy, mantenemos ambos
+      attributes:          varAttributes,
     }
   })
 
@@ -204,7 +217,7 @@ export async function createListing(
   // Stock total = suma de variantes
   const totalStock = params.variations.reduce((s, v) => s + v.availableQuantity, 0)
 
-  const body = {
+  const body: Record<string, unknown> = {
     title:            params.title,
     category_id:      params.categoryId,
     price:            basePrice,
@@ -214,13 +227,18 @@ export async function createListing(
     listing_type_id:  params.listingType,
     condition:        params.condition,
     pictures:         params.pictureIds.map(id => ({ id })),
-    variations,
     attributes: [
       ...(params.extraAttributes ?? []),
     ],
     ...(params.description && {
       description: { plain_text: params.description.slice(0, 50000) },
     }),
+  }
+
+  // family_name es obligatorio cuando hay variantes — agrupa color/talle del mismo producto
+  if (variations.length > 0) {
+    body.variations   = variations
+    body.family_name  = params.title   // ML lo usa como nombre de familia/modelo
   }
 
   const result = await mlFetch<{ id: string; permalink: string }>(

@@ -20,7 +20,7 @@ export async function GET(req: Request) {
   const error = url.searchParams.get('error')   // si el usuario cancela
 
   const adminBase = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, '') ?? ''
-  const settingsUrl = `${adminBase}/settings?tab=ml`
+  const settingsUrl = `${adminBase}/configuracion?tab=ml`
 
   // ── Usuario canceló la autorización ──────────────────────────────────────
   if (error) {

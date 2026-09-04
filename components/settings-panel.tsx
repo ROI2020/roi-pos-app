@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
+import { useSearchParams } from "next/navigation"
 import {
   Building2, Users, Warehouse, Plus, Pencil, Trash2,
   Loader2, Save, Upload, X, CheckCircle2, Star,
@@ -3530,7 +3531,26 @@ function PaginasTab() {
 }
 
 export default function SettingsPanel() {
-  const [tab, setTab] = useState<Tab>('negocio')
+  const searchParams = useSearchParams()
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = searchParams.get('tab')
+    return (t && ['negocio','usuarios','sucursales','cuentas','catalogo','ia','gastos','pagos','dropshipping','paginas','email','ml'].includes(t))
+      ? (t as Tab)
+      : 'negocio'
+  })
+
+  // Toast de resultado OAuth ML
+  useEffect(() => {
+    const status = searchParams.get('ml_status')
+    if (!status) return
+    if (status === 'connected')  toast.success('✅ MercadoLibre conectado correctamente')
+    if (status === 'cancelled')  toast.info('Conexión con ML cancelada')
+    if (status === 'error') {
+      const msg = searchParams.get('ml_msg') ?? 'Error desconocido'
+      toast.error(`Error ML: ${decodeURIComponent(msg)}`)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="min-h-screen bg-gray-50 p-2 sm:p-4 md:p-8">
