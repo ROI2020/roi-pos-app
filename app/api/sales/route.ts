@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { insertSaleTransactions } from '@/lib/transactions'
+import { syncMLStockForVariants } from '@/lib/ml-stock-sync'
 
 /**
  * POST /api/sales
@@ -129,6 +130,12 @@ export async function POST(req: Request) {
     })
 
     await client.query('COMMIT')
+
+    // Sincronizar stock a ML en background (no bloquea la respuesta)
+    const variantIds = (items as { variant_id: number }[]).map(i => i.variant_id)
+    syncMLStockForVariants(sale.business_id, variantIds).catch(e =>
+      console.error('[sales] ML stock sync error:', e)
+    )
 
     return NextResponse.json(
       {

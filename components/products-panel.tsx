@@ -8,6 +8,7 @@ import {
   ImageOff, Loader2, X, ChevronDown, Package, Plus, Rows3,
   Globe, CheckCircle2, Circle, History, Calendar, ShoppingCart,
   Tag, ArrowLeftRight, Truck, RefreshCw, ExternalLink, Trash2, AlertTriangle,
+  ShoppingBag, Sparkles,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useAdminCurrency } from "@/hooks/use-admin-currency"
@@ -49,6 +50,8 @@ interface Product {
   exportable_web:       boolean
   variant_count: number
   stock_count:   number
+  ml_item_id:    string | null
+  ml_status:     string | null
 }
 
 interface Variant {
@@ -159,6 +162,89 @@ function RedesToggle({
       <Globe className={compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
       Redes
     </button>
+  )
+}
+
+// ── Botón ML en card ──────────────────────────────────────────────────────────
+function MLCardButton({
+  product,
+  onUpdate,
+}: {
+  product:  Product
+  onUpdate: (patch: Partial<Product>) => void
+}) {
+  const [showModal, setShowModal] = useState(false)
+  const [syncing,   setSyncing  ] = useState(false)
+
+  const isPublished = Boolean(product.ml_item_id)
+  const isPaused    = product.ml_status === 'paused'
+
+  const handleSync = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/ml/sync', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ productId: product.id }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast.success('Stock sincronizado con ML')
+    } catch (err) {
+      toast.error(`ML: ${String(err)}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  if (isPublished) {
+    return (
+      <button
+        onClick={handleSync}
+        disabled={syncing}
+        title={
+          isPaused
+            ? 'Publicación pausada — clic para re-sincronizar stock'
+            : 'Publicado en ML — clic para sincronizar stock'
+        }
+        className={`w-full flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold border transition-all
+          ${isPaused
+            ? 'bg-orange-50 text-orange-600 border-orange-300 hover:bg-orange-100'
+            : 'bg-yellow-50 text-yellow-700 border-yellow-300 hover:bg-yellow-100'
+          }`}
+      >
+        {syncing
+          ? <Loader2     className="h-3.5 w-3.5 animate-spin shrink-0" />
+          : <ShoppingBag className="h-3.5 w-3.5 shrink-0" />
+        }
+        <span className="truncate">{isPaused ? 'ML Pausado' : 'Publicado ML'}</span>
+        {!syncing && <RefreshCw className="h-3 w-3 ml-auto shrink-0 opacity-50" />}
+      </button>
+    )
+  }
+
+  return (
+    <>
+      <button
+        onClick={(e) => { e.stopPropagation(); setShowModal(true) }}
+        className="w-full flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold border transition-all
+          bg-white text-gray-300 border-gray-200 hover:border-yellow-300 hover:text-yellow-700 hover:bg-yellow-50"
+      >
+        <ShoppingBag className="h-3.5 w-3.5 shrink-0" />
+        Publicar en ML
+      </button>
+      {showModal && (
+        <MLPublishModal
+          product={product}
+          onClose={() => setShowModal(false)}
+          onPublished={(result) => {
+            onUpdate({ ml_item_id: result.mlItemId, ml_status: 'active' } as Partial<Product>)
+            setShowModal(false)
+            toast.success(`Publicado en ML: ${result.mlItemId}`)
+          }}
+        />
+      )}
+    </>
   )
 }
 
@@ -639,40 +725,59 @@ function ProductCard({
 
         <RedesToggle product={product} onToggle={handleRedesToggle} />
 
-        <div className="flex gap-1 mt-auto items-center">
-          <Button variant="ghost" size="sm"
-            className="gap-1 text-xs text-gray-500 hover:text-violet-700 h-7 px-1 flex-1 justify-start"
-            onClick={onEdit}>
-            <Pencil className="h-3.5 w-3.5" /> {isDS ? 'Ver / Editar' : 'Editar'}
-          </Button>
+        {/* Botón ML — solo para productos físicos */}
+        {!isDS && (
+          <MLCardButton product={product} onUpdate={onUpdate} />
+        )}
+
+        {/* Acciones — icono arriba + texto abajo */}
+        <div className="flex mt-auto border-t border-gray-100 pt-1 -mx-3 px-1">
+          <button
+            onClick={onEdit}
+            className="flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-gray-500 hover:text-violet-700 hover:bg-violet-50 transition-colors"
+          >
+            <Pencil className="h-4 w-4" />
+            <span className="text-[9px] font-medium leading-none">
+              {isDS ? 'Ver/Editar' : 'Editar'}
+            </span>
+          </button>
+
           {!isDS && product.variant_count > 0 && (
-            <Button variant="ghost" size="sm"
-              className="gap-1 text-xs text-gray-400 hover:text-violet-700 h-7 px-1 flex-1 justify-start"
-              onClick={onVariants}>
-              <Rows3 className="h-3.5 w-3.5" /> Variantes
-            </Button>
+            <button
+              onClick={onVariants}
+              className="flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-gray-400 hover:text-violet-700 hover:bg-violet-50 transition-colors"
+            >
+              <Rows3 className="h-4 w-4" />
+              <span className="text-[9px] font-medium leading-none">Variantes</span>
+            </button>
           )}
+
           {!isDS && (
-            <Button variant="ghost" size="icon"
-              className="h-7 w-7 text-gray-400 hover:text-violet-700 shrink-0"
-              title="Ver historial" onClick={onHistory}>
-              <History className="h-3.5 w-3.5" />
-            </Button>
+            <button
+              onClick={onHistory}
+              className="flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-gray-400 hover:text-violet-700 hover:bg-violet-50 transition-colors"
+            >
+              <History className="h-4 w-4" />
+              <span className="text-[9px] font-medium leading-none">Historial</span>
+            </button>
           )}
-          {/* Borrar */}
+
           {confirmDelete ? (
             <button
               onClick={onDelete}
-              className="text-[10px] font-semibold text-red-600 border border-red-300 rounded px-1.5 py-0.5 bg-red-50 hover:bg-red-100 whitespace-nowrap"
+              className="flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg bg-red-50 text-red-600"
             >
-              ¿Confirmar?
+              <AlertTriangle className="h-4 w-4" />
+              <span className="text-[9px] font-bold leading-none">¿Confirmar?</span>
             </button>
           ) : (
-            <Button variant="ghost" size="icon"
-              className="h-7 w-7 text-gray-300 hover:text-red-500 shrink-0"
-              title="Borrar producto" onClick={() => setConfirmDelete(true)}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span className="text-[9px] font-medium leading-none">Borrar</span>
+            </button>
           )}
         </div>
       </div>
@@ -1453,6 +1558,11 @@ function DSEditDialog({
             )
           })()}
 
+          {/* Mercado Libre — solo productos físicos (sin cj_pid) */}
+          {!product.cj_pid && (
+            <MLPublishSection product={product} />
+          )}
+
           {/* PID */}
           {product.cj_pid && (
             <div className="bg-gray-50 rounded-lg p-2.5">
@@ -1503,6 +1613,342 @@ function DSEditDialog({
               Guardar cambios
             </Button>
           </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// ML: Sección + Modal de publicación en MercadoLibre
+// ══════════════════════════════════════════════════════════════════════════════
+
+interface MLCategory {
+  categoryId:   string
+  categoryName: string
+  domainName:   string
+  predictedAttributes: Array<{ id: string; name: string; value: string }>
+}
+
+const LISTING_TYPES = [
+  { value: 'gold_special', label: 'Clásica',  desc: '~8% comisión · visibilidad media' },
+  { value: 'gold_pro',     label: 'Premium',  desc: '~15% comisión · alta visibilidad · envío gratis obligatorio' },
+  { value: 'free',         label: 'Gratuita', desc: 'Sin comisión · muy baja visibilidad' },
+]
+
+function MLPublishSection({ product }: { product: Product }) {
+  const [open,       setOpen      ] = useState(false)
+  const [mlStatus,   setMLStatus  ] = useState<{ mlItemId: string; permalink: string } | null>(null)
+  const [checking,   setChecking  ] = useState(false)
+
+  // Verificar si ya está publicado en ML
+  useEffect(() => {
+    setChecking(true)
+    fetch(`/api/ml/items?productId=${product.id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: Array<{ ml_item_id: string; ml_status: string }> | null) => {
+        if (data?.length) {
+          setMLStatus({ mlItemId: data[0].ml_item_id, permalink: `https://articulo.mercadolibre.com.ar/${data[0].ml_item_id}` })
+        }
+      })
+      .catch(() => {/* ML no configurado — silencioso */})
+      .finally(() => setChecking(false))
+  }, [product.id])
+
+  return (
+    <div className="border rounded-lg p-3 bg-yellow-50 border-yellow-200 space-y-2">
+      <p className="text-xs font-semibold text-yellow-800 uppercase tracking-wide flex items-center gap-1.5">
+        <ShoppingBag className="h-3.5 w-3.5" /> MercadoLibre
+      </p>
+      {checking ? (
+        <div className="flex items-center gap-1.5 text-xs text-yellow-600">
+          <Loader2 className="h-3 w-3 animate-spin" /> Verificando…
+        </div>
+      ) : mlStatus ? (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+            ● Publicado · {mlStatus.mlItemId}
+          </span>
+          <a
+            href={mlStatus.permalink}
+            target="_blank" rel="noopener noreferrer"
+            className="text-xs text-yellow-700 underline flex items-center gap-1"
+          >
+            Ver en ML <ExternalLink className="h-3 w-3" />
+          </a>
+          <button
+            onClick={() => setOpen(true)}
+            className="text-xs text-yellow-700 underline"
+          >
+            Republicar
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          className="text-xs bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-semibold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+        >
+          <ShoppingBag className="h-3.5 w-3.5" />
+          Publicar en MercadoLibre
+        </button>
+      )}
+
+      {open && (
+        <MLPublishModal
+          product={product}
+          onClose={() => setOpen(false)}
+          onPublished={(result) => {
+            setMLStatus(result)
+            setOpen(false)
+            toast.success(`Publicado en ML: ${result.mlItemId}`)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+interface MLFeeData {
+  fee:      number
+  pct:      number   // fracción: 0.08 = 8%
+  net:      number
+  currency: string
+}
+
+function MLPublishModal({
+  product, onClose, onPublished,
+}: {
+  product:     Product
+  onClose:     () => void
+  onPublished: (r: { mlItemId: string; permalink: string }) => void
+}) {
+  const { fmt } = useAdminCurrency()
+
+  const [searchQuery,    setSearchQuery   ] = useState(product.name)
+  const [searching,      setSearching     ] = useState(false)
+  const [categories,     setCategories    ] = useState<MLCategory[]>([])
+  const [selCategory,    setSelCategory   ] = useState<MLCategory | null>(null)
+  const [listingType,    setListingType   ] = useState<string>('gold_special')
+  const [publishing,     setPublishing    ] = useState(false)
+  const [searched,       setSearched      ] = useState(false)
+  const [feeData,        setFeeData       ] = useState<MLFeeData | null>(null)
+  const [loadingFee,     setLoadingFee    ] = useState(false)
+
+  // Actualizar fee preview cada vez que cambia categoría o tipo de publicación
+  useEffect(() => {
+    if (!selCategory) { setFeeData(null); return }
+    const ctrl = new AbortController()
+    setFeeData(null)
+    setLoadingFee(true)
+    const qs = new URLSearchParams({
+      categoryId:    selCategory.categoryId,
+      listingTypeId: listingType,
+      price:         String(product.base_price),
+    })
+    fetch(`/api/ml/listing-prices?${qs}`, { signal: ctrl.signal })
+      .then(r => r.json())
+      .then((d: MLFeeData & { error?: string }) => {
+        if (!d.error) setFeeData(d)
+      })
+      .catch(() => {/* silencioso si abort o ML no configurado */})
+      .finally(() => setLoadingFee(false))
+    return () => ctrl.abort()
+  }, [selCategory, listingType, product.base_price])
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return
+    setSearching(true)
+    setCategories([])
+    setSelCategory(null)
+    setSearched(false)
+    try {
+      const res  = await fetch(`/api/ml/categories?q=${encodeURIComponent(searchQuery)}`)
+      const data = await res.json() as { categories?: MLCategory[]; error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Error buscando categorías')
+      setCategories(data.categories ?? [])
+      setSearched(true)
+    } catch (err) {
+      toast.error(String(err))
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  const handlePublish = async () => {
+    if (!selCategory) { toast.error('Seleccioná una categoría'); return }
+    setPublishing(true)
+    try {
+      const res  = await fetch('/api/ml/items', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId:   product.id,
+          categoryId:  selCategory.categoryId,
+          listingType,
+          condition:   'new',
+        }),
+      })
+      const data = await res.json() as { mlItemId?: string; permalink?: string; error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Error al publicar')
+      onPublished({ mlItemId: data.mlItemId!, permalink: data.permalink! })
+    } catch (err) {
+      toast.error(String(err))
+    } finally {
+      setPublishing(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={v => !v && onClose()}>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShoppingBag className="h-4 w-4 text-yellow-600" />
+            Publicar en MercadoLibre
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-5 py-2">
+
+          {/* Buscador de categoría */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+              ML sugiere la categoría según el título
+            </Label>
+            <p className="text-xs text-gray-500">
+              Editá el título para refinar la búsqueda y que ML elija la categoría más precisa.
+            </p>
+            <div className="flex gap-2">
+              <Input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                placeholder="Ej: Remera básica mujer talle M"
+                className="text-sm flex-1"
+              />
+              <Button
+                onClick={handleSearch}
+                disabled={searching || !searchQuery.trim()}
+                size="sm"
+                variant="outline"
+              >
+                {searching
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Search className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+
+          {/* Resultados de categorías */}
+          {searched && categories.length === 0 && (
+            <p className="text-sm text-gray-500 text-center py-3">
+              Sin resultados. Probá con otro término.
+            </p>
+          )}
+
+          {categories.length > 0 && (
+            <div className="space-y-2">
+              <Label>Seleccioná la categoría correcta</Label>
+              <div className="space-y-1.5">
+                {categories.map(cat => (
+                  <button
+                    key={cat.categoryId}
+                    onClick={() => setSelCategory(cat)}
+                    className={`w-full text-left p-3 rounded-lg border text-sm transition-all ${
+                      selCategory?.categoryId === cat.categoryId
+                        ? 'border-yellow-400 bg-yellow-50 ring-1 ring-yellow-400'
+                        : 'border-gray-200 hover:border-gray-300 bg-white'
+                    }`}
+                  >
+                    <div className="font-medium text-gray-800">{cat.categoryName}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{cat.domainName} · {cat.categoryId}</div>
+                    {cat.predictedAttributes.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {cat.predictedAttributes.slice(0, 4).map(a => (
+                          <span key={a.id} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                            {a.name}: {a.value}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tipo de publicación */}
+          {selCategory && (
+            <div className="space-y-2 border-t pt-4">
+              <Label>Tipo de publicación</Label>
+              <div className="space-y-1.5">
+                {LISTING_TYPES.map(lt => (
+                  <button
+                    key={lt.value}
+                    onClick={() => setListingType(lt.value)}
+                    className={`w-full text-left p-3 rounded-lg border text-sm transition-all ${
+                      listingType === lt.value
+                        ? 'border-yellow-400 bg-yellow-50 ring-1 ring-yellow-400'
+                        : 'border-gray-200 hover:border-gray-300 bg-white'
+                    }`}
+                  >
+                    <div className="font-medium text-gray-800">{lt.label}</div>
+                    <div className="text-xs text-gray-500">{lt.desc}</div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Resumen + Fee preview */}
+              <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600 space-y-1 border mt-2">
+                <p><span className="font-medium">Producto:</span> {product.name}</p>
+                <p><span className="font-medium">Categoría:</span> {selCategory.categoryName} ({selCategory.categoryId})</p>
+                <p>
+                  <span className="font-medium">Tipo:</span>{' '}
+                  {LISTING_TYPES.find(l => l.value === listingType)?.label}
+                </p>
+                <p><span className="font-medium">Precio a publicar:</span> {fmt(product.base_price)}</p>
+
+                {/* Fee breakdown */}
+                <div className="border-t border-gray-200 mt-2 pt-2">
+                  {loadingFee ? (
+                    <span className="flex items-center gap-1.5 text-gray-400">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Calculando comisión ML…
+                    </span>
+                  ) : feeData ? (
+                    <div className="space-y-1">
+                      <p className="text-amber-700">
+                        <span className="font-medium">Comisión ML:</span>{' '}
+                        {fmt(feeData.fee)}{' '}
+                        <span className="text-amber-500">
+                          ({(feeData.pct * 100).toFixed(0)}%)
+                        </span>
+                      </p>
+                      <p className="text-green-700 font-semibold text-sm">
+                        Ganancia neta: {fmt(feeData.net)}
+                      </p>
+                    </div>
+                  ) : (
+                    <span className="text-gray-400 italic">
+                      Fee no disponible para esta combinación
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <Button
+                onClick={handlePublish}
+                disabled={publishing}
+                className="w-full bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-semibold border-0"
+              >
+                {publishing
+                  ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Publicando…</>
+                  : <><ShoppingBag className="h-4 w-4 mr-2" /> Publicar en ML</>}
+              </Button>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -1768,6 +2214,7 @@ export default function ProductsPanel() {
                   <SelectItem value="instagram">Instagram</SelectItem>
                   <SelectItem value="facebook">Facebook</SelectItem>
                   <SelectItem value="web">Web</SelectItem>
+                  <SelectItem value="ml">Mercado Libre</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={filterPhoto} onValueChange={setFilterPhoto}>
@@ -1804,7 +2251,7 @@ export default function ProductsPanel() {
             )}
           </div>
         ) : view === 'grid' ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+          <div className="grid grid-cols-1 min-[480px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
             {products.map(p => (
               <ProductCard
                 key={p.id} product={p}

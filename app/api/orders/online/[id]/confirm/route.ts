@@ -5,6 +5,8 @@ import { createOrder as paqarCreateOrder } from '@/lib/correo/correoArgentino'
 import { calcBulkDimensions } from '@/lib/correo/dimensions'
 import { insertTransaction } from '@/lib/transactions'
 import { getPublicSettingsByKeys } from '@/lib/settings'
+import { syncMLStockForVariants }    from '@/lib/ml-stock-sync'
+import { sendShipmentNotification } from '@/lib/email-order'
 
 /**
  * PATCH /api/orders/online/:id/confirm
@@ -210,6 +212,13 @@ export async function PATCH(
       client.release()
     }
 
+    // Sincronizar stock físico a ML en background (no bloquea la respuesta)
+    if (physicalVariantIds.length > 0) {
+      syncMLStockForVariants(businessId, physicalVariantIds).catch(e =>
+        console.error(`[confirm order ${orderId}] ML stock sync error:`, e)
+      )
+    }
+
     // ── Crear envío en PAQ.AR (fuera de la transacción de venta) ───────────
     // Los pedidos 100% CJ no usan PAQ.AR — CJ gestiona su propio despacho.
     // Si hay ítems físicos mezclados con CJ, PAQ.AR solo cubre los físicos
@@ -295,6 +304,10 @@ export async function PATCH(
         )
 
         shipmentResult = { trackingNumber: paqarResult.trackingNumber }
+
+        // Email de despacho al comprador (non-blocking)
+        sendShipmentNotification(orderId, 'Correo Argentino', paqarResult.trackingNumber)
+          .catch(e => console.error(`[confirm order ${orderId}] shipment email error:`, e))
 
       } catch (paqarErr) {
         // El envío falló — guardar error, pero la venta queda confirmada

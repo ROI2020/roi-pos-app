@@ -680,10 +680,425 @@ function OrderDetailModal({ orderId, onClose, onRefresh }: {
   )
 }
 
+// ── Pedidos ML ────────────────────────────────────────────────────────────────
+
+interface MLOrderRow {
+  id:                    number
+  ml_order_id:           string
+  pack_id:               string | null
+  ml_item_id:            string | null
+  buyer_nickname:        string | null
+  status:                string
+  total_amount:          number | null
+  currency_id:           string
+  quantity:              number
+  unit_price:            number | null
+  product_name:          string | null
+  variant_color:         string | null
+  variant_size:          string | null
+  sale_id:               number | null
+  msg_confirmation_sent: boolean
+  msg_dispatched_sent:   boolean
+  ml_date_created:       string | null
+  created_at:            string
+}
+
+function MLOrdersTab() {
+  const { fmt } = useAdminCurrency()
+  const [orders,         setOrders        ] = useState<MLOrderRow[]>([])
+  const [loading,        setLoading       ] = useState(true)
+  const [dispatchId,     setDispatchId    ] = useState<number | null>(null)
+  const [tracking,       setTracking      ] = useState('')
+  const [carrier,        setCarrier       ] = useState('Correo Argentino')
+  const [attachInvoice,  setAttachInvoice ] = useState(false)
+  const [sending,        setSending       ] = useState(false)
+  const [error,          setError         ] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    setError(null)
+    fetch('/api/ml/orders?limit=40')
+      .then(r => r.json())
+      .then((d: MLOrderRow[] | { error?: string }) => {
+        if (!Array.isArray(d)) { setError((d as { error?: string }).error ?? 'Error'); return }
+        setOrders(d)
+      })
+      .catch(e => setError(String(e)))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleDispatch = async (orderId: number) => {
+    if (!tracking.trim()) return
+    setSending(true)
+    try {
+      const res  = await fetch(`/api/ml/orders/${orderId}/dispatch`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ trackingNumber: tracking, carrier, attachInvoice }),
+      })
+      const data = await res.json() as { ok?: boolean; error?: string; invoiceAttached?: boolean }
+      if (!res.ok) throw new Error(data.error ?? 'Error')
+      toast.success(`Mensaje enviado${data.invoiceAttached ? ' con factura adjunta' : ''}`)
+      setDispatchId(null)
+      setTracking('')
+      setOrders(prev => prev.map(o =>
+        o.id === orderId ? { ...o, msg_dispatched_sent: true } : o,
+      ))
+    } catch (err) {
+      toast.error(String(err))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const fmtDate = (iso: string | null) => iso
+    ? new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : '—'
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-400">{orders.length} orden{orders.length !== 1 ? 'es' : ''} ML</p>
+        <button onClick={load} disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500 hover:text-gray-700 transition-colors">
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+          Actualizar
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 text-yellow-400 animate-spin" />
+        </div>
+      ) : error ? (
+        <div className="text-center py-16">
+          <ShoppingBag className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+          <p className="text-sm text-gray-500">{error}</p>
+        </div>
+      ) : orders.length === 0 ? (
+        <div className="text-center py-16">
+          <ShoppingBag className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-400 text-sm">No hay órdenes ML registradas aún</p>
+          <p className="text-xs text-gray-400 mt-1">Aparecen aquí cuando un comprador paga en ML</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {orders.map(order => (
+            <div key={order.id}
+              className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+
+              {/* Cabecera */}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-900">
+                      {order.buyer_nickname ?? 'Comprador'}
+                    </span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full
+                      ${order.status === 'paid'
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-gray-100 text-gray-500'}`}>
+                      {order.status === 'paid' ? 'PAGADO' : order.status.toUpperCase()}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    ML #{order.ml_order_id} · {fmtDate(order.ml_date_created ?? order.created_at)}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="font-bold text-yellow-700">
+                    {order.total_amount != null ? fmt(order.total_amount) : '—'}
+                  </p>
+                  <p className="text-[11px] text-gray-400">x{order.quantity}</p>
+                </div>
+              </div>
+
+              {/* Producto */}
+              {order.product_name && (
+                <div className="text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
+                  {order.product_name}
+                  {(order.variant_color || order.variant_size) && (
+                    <span className="text-gray-400 ml-1">
+                      · {[order.variant_color, order.variant_size].filter(Boolean).join(' / ')}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Badges de mensajes */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full
+                  ${order.msg_confirmation_sent ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                  <CheckCircle2 className="h-2.5 w-2.5" />
+                  {order.msg_confirmation_sent ? 'Confirmación enviada' : 'Sin confirmación'}
+                </span>
+                <span className={`flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full
+                  ${order.msg_dispatched_sent ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
+                  <Truck className="h-2.5 w-2.5" />
+                  {order.msg_dispatched_sent ? 'Despacho enviado' : 'Sin tracking'}
+                </span>
+                {order.sale_id && (
+                  <span className="text-[10px] text-violet-600 font-medium px-2 py-0.5 rounded-full bg-violet-50">
+                    Venta #{order.sale_id}
+                  </span>
+                )}
+              </div>
+
+              {/* Panel de despacho */}
+              {dispatchId === order.id ? (
+                <div className="border border-yellow-200 rounded-xl p-3 bg-yellow-50 space-y-2">
+                  <p className="text-xs font-semibold text-yellow-800">Enviar mensaje de despacho</p>
+                  <input
+                    value={tracking}
+                    onChange={e => setTracking(e.target.value)}
+                    placeholder="Número de tracking"
+                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                  />
+                  <input
+                    value={carrier}
+                    onChange={e => setCarrier(e.target.value)}
+                    placeholder="Transportista"
+                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                  />
+                  {order.sale_id && (
+                    <label className="flex items-center gap-2 text-xs text-yellow-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={attachInvoice}
+                        onChange={e => setAttachInvoice(e.target.checked)}
+                        className="rounded"
+                      />
+                      Adjuntar factura PDF (venta #{order.sale_id})
+                    </label>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleDispatch(order.id)}
+                      disabled={!tracking.trim() || sending}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-400 hover:bg-yellow-500 text-yellow-900 text-xs font-semibold disabled:opacity-50 transition-colors"
+                    >
+                      {sending
+                        ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Enviando…</>
+                        : <><Truck className="h-3.5 w-3.5" /> Enviar a ML</>}
+                    </button>
+                    <button onClick={() => { setDispatchId(null); setTracking('') }}
+                      className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500 hover:bg-gray-50">
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : !order.msg_dispatched_sent ? (
+                <button
+                  onClick={() => { setDispatchId(order.id); setTracking(''); setAttachInvoice(false) }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-yellow-300 text-yellow-700 bg-yellow-50 hover:bg-yellow-100 text-xs font-medium transition-colors"
+                >
+                  <Truck className="h-3.5 w-3.5" /> Enviar tracking por ML
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Mensajes ML ───────────────────────────────────────────────────────────────
+
+interface MLQuestion {
+  id:             number
+  text:           string
+  status:         string
+  date_created:   string
+  item_id:        string
+  item_title:     string | null
+  item_thumb:     string | null
+  item_permalink: string | null
+  buyer_id:       number | null
+  answer:         { text: string; date_created: string } | null
+}
+
+function MLMessagesTab() {
+  const [questions,  setQuestions ] = useState<MLQuestion[]>([])
+  const [total,      setTotal     ] = useState(0)
+  const [loading,    setLoading   ] = useState(true)
+  const [filter,     setFilter    ] = useState<'UNANSWERED' | 'ANSWERED'>('UNANSWERED')
+  const [replyText,  setReplyText ] = useState<Record<number, string>>({})
+  const [sending,    setSending   ] = useState<Record<number, boolean>>({})
+  const [answered,   setAnswered  ] = useState<Set<number>>(new Set())
+  const [error,      setError     ] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    setError(null)
+    fetch(`/api/ml/questions?status=${filter}&limit=25`)
+      .then(r => r.json())
+      .then((d: { questions?: MLQuestion[]; total?: number; error?: string }) => {
+        if (d.error) { setError(d.error); return }
+        setQuestions(d.questions ?? [])
+        setTotal(d.total ?? 0)
+      })
+      .catch(e => setError(String(e)))
+      .finally(() => setLoading(false))
+  }, [filter])
+
+  useEffect(() => { load() }, [load])
+
+  const handleReply = async (questionId: number) => {
+    const text = replyText[questionId]?.trim()
+    if (!text) return
+    setSending(prev => ({ ...prev, [questionId]: true }))
+    try {
+      const res  = await fetch('/api/ml/answers', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ questionId, text }),
+      })
+      const data = await res.json() as { ok?: boolean; error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Error al responder')
+      setAnswered(prev => new Set([...prev, questionId]))
+      setReplyText(prev => ({ ...prev, [questionId]: '' }))
+      toast.success('Respuesta enviada')
+    } catch (err) {
+      toast.error(String(err))
+    } finally {
+      setSending(prev => ({ ...prev, [questionId]: false }))
+    }
+  }
+
+  const fmtQ = (iso: string) =>
+    new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+
+  return (
+    <div className="space-y-4">
+
+      {/* Sub-filtro UNANSWERED / ANSWERED */}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1 bg-white border rounded-lg p-1">
+          {(['UNANSWERED', 'ANSWERED'] as const).map(f => (
+            <button key={f} onClick={() => setFilter(f)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors
+                ${filter === f ? 'bg-yellow-400 text-yellow-900' : 'text-gray-500 hover:bg-gray-50'}`}>
+              {f === 'UNANSWERED' ? 'Sin responder' : 'Respondidas'}
+            </button>
+          ))}
+        </div>
+        <button onClick={load} disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500 hover:text-gray-700 transition-colors">
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+          Actualizar
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 text-yellow-400 animate-spin" />
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+          <ShoppingBag className="h-10 w-10 text-gray-300" />
+          <p className="text-sm text-gray-500 max-w-sm">{error}</p>
+          <p className="text-xs text-gray-400">Verificá que ML esté conectado en Ajustes.</p>
+        </div>
+      ) : questions.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-3">
+          <MessageCircle className="h-10 w-10 text-gray-300" />
+          <p className="text-gray-400 text-sm">
+            {filter === 'UNANSWERED' ? 'No hay preguntas sin responder 🎉' : 'No hay preguntas respondidas'}
+          </p>
+        </div>
+      ) : (
+        <>
+          <p className="text-xs text-gray-400">{total} pregunta{total !== 1 ? 's' : ''} total</p>
+          <div className="space-y-3">
+            {questions.map(q => {
+              const isAnswered = answered.has(q.id) || q.status === 'ANSWERED'
+              return (
+                <div key={q.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+
+                  {/* Ítem */}
+                  <div className="flex items-center gap-2.5">
+                    {q.item_thumb ? (
+                      <img src={q.item_thumb} alt="" className="h-10 w-10 rounded-lg object-cover shrink-0 border" />
+                    ) : (
+                      <div className="h-10 w-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                        <Package className="h-5 w-5 text-gray-300" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-800 truncate">
+                        {q.item_title ?? q.item_id}
+                      </p>
+                      <p className="text-[10px] text-gray-400">{fmtQ(q.date_created)}</p>
+                    </div>
+                    {q.item_permalink && (
+                      <a href={q.item_permalink} target="_blank" rel="noopener noreferrer"
+                        className="shrink-0 flex items-center gap-1 text-[11px] text-yellow-600 hover:text-yellow-700 font-medium">
+                        Ver en ML <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+
+                  {/* Pregunta */}
+                  <div className="bg-gray-50 rounded-lg px-3 py-2.5 text-sm text-gray-700">
+                    {q.text}
+                  </div>
+
+                  {/* Respuesta existente (ANSWERED) */}
+                  {q.answer && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2.5">
+                      <p className="text-[10px] font-semibold text-yellow-700 mb-1">Tu respuesta</p>
+                      <p className="text-xs text-yellow-900">{q.answer.text}</p>
+                    </div>
+                  )}
+
+                  {/* Respuesta inline — solo si sin responder */}
+                  {!isAnswered && !q.answer && (
+                    <div className="space-y-2">
+                      <textarea
+                        value={replyText[q.id] ?? ''}
+                        onChange={e => setReplyText(prev => ({ ...prev, [q.id]: e.target.value }))}
+                        placeholder="Escribí tu respuesta…"
+                        rows={2}
+                        className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                      />
+                      <button
+                        onClick={() => handleReply(q.id)}
+                        disabled={!replyText[q.id]?.trim() || sending[q.id]}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-400 hover:bg-yellow-500 text-yellow-900 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {sending[q.id]
+                          ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Enviando…</>
+                          : <><MessageCircle className="h-3.5 w-3.5" /> Responder</>
+                        }
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Confirmación de respuesta enviada esta sesión */}
+                  {answered.has(q.id) && (
+                    <div className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Respuesta enviada
+                    </div>
+                  )}
+
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── Página principal ──────────────────────────────────────────────────────────
 
 export default function PedidosPage() {
   const { fmt } = useAdminCurrency()
+  const [mode,    setMode   ] = useState<'orders' | 'ml' | 'ml_orders'>('orders')
   const [tab,     setTab    ] = useState<OrderStatus | ''>('')
   const [orders,  setOrders ] = useState<OrderRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -699,7 +1114,7 @@ export default function PedidosPage() {
       .finally(() => setLoading(false))
   }, [tab])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (mode === 'orders') load() }, [load, mode])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -714,19 +1129,56 @@ export default function PedidosPage() {
 
       <div className="max-w-4xl mx-auto px-4 py-6">
 
+        {/* Header con submenu */}
         <div className="flex items-center justify-between mb-5">
           <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <Store className="h-5 w-5 text-violet-600" />
             Pedidos Online
           </h1>
-          <button onClick={load} disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-colors">
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            Actualizar
+          {mode === 'orders' && (
+            <button onClick={load} disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-colors">
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+              Actualizar
+            </button>
+          )}
+        </div>
+
+        {/* Submenu: Pedidos | Pedidos ML | Mensajes ML */}
+        <div className="flex gap-1.5 mb-5 border-b pb-4 flex-wrap">
+          <button onClick={() => setMode('orders')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors
+              ${mode === 'orders'
+                ? 'bg-violet-600 text-white shadow-sm'
+                : 'text-gray-500 hover:bg-gray-100'}`}>
+            <Package className="h-4 w-4" /> Pedidos web
+          </button>
+          <button onClick={() => setMode('ml_orders')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors
+              ${mode === 'ml_orders'
+                ? 'bg-yellow-400 text-yellow-900 shadow-sm'
+                : 'text-gray-500 hover:bg-gray-100'}`}>
+            <ShoppingBag className="h-4 w-4" /> Pedidos ML
+          </button>
+          <button onClick={() => setMode('ml')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors
+              ${mode === 'ml'
+                ? 'bg-yellow-400 text-yellow-900 shadow-sm'
+                : 'text-gray-500 hover:bg-gray-100'}`}>
+            <MessageCircle className="h-4 w-4" /> Preguntas ML
           </button>
         </div>
 
-        {/* Tabs */}
+        {/* Vista Preguntas ML */}
+        {mode === 'ml' && <MLMessagesTab />}
+
+        {/* Vista Pedidos ML */}
+        {mode === 'ml_orders' && <MLOrdersTab />}
+
+        {/* Vista Pedidos */}
+        {mode === 'orders' && <>
+
+        {/* Tabs de estado */}
         <div className="flex overflow-x-auto scrollbar-none gap-1 mb-5 bg-white rounded-xl border p-1">
           {TABS.map(t => (
             <button key={t.status} onClick={() => setTab(t.status)}
@@ -816,6 +1268,9 @@ export default function PedidosPage() {
             })}
           </div>
         )}
+
+        </>} {/* fin mode === 'orders' */}
+
       </div>
     </div>
   )

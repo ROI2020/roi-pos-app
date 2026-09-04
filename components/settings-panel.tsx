@@ -6,7 +6,7 @@ import {
   Loader2, Save, Upload, X, CheckCircle2, Star,
   Globe, Copy, RefreshCw, Eye, EyeOff, Rss, BarChart2,
   Wallet, ChevronDown, ChevronRight, CreditCard, Sparkles, Receipt,
-  FileText, ExternalLink, Mail, Send, Code, Clock,
+  FileText, ExternalLink, Mail, Send, Code, Clock, ShoppingBag, LinkIcon, Unlink,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button }   from "@/components/ui/button"
@@ -34,7 +34,7 @@ interface Account {
   branch_id: number | null; branch_name: string; fops: Fop[]
 }
 
-type Tab = 'negocio' | 'usuarios' | 'sucursales' | 'cuentas' | 'catalogo' | 'ia' | 'gastos' | 'pagos' | 'dropshipping' | 'paginas' | 'email'
+type Tab = 'negocio' | 'usuarios' | 'sucursales' | 'cuentas' | 'catalogo' | 'ia' | 'gastos' | 'pagos' | 'dropshipping' | 'paginas' | 'email' | 'ml'
 
 interface ExpenseType {
   id: number
@@ -2989,6 +2989,324 @@ function EmailTab() {
   )
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Pestaña: MercadoLibre
+// ══════════════════════════════════════════════════════════════════════════════
+
+interface MLSettings {
+  ml_enabled:            boolean
+  ml_app_id:             string | null
+  ml_app_secret:         string | null   // '••••••••' si está configurado
+  ml_user_id:            string | null
+  ml_token_expires:      string | null
+  connected:             boolean
+  ml_msg_confirmation?:  string | null
+  ml_msg_dispatched?:    string | null
+}
+
+function MLTab() {
+  const [cfg,      setCfg     ] = useState<MLSettings | null>(null)
+  const [loading,  setLoading ] = useState(true)
+  const [saving,   setSaving  ] = useState(false)
+  const [appId,    setAppId   ] = useState('')
+  const [appSecret,setAppSecret] = useState('')
+  const [showSecret,setShowSecret] = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
+  const [msgConfirmation, setMsgConfirmation] = useState('')
+  const [msgDispatched,   setMsgDispatched  ] = useState('')
+  const [savingMsgs,      setSavingMsgs     ] = useState(false)
+
+  const DEFAULT_CONFIRMATION = '¡Hola {{buyerNickname}}! Recibimos tu pedido en {{storeName}} y ya lo estamos preparando 🙌. Ante cualquier consulta, escribinos acá.'
+  const DEFAULT_DISPATCHED   = '¡Hola {{buyerNickname}}! Tu pedido ya fue despachado por {{carrier}} 📦. Número de seguimiento: {{trackingNumber}}. Podés rastrearlo en el sitio del correo. ¡Gracias por tu compra!'
+
+  useEffect(() => {
+    fetch('/api/settings/ml')
+      .then(r => r.json())
+      .then((d: MLSettings) => {
+        setCfg(d)
+        setAppId(d.ml_app_id ?? '')
+        setMsgConfirmation(d.ml_msg_confirmation ?? '')
+        setMsgDispatched(d.ml_msg_dispatched ?? '')
+      })
+      .catch(() => toast.error('Error al cargar configuración ML'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleSave = async () => {
+    if (!appId.trim()) { toast.error('El App ID es obligatorio'); return }
+    setSaving(true)
+    try {
+      const res = await fetch('/api/settings/ml', {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ml_app_id:     appId.trim()     || null,
+          ml_app_secret: appSecret.trim() || null,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      setCfg(prev => prev ? {
+        ...prev,
+        ml_app_id:     appId.trim()     || null,
+        ml_app_secret: appSecret.trim() ? '••••••••' : prev.ml_app_secret,
+      } : prev)
+      setAppSecret('')
+      toast.success('Credenciales guardadas')
+    } catch (err: unknown) {
+      toast.error((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDisconnect = async () => {
+    if (!confirm('¿Desconectar MercadoLibre? Se borrarán los tokens de acceso.')) return
+    setDisconnecting(true)
+    try {
+      await fetch('/api/settings/ml', { method: 'DELETE' })
+      setCfg(prev => prev ? { ...prev, connected: false, ml_user_id: null, ml_token_expires: null } : prev)
+      toast.success('ML desconectado')
+    } catch {
+      toast.error('Error al desconectar')
+    } finally {
+      setDisconnecting(false)
+    }
+  }
+
+  if (loading) return (
+    <div className="flex items-center gap-2 text-gray-400 py-8">
+      <Loader2 className="h-5 w-5 animate-spin" /> Cargando…
+    </div>
+  )
+
+  const hasCredentials = !!(cfg?.ml_app_id && cfg?.ml_app_secret)
+  const tokenExpires   = cfg?.ml_token_expires ? new Date(cfg.ml_token_expires) : null
+
+  return (
+    <div className="space-y-7 max-w-lg">
+
+      {/* ── Estado de conexión ── */}
+      <div className={`flex items-center justify-between p-4 border rounded-xl ${
+        cfg?.connected
+          ? 'bg-green-50 border-green-200'
+          : 'bg-gray-50 border-gray-200'
+      }`}>
+        <div>
+          <p className={`text-sm font-semibold ${cfg?.connected ? 'text-green-800' : 'text-gray-700'}`}>
+            {cfg?.connected ? '● Conectado a MercadoLibre' : '○ No conectado'}
+          </p>
+          {cfg?.connected && cfg.ml_user_id && (
+            <p className="text-xs text-green-600 mt-0.5">User ID: {cfg.ml_user_id}</p>
+          )}
+          {cfg?.connected && tokenExpires && (
+            <p className="text-xs text-green-600">
+              Token vence: {tokenExpires.toLocaleString('es-AR')} (se renueva automático)
+            </p>
+          )}
+          {!cfg?.connected && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              Cargá las credenciales y hacé clic en "Conectar con ML"
+            </p>
+          )}
+        </div>
+        {cfg?.connected && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDisconnect}
+            disabled={disconnecting}
+            className="text-red-600 border-red-200 hover:bg-red-50"
+          >
+            {disconnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}
+            <span className="ml-1.5">Desconectar</span>
+          </Button>
+        )}
+      </div>
+
+      {/* ── Credenciales de la app ── */}
+      <div className="space-y-4 border-t border-gray-100 pt-5">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          Credenciales de la App ML
+        </p>
+        <p className="text-xs text-gray-500">
+          Obtené el App ID y Secret Key en{' '}
+          <a
+            href="https://developers.mercadolibre.com.ar"
+            target="_blank" rel="noopener noreferrer"
+            className="underline text-violet-600"
+          >
+            developers.mercadolibre.com.ar
+          </a>
+          {' '}→ Tu aplicación → Credenciales.
+        </p>
+
+        <div className="space-y-1.5">
+          <Label>App ID</Label>
+          <Input
+            value={appId}
+            onChange={e => setAppId(e.target.value)}
+            placeholder="1234567890123456"
+            autoComplete="off"
+            className="text-sm font-mono"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="flex items-center gap-2">
+            Secret Key
+            <span className="text-[10px] font-normal text-gray-400">(secreto)</span>
+            {cfg?.ml_app_secret && (
+              <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">
+                ● Configurado
+              </span>
+            )}
+          </Label>
+          <div className="relative">
+            <Input
+              type={showSecret ? 'text' : 'password'}
+              value={appSecret}
+              onChange={e => setAppSecret(e.target.value)}
+              placeholder={cfg?.ml_app_secret ? '●●●●●●●● (dejar vacío = mantener)' : 'Secret Key de la app ML'}
+              autoComplete="new-password"
+              className="text-sm font-mono pr-10"
+            />
+            <button
+              type="button"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              onClick={() => setShowSecret(v => !v)}
+            >
+              {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+
+        <Button onClick={handleSave} disabled={saving} className="w-full">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+          Guardar credenciales
+        </Button>
+      </div>
+
+      {/* ── OAuth — conectar con ML ── */}
+      {hasCredentials && !cfg?.connected && (
+        <div className="border border-violet-200 bg-violet-50 rounded-xl p-4 space-y-3">
+          <p className="text-sm font-semibold text-violet-800">Conectar tu cuenta de vendedor</p>
+          <p className="text-xs text-violet-700">
+            Hacé clic para autorizar a ROIPOS a gestionar tus publicaciones y recibir pedidos de ML.
+            Serás redirigido a MercadoLibre y volvés automáticamente.
+          </p>
+          <a href="/api/ml/auth/start">
+            <Button className="w-full bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-semibold border-0">
+              <LinkIcon className="h-4 w-4 mr-2" />
+              Conectar con MercadoLibre
+            </Button>
+          </a>
+        </div>
+      )}
+
+      {/* ── Templates de mensajes ML ── */}
+      <div className="space-y-4 border-t border-gray-100 pt-5">
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            Mensajes automáticos al comprador
+          </p>
+          <p className="text-xs text-gray-400 mt-1">
+            Variables disponibles: <code className="bg-gray-100 px-1 rounded">{'{{buyerNickname}}'}</code>{' '}
+            <code className="bg-gray-100 px-1 rounded">{'{{storeName}}'}</code>{' '}
+            <code className="bg-gray-100 px-1 rounded">{'{{trackingNumber}}'}</code>{' '}
+            <code className="bg-gray-100 px-1 rounded">{'{{carrier}}'}</code>
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Mensaje de confirmación de pedido</Label>
+          <p className="text-[11px] text-gray-400">Se envía automáticamente cuando llega un pedido pagado.</p>
+          <textarea
+            value={msgConfirmation}
+            onChange={e => setMsgConfirmation(e.target.value)}
+            placeholder={DEFAULT_CONFIRMATION}
+            rows={3}
+            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-400 resize-none"
+          />
+          <p className="text-[11px] text-gray-400">
+            Vacío = usa el mensaje por defecto.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Mensaje de despacho (con tracking)</Label>
+          <p className="text-[11px] text-gray-400">Se envía cuando hacés clic en &ldquo;Enviar tracking por ML&rdquo; en un pedido.</p>
+          <textarea
+            value={msgDispatched}
+            onChange={e => setMsgDispatched(e.target.value)}
+            placeholder={DEFAULT_DISPATCHED}
+            rows={3}
+            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-400 resize-none"
+          />
+          <p className="text-[11px] text-gray-400">
+            Vacío = usa el mensaje por defecto.
+          </p>
+        </div>
+
+        <Button
+          onClick={async () => {
+            setSavingMsgs(true)
+            try {
+              const res = await fetch('/api/settings/ml', {
+                method:  'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({
+                  ml_msg_confirmation: msgConfirmation.trim() || null,
+                  ml_msg_dispatched:   msgDispatched.trim()   || null,
+                }),
+              })
+              if (!res.ok) throw new Error((await res.json() as { error?: string }).error)
+              toast.success('Mensajes ML guardados')
+            } catch (e) {
+              toast.error(String(e))
+            } finally {
+              setSavingMsgs(false)
+            }
+          }}
+          disabled={savingMsgs}
+          variant="outline"
+          className="w-full"
+        >
+          {savingMsgs
+            ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            : <Save className="h-4 w-4 mr-2" />}
+          Guardar mensajes
+        </Button>
+      </div>
+
+      {/* ── Instrucciones redirect URI ── */}
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-2">
+        <p className="text-xs font-semibold text-gray-600">Redirect URI requerido en la app ML</p>
+        <div className="flex items-center gap-2">
+          <code className="text-xs bg-white border border-gray-200 rounded px-2 py-1 flex-1 break-all">
+            {typeof window !== 'undefined' ? `${window.location.origin}/api/ml/auth/callback` : '/api/ml/auth/callback'}
+          </code>
+          <button
+            type="button"
+            className="text-gray-400 hover:text-gray-600 shrink-0"
+            onClick={() => {
+              const uri = `${window.location.origin}/api/ml/auth/callback`
+              navigator.clipboard.writeText(uri).then(() => toast.success('Copiado'))
+            }}
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+        </div>
+        <p className="text-xs text-gray-400">
+          Copiá esta URL y pegála en Redirect URIs de tu aplicación en developers.mercadolibre.com.ar
+        </p>
+      </div>
+
+    </div>
+  )
+}
+
+// ── TABS array ────────────────────────────────────────────────────────────────
+
 const TABS: { value: Tab; label: string; Icon: React.ElementType }[] = [
   { value: 'negocio',    label: 'Negocio',    Icon: Building2  },
   { value: 'usuarios',   label: 'Usuarios',   Icon: Users      },
@@ -3000,7 +3318,8 @@ const TABS: { value: Tab; label: string; Icon: React.ElementType }[] = [
   { value: 'ia',           label: 'IA',            Icon: Sparkles   },
   { value: 'gastos',       label: 'Gastos',        Icon: Receipt    },
   { value: 'paginas',      label: 'Páginas',       Icon: FileText   },
-  { value: 'email',        label: 'Emails',        Icon: Mail       },
+  { value: 'email',        label: 'Emails',        Icon: Mail        },
+  { value: 'ml',           label: 'Mercado Libre', Icon: ShoppingBag },
 ]
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -3261,6 +3580,7 @@ export default function SettingsPanel() {
             {tab === 'gastos'       && <GastosTab />}
             {tab === 'paginas'      && <PaginasTab />}
             {tab === 'email'        && <EmailTab />}
+            {tab === 'ml'           && <MLTab />}
           </div>
         </div>
       </div>

@@ -65,6 +65,9 @@ export async function GET(req: Request) {
   if (exportable === 'instagram') conditions.push(`p.exportable_instagram = true`)
   if (exportable === 'facebook')  conditions.push(`p.exportable_facebook  = true`)
   if (exportable === 'web')       conditions.push(`p.exportable_web       = true`)
+  if (exportable === 'ml')        conditions.push(
+    `EXISTS (SELECT 1 FROM ml_items mi WHERE mi.product_id = p.id AND mi.ml_status != 'closed')`
+  )
   if (dsFilter === 'ds')     conditions.push(`p.cj_pid IS NOT NULL`)
   if (dsFilter === 'fisico') conditions.push(`p.cj_pid IS NULL`)
 
@@ -102,7 +105,13 @@ export async function GET(req: Request) {
       p.season_id,     s.name  AS season_name,
       p.gender_id,     g.name  AS gender_name,
       COUNT(DISTINCT pv.id)::int  AS variant_count,
-      COUNT(DISTINCT bi.id)::int  AS stock_count
+      COUNT(DISTINCT bi.id)::int  AS stock_count,
+      (SELECT mi.ml_item_id FROM ml_items mi
+       WHERE mi.product_id = p.id AND mi.ml_status != 'closed'
+       ORDER BY mi.created_at DESC LIMIT 1) AS ml_item_id,
+      (SELECT mi.ml_status FROM ml_items mi
+       WHERE mi.product_id = p.id AND mi.ml_status != 'closed'
+       ORDER BY mi.created_at DESC LIMIT 1) AS ml_status
     FROM products p
     LEFT JOIN categories  c  ON c.id  = p.category_id
     LEFT JOIN age_groups  ag ON ag.id = p.age_group_id
