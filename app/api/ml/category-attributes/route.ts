@@ -26,7 +26,7 @@ export interface MLRequiredAttribute {
   value_type: string
 }
 
-// Atributos que van en variations.attribute_combinations — no los pedimos de nuevo
+// Atributos que van en variations.attribute_combinations
 const VARIATION_ATTRS = new Set(['COLOR', 'SIZE'])
 
 export async function GET(req: Request) {
@@ -46,6 +46,7 @@ export async function GET(req: Request) {
       `/categories/${categoryId}/attributes`,
     )
 
+    // Atributos requeridos del ítem (excl. SIZE y COLOR que van en attribute_combinations)
     const required: MLRequiredAttribute[] = attrs
       .filter(a =>
         a.tags?.required === true &&
@@ -58,7 +59,18 @@ export async function GET(req: Request) {
         value_type: a.value_type ?? 'string',
       }))
 
-    return NextResponse.json(required)
+    // Valores permitidos de SIZE y COLOR para esta categoría.
+    // ML requiere value_id correcto en attribute_combinations — texto libre puede ser rechazado.
+    const sizeAttr  = attrs.find(a => a.id === 'SIZE')
+    const colorAttr = attrs.find(a => a.id === 'COLOR')
+
+    return NextResponse.json({
+      required,
+      sizeValues:  sizeAttr?.values  ?? [],   // [{ id, name }] — id = value_id para ML
+      colorValues: colorAttr?.values ?? [],   // [{ id, name }]
+      sizeValueType:  sizeAttr?.value_type  ?? 'string',
+      colorValueType: colorAttr?.value_type ?? 'string',
+    })
   } catch (err) {
     console.error('[ml/category-attributes]', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })

@@ -1625,10 +1625,12 @@ function DSEditDialog({
 // ══════════════════════════════════════════════════════════════════════════════
 
 interface MLCategory {
-  categoryId:   string
-  categoryName: string
-  domainName:   string
-  pathFromRoot: string[]   // ["Ropa y Accesorios", "Ropa para Bebés", "Buzos y Camperas"]
+  categoryId:          string
+  categoryName:        string
+  domainName:          string
+  pathFromRoot:        string[]   // ["Ropa y Accesorios", "Ropa para Bebés", "Buzos y Camperas"]
+  catalogRequired:     boolean    // true = requiere vinculación al catálogo oficial de ML
+  variationsAllowed:   boolean
   predictedAttributes: Array<{ id: string; name: string; value: string }>
 }
 
@@ -1768,15 +1770,46 @@ function MLPublishModal({
   const [loadingFee,     setLoadingFee    ] = useState(false)
   const [reqAttrs,       setReqAttrs      ] = useState<MLRequiredAttr[]>([])
   const [attrValues,     setAttrValues    ] = useState<Record<string, string>>({})
+  const [sizeValues,     setSizeValues    ] = useState<Array<{ id: string; name: string }>>([])
+  const [colorValues,    setColorValues   ] = useState<Array<{ id: string; name: string }>>([])
+  // Colores únicos del producto (de sus variantes)
+  const [productColors,  setProductColors ] = useState<string[]>([])
+  // Mapeo color propio → nombre de color ML (editable en el modal)
+  const [colorMap,       setColorMap      ] = useState<Record<string, string>>({})
 
-  // Cargar atributos requeridos cuando cambia la categoría
+  // Cargar colores del producto al abrir el modal
   useEffect(() => {
-    if (!selCategory) { setReqAttrs([]); setAttrValues({}); return }
+    fetch(`/api/products/${product.id}/variants`)
+      .then(r => r.json())
+      .then((vs: Array<{ color: string }>) => {
+        const unique = [...new Set(vs.map(v => v.color).filter(Boolean))]
+        setProductColors(unique)
+        // Pre-mapeo exacto si el nombre coincide con algún valor ML
+        setColorMap(prev => {
+          const next = { ...prev }
+          unique.forEach(c => { if (!next[c]) next[c] = c })
+          return next
+        })
+      })
+      .catch(() => {})
+  }, [product.id])
+
+  // Cargar atributos requeridos + valores permitidos de SIZE/COLOR cuando cambia la categoría
+  useEffect(() => {
+    if (!selCategory) { setReqAttrs([]); setAttrValues({}); setSizeValues([]); setColorValues([]); return }
     fetch(`/api/ml/category-attributes?categoryId=${selCategory.categoryId}`)
       .then(r => r.json())
-      .then((attrs: MLRequiredAttr[] | { error?: string }) => {
-        if (!Array.isArray(attrs)) return
+      .then((data: {
+        required?:      MLRequiredAttr[]
+        sizeValues?:    Array<{ id: string; name: string }>
+        colorValues?:   Array<{ id: string; name: string }>
+        error?: string
+      }) => {
+        if (data.error) return
+        const attrs = data.required ?? []
         setReqAttrs(attrs)
+        setSizeValues(data.sizeValues  ?? [])
+        setColorValues(data.colorValues ?? [])
         // Pre-llenar valores derivados del producto (el usuario puede editarlos)
         const prefill: Record<string, string> = {}
         attrs.forEach(a => {
@@ -1842,10 +1875,16 @@ function MLPublishModal({
       return
     }
 
-    // Construir extraAttributes desde los valores ingresados
+    // Construir extraAttributes con value_id cuando ML tiene valores de catálogo
     const extraAttributes = reqAttrs
       .filter(a => attrValues[a.id]?.trim())
-      .map(a => ({ id: a.id, value_name: attrValues[a.id].trim() }))
+      .map(a => {
+        const valName = attrValues[a.id].trim()
+        const valObj  = a.values.find(v => v.name === valName)
+        return valObj
+          ? { id: a.id, value_id: valObj.id, value_name: valName }
+          : { id: a.id, value_name: valName }
+      })
 
     setPublishing(true)
     try {
@@ -1853,11 +1892,17 @@ function MLPublishModal({
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          productId:   product.id,
-          categoryId:  selCategory.categoryId,
+          productId:    product.id,
+          categoryId:   selCategory.categoryId,
           listingType,
-          condition:   'new',
+          condition:    'new',
           extraAttributes,
+          // Mapa talle-nombre → value_id ML  (ej: { "4 años": "11223344" })
+          sizeValueMap: Object.fromEntries(sizeValues.map(v => [v.name, v.id])),
+          // colorMap: color propio → nombre ML (ej: { "Natural": "Beige" })
+          // colorValueMap: nombre ML → value_id ML (ej: { "Beige": "283155" })
+          colorMap,
+          colorValueMap: Object.fromEntries(colorValues.map(v => [v.name, v.id])),
         }),
       })
       const data = await res.json() as { mlItemId?: string; permalink?: string; error?: string }
@@ -1933,7 +1978,14 @@ function MLPublishModal({
                         : 'border-gray-200 hover:border-gray-300 bg-white'
                     }`}
                   >
-                    <div className="font-medium text-gray-800">{cat.categoryName}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-800">{cat.categoryName}</span>
+                      {cat.catalogRequired && (
+                        <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium">
+                          Catálogo ML
+                        </span>
+                      )}
+                    </div>
                     {/* Ruta completa — lo más útil para elegir bien */}
                     {cat.pathFromRoot?.length > 1 && (
                       <div className="text-xs text-blue-600 mt-0.5 leading-snug">
@@ -1941,6 +1993,11 @@ function MLPublishModal({
                       </div>
                     )}
                     <div className="text-xs text-gray-400 mt-0.5">{cat.domainName} · {cat.categoryId}</div>
+                    {cat.catalogRequired && (
+                      <div className="text-[11px] text-orange-600 mt-1 leading-snug">
+                        ⚠️ Esta categoría requiere vinculación al catálogo oficial de ML. Elegí una categoría sin esa etiqueta para publicar libremente.
+                      </div>
+                    )}
                     {cat.predictedAttributes.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1.5">
                         {cat.predictedAttributes.slice(0, 4).map(a => (
@@ -2021,6 +2078,61 @@ function MLPublishModal({
                 </div>
               )}
 
+              {/* Talles ML vs talles del producto */}
+              {sizeValues.length > 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs space-y-1.5">
+                  <p className="font-medium text-blue-800">Talles aceptados por ML en esta categoría:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {sizeValues.map(v => (
+                      <span key={v.id} className="bg-white border border-blue-200 text-blue-700 px-1.5 py-0.5 rounded">
+                        {v.name}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-blue-600 leading-snug">
+                    Tus variantes deben usar exactamente estos nombres.
+                  </p>
+                </div>
+              )}
+
+              {/* Mapeo de colores cuando ML tiene un catálogo de colores */}
+              {colorValues.length > 0 && productColors.length > 0 && (
+                <div className="border border-orange-200 bg-orange-50 rounded-lg p-3 text-xs space-y-2">
+                  <p className="font-medium text-orange-800">
+                    Colores: indicá el equivalente en ML
+                  </p>
+                  <p className="text-orange-600 leading-snug">
+                    ML usa su propio catálogo de colores. Elegí el más cercano para cada color tuyo.
+                  </p>
+                  {productColors.map(c => {
+                    const exactMatch = colorValues.some(v => v.name.toLowerCase() === c.toLowerCase())
+                    return (
+                      <div key={c} className="flex items-center gap-2">
+                        <span className="w-24 shrink-0 font-medium text-gray-700 truncate" title={c}>
+                          {c}
+                        </span>
+                        <span className="text-gray-400">→</span>
+                        <select
+                          value={colorMap[c] ?? ''}
+                          onChange={e => setColorMap(prev => ({ ...prev, [c]: e.target.value }))}
+                          className={`flex-1 text-xs border rounded px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-yellow-400 bg-white ${
+                            exactMatch ? 'border-green-300' : 'border-orange-300'
+                          }`}
+                        >
+                          <option value="">Seleccioná…</option>
+                          {colorValues.map(v => (
+                            <option key={v.id} value={v.name}>{v.name}</option>
+                          ))}
+                        </select>
+                        {exactMatch && (
+                          <span className="text-green-600 shrink-0">✓</span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
               {/* Resumen + Fee preview */}
               <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600 space-y-1 border mt-2">
                 <p><span className="font-medium">Producto:</span> {product.name}</p>
@@ -2066,10 +2178,15 @@ function MLPublishModal({
                 </div>
               </div>
 
+              {selCategory?.catalogRequired && (
+                <p className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded-lg p-2.5 text-center">
+                  ⚠️ Categoría de catálogo obligatorio. Buscá una categoría diferente para publicar.
+                </p>
+              )}
               <Button
                 onClick={handlePublish}
-                disabled={publishing}
-                className="w-full bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-semibold border-0"
+                disabled={publishing || selCategory?.catalogRequired === true}
+                className="w-full bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-semibold border-0 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {publishing
                   ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Publicando…</>

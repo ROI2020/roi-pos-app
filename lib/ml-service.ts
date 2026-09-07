@@ -45,13 +45,15 @@ export async function mlFetch<T>(
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
 export interface MLVariationParams {
-  color?:            string
-  size?:             string
+  color?:         string
+  colorValueId?:  string   // value_id del catálogo ML para COLOR (si la categoría lo requiere)
+  size?:          string
+  sizeValueId?:   string   // value_id del catálogo ML para SIZE (si la categoría lo requiere)
   availableQuantity: number
-  price:             number
-  pictureId?:        string  // ml_picture_id para esta variante
-  sku?:              string
-  barcode?:          string  // GTIN / código de barras (opcional)
+  price:          number
+  pictureId?:     string   // ml_picture_id para esta variante
+  sku?:           string
+  barcode?:       string   // GTIN / código de barras (opcional)
 }
 
 export interface MLListingParams {
@@ -187,62 +189,56 @@ export async function createListing(
 ): Promise<MLListingResult> {
   // Construir variantes ML
   const variations = params.variations.map(v => {
-    const attributeCombinations: Array<{ id: string; value_name: string }> = []
-    if (v.color) attributeCombinations.push({ id: 'COLOR', value_name: v.color })
-    if (v.size)  attributeCombinations.push({ id: 'SIZE',  value_name: v.size  })
+    // attribute_combinations: incluir value_id cuando ML lo tiene en su catálogo
+    const attributeCombinations: Array<{ id: string; value_id?: string; value_name: string }> = []
+    if (v.color) attributeCombinations.push({
+      id: 'COLOR',
+      ...(v.colorValueId && { value_id: v.colorValueId }),
+      value_name: v.color,
+    })
+    if (v.size)  attributeCombinations.push({
+      id: 'SIZE',
+      ...(v.sizeValueId && { value_id: v.sizeValueId }),
+      value_name: v.size,
+    })
 
-    // Atributos de variante: GTIN si hay barcode, EMPTY_GTIN_REASON si no.
-    // value_id es obligatorio para atributos de catálogo en ML (no alcanza con value_name).
-    // 27111453 = "El producto no tiene código de barras" en ML Argentina.
-    const varAttributes: Array<{ id: string; value_id?: string; value_name: string }> = []
-    if (v.barcode?.trim()) {
-      varAttributes.push({ id: 'GTIN', value_name: v.barcode.trim() })
-    } else {
-      varAttributes.push({
-        id:         'EMPTY_GTIN_REASON',
-        value_id:   '27111453',
-        value_name: 'El producto no tiene código de barras',
-      })
-    }
-    if (v.sku?.trim()) {
-      varAttributes.push({ id: 'SELLER_SKU', value_name: v.sku.trim() })
-    }
-
+    // Estructura mínima de variante — probando sin variation-level attributes
+    // porque parecen ser la causa del "variations is invalid".
+    // GTIN / SELLER_SKU los re-agregamos una vez que esto funcione.
     return {
       attribute_combinations: attributeCombinations,
       price:               v.price,
       available_quantity:  v.availableQuantity,
       ...(v.pictureId && { picture_ids: [v.pictureId] }),
-      ...(v.sku       && { seller_custom_field: v.sku }),   // campo legacy, mantenemos ambos
-      attributes:          varAttributes,
+      ...(v.sku       && { seller_custom_field: v.sku }),
     }
   })
 
   // Precio base = mínimo entre variantes (ML lo requiere)
-  const basePrice = Math.min(...params.variations.map(v => v.price))
+  const basePrice  = Math.min(...params.variations.map(v => v.price))
+  // Stock total en el root (requerido por ML incluso cuando hay variantes)
+  const totalStock = params.variations.reduce((s, v) => s + v.availableQuantity, 0)
 
   const body: Record<string, unknown> = {
-    title:          params.title,
-    category_id:    params.categoryId,
-    price:          basePrice,
-    currency_id:    params.currency,
-    buying_mode:    'buy_it_now',
-    listing_type_id: params.listingType,
-    condition:      params.condition,
-    pictures:       params.pictureIds.map(id => ({ id })),
-    attributes:     [...(params.extraAttributes ?? [])],
+    title:              params.title,
+    category_id:        params.categoryId,
+    price:              basePrice,
+    currency_id:        params.currency,
+    available_quantity: totalStock,    // ML lo pide siempre en el root
+    buying_mode:        'buy_it_now',
+    listing_type_id:    params.listingType,
+    condition:          params.condition,
+    pictures:           params.pictureIds.map(id => ({ id })),
+    attributes:         [...(params.extraAttributes ?? [])],
     ...(params.description && {
       description: { plain_text: params.description.slice(0, 50000) },
     }),
   }
 
-  // Con variations: ML ignora available_quantity del root y lo suma de las variantes.
-  // Sin variations: hay que ponerlo (ítem sin variantes).
   if (variations.length > 0) {
-    body.variations = variations
-    // NO incluir available_quantity en el root — ML lo suma de las variantes
-  } else {
-    body.available_quantity = params.variations[0]?.availableQuantity ?? 0
+    body.variations  = variations
+    // family_name requerido por ML para ítems con variantes en categorías de catálogo
+    body.family_name = params.title
   }
 
   const result = await mlFetch<{ id: string; permalink: string }>(

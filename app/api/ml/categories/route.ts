@@ -32,6 +32,10 @@ interface MLCategoryDetail {
   id:             string
   name:           string
   path_from_root: Array<{ id: string; name: string }>
+  settings?: {
+    catalog_listing_eligible?: boolean   // true = categoría vinculada al catálogo ML
+    variations?: string                  // "allowed" | "required" | "not_allowed"
+  }
 }
 
 export async function GET(req: Request) {
@@ -73,34 +77,39 @@ export async function GET(req: Request) {
       return true
     })
 
-    // Traer path_from_root de cada categoría en paralelo
-    const paths = await Promise.all(
+    // Traer path_from_root + settings de cada categoría en paralelo
+    const details = await Promise.all(
       unique.map(async d => {
         try {
           const r = await fetch(
             `${ML_API_BASE}/categories/${d.category_id}`,
             { headers: { Authorization: `Bearer ${token}` } },
           )
-          if (!r.ok) return []
-          const detail = await r.json() as MLCategoryDetail
-          return detail.path_from_root?.map(p => p.name) ?? []
+          if (!r.ok) return null
+          return await r.json() as MLCategoryDetail
         } catch {
-          return []
+          return null
         }
       }),
     )
 
-    const categories = unique.map((d, i) => ({
-      categoryId:   d.category_id,
-      categoryName: d.category_name,
-      domainName:   d.domain_name,
-      // Ruta completa: ["Ropa y Accesorios", "Ropa para Bebés", "Buzos y Camperas"]
-      pathFromRoot: paths[i],
-      // Atributos pre-predichos para este título en esta categoría
-      predictedAttributes: (d.attributes ?? [])
-        .filter(a => a.value_name)
-        .map(a => ({ id: a.id, name: a.name, value: a.value_name! })),
-    }))
+    const categories = unique.map((d, i) => {
+      const detail = details[i]
+      return {
+        categoryId:            d.category_id,
+        categoryName:          d.category_name,
+        domainName:            d.domain_name,
+        // Ruta completa: ["Ropa y Accesorios", "Ropa para Bebés", "Buzos y Camperas"]
+        pathFromRoot:          detail?.path_from_root?.map(p => p.name) ?? [],
+        // Si true, ML requiere vinculación a su catálogo oficial — no compatible con family_name libre
+        catalogRequired:       detail?.settings?.catalog_listing_eligible === true,
+        variationsAllowed:     detail?.settings?.variations !== 'not_allowed',
+        // Atributos pre-predichos para este título en esta categoría
+        predictedAttributes:   (d.attributes ?? [])
+          .filter(a => a.value_name)
+          .map(a => ({ id: a.id, name: a.name, value: a.value_name! })),
+      }
+    })
 
     return NextResponse.json({ categories, siteId })
 

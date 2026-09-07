@@ -52,10 +52,16 @@ export async function POST(req: Request) {
     categoryId:       string
     listingType:      'free' | 'bronze' | 'gold_special' | 'gold_pro'
     condition:        'new' | 'used'
-    extraAttributes?: Array<{ id: string; value_name: string }>
+    extraAttributes?: Array<{ id: string; value_id?: string; value_name: string }>
+    /** Mapa nombre→value_id para SIZE según catálogo ML de la categoría */
+    sizeValueMap?:    Record<string, string>
+    /** Color propio del producto → nombre de color en ML (ej: "Natural" → "Beige") */
+    colorMap?:        Record<string, string>
+    /** Nombre de color ML → value_id ML (ej: "Beige" → "283155") */
+    colorValueMap?:   Record<string, string>
   }
 
-  const { productId, categoryId, listingType, condition, extraAttributes } = body
+  const { productId, categoryId, listingType, condition, extraAttributes, sizeValueMap, colorMap, colorValueMap } = body
 
   if (!productId || !categoryId) {
     return NextResponse.json({ error: 'productId y categoryId son requeridos' }, { status: 400 })
@@ -99,24 +105,13 @@ export async function POST(req: Request) {
     }
 
     // ── 3. Subir imágenes a ML ─────────────────────────────────────────────
-    // Imagen principal del producto
-    const baseUrl   = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, '') ?? ''
-    const mainImageUrl = prod.photo_url
-      ? `${baseUrl}/api/images/products/${prod.id}`
-      : null
-
-    const pictureIds: string[] = []
-    if (mainImageUrl) {
-      try {
-        const pid = await uploadImage(businessId, mainImageUrl)
-        pictureIds.push(pid)
-      } catch (e) {
-        console.warn('[ml/items] No se pudo subir la imagen principal:', e)
-      }
-    }
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, '') ?? ''
 
     // Mapa color → picture_id (para asignar a cada variante)
     const colorPictureMap: Record<string, string> = {}
+    const pictureIds: string[] = []
+
+    // Primero subir las imágenes de color (tienen su propia URL pública)
     const { rows: colorImgs } = await pool.query<{ color: string; id: number }>(
       `SELECT color, id FROM product_images
        WHERE product_id = $1 AND color IS NOT NULL
@@ -136,16 +131,48 @@ export async function POST(req: Request) {
       }
     }
 
+    // Imagen principal: si el producto tiene photo_url (base64) usamos el endpoint.
+    // Si no, usamos la primera imagen de color como imagen principal.
+    if (prod.photo_url) {
+      try {
+        const pid = await uploadImage(businessId, `${baseUrl}/api/images/products/${prod.id}`)
+        // Insertar al principio — ML usa la primera imagen como portada
+        pictureIds.unshift(pid)
+      } catch (e) {
+        console.warn('[ml/items] No se pudo subir la imagen principal:', e)
+        // Si falla el main pero hay imágenes de color, continuamos igual
+      }
+    }
+    // Si no hay ninguna imagen, ML rechazará la publicación — lo avisamos
+    if (pictureIds.length === 0) {
+      return NextResponse.json(
+        { error: 'El producto no tiene imágenes. Subí al menos una foto antes de publicar en ML.' },
+        { status: 400 },
+      )
+    }
+
     // ── 4. Construir variantes ML ──────────────────────────────────────────
-    const mlVariations: MLVariationParams[] = variants.map(v => ({
-      color:             v.color   ?? undefined,
-      size:              v.size    ?? undefined,
-      availableQuantity: v.stock_count,
-      price:             prod.base_price,
-      sku:               v.sku     || undefined,
-      barcode:           v.barcode ?? undefined,
-      pictureId:         v.color ? colorPictureMap[v.color] : pictureIds[0],
-    }))
+    // colorMap: color propio → nombre ML  (ej: "Natural" → "Beige")
+    // colorValueMap: nombre ML → value_id (ej: "Beige" → "283155")
+    const mlVariations: MLVariationParams[] = variants.map(v => {
+      // Traducir color propio al nombre ML (puede ser el mismo si coincide)
+      const mlColorName = v.color ? (colorMap?.[v.color] ?? v.color) : undefined
+      // Obtener value_id para el nombre ML
+      const mlColorId   = mlColorName ? (colorValueMap?.[mlColorName] ?? undefined) : undefined
+
+      return {
+        color:          mlColorName,
+        colorValueId:   mlColorId,
+        size:           v.size    ?? undefined,
+        sizeValueId:    v.size    ? (sizeValueMap?.[v.size] ?? undefined) : undefined,
+        availableQuantity: v.stock_count,
+        price:          prod.base_price,
+        sku:            v.sku     || undefined,
+        barcode:        v.barcode ?? undefined,
+        // Imagen: buscar por color ORIGINAL del producto (antes de la traducción ML)
+        pictureId:      v.color ? (colorPictureMap[v.color] ?? pictureIds[0]) : pictureIds[0],
+      }
+    })
 
     // ── 5. Crear publicación en ML ─────────────────────────────────────────
     const listing = await createListing(businessId, {
