@@ -54,6 +54,8 @@ const nextConfig = {
   },
   // Oculta el indicador "N" de desarrollo de Next.js
   devIndicators: false,
+  // Permitir tunnels de cloudflared en dev (Host header != localhost)
+  allowedDevOrigins: ['*.trycloudflare.com'],
   // Exponer CUIT de ROISOL al cliente para mostrarlo en las instrucciones de delegación
   env: {
     NEXT_PUBLIC_ARCA_CUIT_ROISOL: process.env.ARCA_CUIT_ROISOL,

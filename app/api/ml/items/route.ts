@@ -3,19 +3,11 @@
  *
  * Publica un producto de ROIPOS en MercadoLibre.
  *
- * Body:
- * {
- *   productId:   number    — ID del producto en ROIPOS
- *   categoryId:  string    — ID de categoría ML (ej: "MLA109027")
- *   listingType: string    — "free" | "bronze" | "gold_special" | "gold_pro"
- *   condition:   string    — "new" | "used"
- * }
- *
- * Flujo:
- *   1. Carga el producto + variantes + imágenes de ROIPOS
- *   2. Sube las imágenes al CDN de ML
- *   3. Crea la publicación con todas las variantes
- *   4. Guarda el vínculo en ml_items
+ * Modelos de publicación:
+ *   FLAT FAMILY: un ítem ML por color+talle (sin variations[]).
+ *     COLOR y SIZE como atributos raíz. family_name compartido.
+ *     → Usado para categorías de indumentaria (error 374 con variations+family_name).
+ *   STANDARD: un único ítem con SIZE en variations (sin colores).
  */
 
 import { NextResponse }        from 'next/server'
@@ -53,11 +45,8 @@ export async function POST(req: Request) {
     listingType:      'free' | 'bronze' | 'gold_special' | 'gold_pro'
     condition:        'new' | 'used'
     extraAttributes?: Array<{ id: string; value_id?: string; value_name: string }>
-    /** Mapa nombre→value_id para SIZE según catálogo ML de la categoría */
     sizeValueMap?:    Record<string, string>
-    /** Color propio del producto → nombre de color en ML (ej: "Natural" → "Beige") */
     colorMap?:        Record<string, string>
-    /** Nombre de color ML → value_id ML (ej: "Beige" → "283155") */
     colorValueMap?:   Record<string, string>
   }
 
@@ -68,6 +57,20 @@ export async function POST(req: Request) {
   }
 
   try {
+    // ── 0. Guía de talles para la categoría (flat family la necesita) ───────
+    const { rows: gridRows } = await pool.query<{
+      grid_id: string
+      row_map:  Record<string, string>
+    }>(
+      `SELECT grid_id, row_map FROM ml_size_grids
+       WHERE business_id = $1 AND category_id = $2 LIMIT 1`,
+      [businessId, categoryId],
+    )
+    // sizeGrid puede ser null; ml-service lo omitirá y ML dirá 2610 si lo necesita
+    const sizeGrid = gridRows[0]
+      ? { gridId: gridRows[0].grid_id, rowMap: gridRows[0].row_map }
+      : null
+
     // ── 1. Cargar producto ──────────────────────────────────────────────────
     const { rows: prodRows } = await pool.query<ProductRow>(
       `SELECT p.id, p.name, p.description, p.base_price::float,
@@ -107,11 +110,9 @@ export async function POST(req: Request) {
     // ── 3. Subir imágenes a ML ─────────────────────────────────────────────
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, '') ?? ''
 
-    // Mapa color → picture_id (para asignar a cada variante)
     const colorPictureMap: Record<string, string> = {}
     const pictureIds: string[] = []
 
-    // Primero subir las imágenes de color (tienen su propia URL pública)
     const { rows: colorImgs } = await pool.query<{ color: string; id: number }>(
       `SELECT color, id FROM product_images
        WHERE product_id = $1 AND color IS NOT NULL
@@ -121,8 +122,7 @@ export async function POST(req: Request) {
     for (const ci of colorImgs) {
       if (ci.color && !colorPictureMap[ci.color]) {
         try {
-          const imgUrl = `${baseUrl}/api/images/product-images/${ci.id}`
-          const pid    = await uploadImage(businessId, imgUrl)
+          const pid = await uploadImage(businessId, `${baseUrl}/api/images/product-images/${ci.id}`)
           colorPictureMap[ci.color] = pid
           if (!pictureIds.includes(pid)) pictureIds.push(pid)
         } catch (e) {
@@ -131,19 +131,15 @@ export async function POST(req: Request) {
       }
     }
 
-    // Imagen principal: si el producto tiene photo_url (base64) usamos el endpoint.
-    // Si no, usamos la primera imagen de color como imagen principal.
     if (prod.photo_url) {
       try {
         const pid = await uploadImage(businessId, `${baseUrl}/api/images/products/${prod.id}`)
-        // Insertar al principio — ML usa la primera imagen como portada
         pictureIds.unshift(pid)
       } catch (e) {
-        console.warn('[ml/items] No se pudo subir la imagen principal:', e)
-        // Si falla el main pero hay imágenes de color, continuamos igual
+        console.warn('[ml/items] No se pudo subir imagen principal:', e)
       }
     }
-    // Si no hay ninguna imagen, ML rechazará la publicación — lo avisamos
+
     if (pictureIds.length === 0) {
       return NextResponse.json(
         { error: 'El producto no tiene imágenes. Subí al menos una foto antes de publicar en ML.' },
@@ -151,73 +147,161 @@ export async function POST(req: Request) {
       )
     }
 
-    // ── 4. Construir variantes ML ──────────────────────────────────────────
-    // colorMap: color propio → nombre ML  (ej: "Natural" → "Beige")
-    // colorValueMap: nombre ML → value_id (ej: "Beige" → "283155")
-    const mlVariations: MLVariationParams[] = variants.map(v => {
-      // Traducir color propio al nombre ML (puede ser el mismo si coincide)
-      const mlColorName = v.color ? (colorMap?.[v.color] ?? v.color) : undefined
-      // Obtener value_id para el nombre ML
-      const mlColorId   = mlColorName ? (colorValueMap?.[mlColorName] ?? undefined) : undefined
+    // ── 4. Publicar ────────────────────────────────────────────────────────
+    //
+    // FLAT FAMILY: un ítem ML por cada combo color+talle.
+    // La categoría MLA109085 (y similares de indumentaria) exige family_name
+    // (error 369 si falta) Y rechaza variations[] con family_name (error 374).
+    // Solución: family_name obligatorio, sin variations[], COLOR+SIZE en attributes raíz.
+    //
+    // El título NO puede incluir color ni talle (ML rechaza "attribute stuffing"
+    // cuando esos atributos ya están declarados en attributes[]).
+    // Cada ítem lleva el mismo título = family_name, y se diferencia por atributos.
+    //
+    const uniqueColors = [...new Set(variants.map(v => v.color).filter(Boolean))] as string[]
+    const mlItemIds:    string[] = []   // todos (incluye existentes omitidos)
+    const newMlItemIds: string[] = []   // solo los recién publicados en esta llamada
 
-      return {
-        color:          mlColorName,
-        colorValueId:   mlColorId,
-        size:           v.size    ?? undefined,
-        sizeValueId:    v.size    ? (sizeValueMap?.[v.size] ?? undefined) : undefined,
-        availableQuantity: v.stock_count,
-        price:          prod.base_price,
-        sku:            v.sku     || undefined,
-        barcode:        v.barcode ?? undefined,
-        // Imagen: buscar por color ORIGINAL del producto (antes de la traducción ML)
-        pictureId:      v.color ? (colorPictureMap[v.color] ?? pictureIds[0]) : pictureIds[0],
+    // Nombre base en Title Case — NO incluye color ni talle
+    const familyTitle = prod.name
+      .toLowerCase()
+      .replace(/\b\w/g, c => c.toUpperCase())
+      .slice(0, 60)
+
+    if (uniqueColors.length > 0) {
+      // Hay colores → publicar un ítem por cada combo color+talle
+      for (const ownColor of uniqueColors) {
+        const colorVariants = variants.filter(v => v.color === ownColor)
+        const mlColorName   = colorMap?.[ownColor] ?? ownColor
+        const mlColorId     = colorValueMap?.[mlColorName] ?? undefined
+
+        const colorPics: string[] = []
+        if (colorPictureMap[ownColor]) colorPics.push(colorPictureMap[ownColor])
+        pictureIds.forEach(pid => { if (!colorPics.includes(pid)) colorPics.push(pid) })
+        const thisPictureIds = colorPics.length > 0 ? colorPics : pictureIds
+
+        const colorAttribute = {
+          id:         'COLOR',
+          value_name: mlColorName,
+          ...(mlColorId && { value_id: mlColorId }),
+        }
+
+        for (const variant of colorVariants) {
+          // Saltar variantes ya publicadas en ML — evita duplicados al republicar
+          const { rows: existing } = await pool.query(
+            `SELECT ml_item_id FROM ml_items
+             WHERE business_id = $1 AND product_variant_id = $2 LIMIT 1`,
+            [businessId, variant.id],
+          )
+          if (existing.length) {
+            console.info(`[ml/items] Variante ${variant.id} (${mlColorName} T${variant.size}) ya publicada como ${existing[0].ml_item_id} — se omite`)
+            mlItemIds.push(existing[0].ml_item_id as string)
+            continue
+          }
+
+          const singleSku: MLVariationParams[] = [{
+            size:              variant.size   ?? undefined,
+            sizeValueId:       variant.size   ? (sizeValueMap?.[variant.size] ?? undefined) : undefined,
+            availableQuantity: variant.stock_count,
+            price:             prod.base_price,
+            sku:               variant.sku    || undefined,
+            barcode:           variant.barcode ?? undefined,
+            pictureId:         thisPictureIds[0],
+          }]
+
+          const listing = await createListing(businessId, {
+            title:           familyTitle,    // Solo nombre, sin color ni talle
+            familyName:      familyTitle,    // Agrupa todos los ítems de este producto
+            colorAttribute,
+            categoryId,
+            currency:        'ARS',
+            listingType,
+            condition,
+            basePrice:       prod.base_price,
+            description:     prod.description ?? undefined,
+            pictureIds:      thisPictureIds,
+            variations:      singleSku,      // → createListing usa isFlatFamily: sin variations[]
+            extraAttributes: extraAttributes ?? [],
+            sizeGrid,
+          })
+
+          mlItemIds.push(listing.mlItemId)
+          newMlItemIds.push(listing.mlItemId)
+          console.info(`[ml/items] Publicado ${mlColorName} talle ${variant.size ?? '-'} → ${listing.mlItemId}`)
+
+          await pool.query(
+            `INSERT INTO ml_items
+               (business_id, product_id, product_variant_id, ml_item_id, ml_status, last_sync_at)
+             VALUES ($1, $2, $3, $4, 'active', NOW())
+             ON CONFLICT (product_variant_id, business_id)
+               WHERE product_variant_id IS NOT NULL
+             DO UPDATE
+               SET ml_item_id   = EXCLUDED.ml_item_id,
+                   ml_status    = 'active',
+                   last_sync_at = NOW()`,
+            [businessId, productId, variant.id, listing.mlItemId],
+          )
+        }
       }
-    })
+    } else {
+      // Sin colores → un único ítem con SIZE en variations
+      const sizeVariations: MLVariationParams[] = variants.map(v => ({
+        size:              v.size   ?? undefined,
+        sizeValueId:       v.size   ? (sizeValueMap?.[v.size] ?? undefined) : undefined,
+        availableQuantity: v.stock_count,
+        price:             prod.base_price,
+        sku:               v.sku    || undefined,
+        barcode:           v.barcode ?? undefined,
+        pictureId:         pictureIds[0],
+      }))
 
-    // ── 5. Crear publicación en ML ─────────────────────────────────────────
-    const listing = await createListing(businessId, {
-      title:           prod.name,
-      categoryId,
-      currency:        'ARS',
-      listingType,
-      condition,
-      basePrice:       prod.base_price,
-      description:     prod.description ?? undefined,
-      pictureIds,
-      variations:      mlVariations,
-      extraAttributes: extraAttributes ?? [],
-    })
+      const listing = await createListing(businessId, {
+        title:           familyTitle,
+        categoryId,
+        currency:        'ARS',
+        listingType,
+        condition,
+        basePrice:       prod.base_price,
+        description:     prod.description ?? undefined,
+        pictureIds,
+        variations:      sizeVariations,
+        extraAttributes: extraAttributes ?? [],
+        sizeGrid,
+      })
 
-    // ── 6. Guardar vínculo en ml_items ─────────────────────────────────────
-    // Una fila por variante (para poder actualizar stock individualmente)
-    // Necesitamos el mlVariationId de cada variante — lo obtenemos de la respuesta
-    // de ML (GET /items/{id}) ya que createListing no devuelve los IDs de variantes
-    // Para el primer insert guardamos solo el mlItemId, los ml_variation_id se
-    // actualizan con syncMLVariationIds (se puede llamar después)
-    for (const v of variants) {
-      await pool.query(
-        `INSERT INTO ml_items
-           (business_id, product_id, product_variant_id, ml_item_id, ml_status, last_sync_at)
-         VALUES ($1, $2, $3, $4, 'active', NOW())
-         ON CONFLICT (product_variant_id, business_id) DO UPDATE
-           SET ml_item_id   = EXCLUDED.ml_item_id,
-               ml_status    = 'active',
-               last_sync_at = NOW()`,
-        [businessId, productId, v.id, listing.mlItemId],
-      )
+      mlItemIds.push(listing.mlItemId)
+
+      for (const v of variants) {
+        await pool.query(
+          `INSERT INTO ml_items
+             (business_id, product_id, product_variant_id, ml_item_id, ml_status, last_sync_at)
+           VALUES ($1, $2, $3, $4, 'active', NOW())
+           ON CONFLICT (product_variant_id, business_id) DO UPDATE
+             SET ml_item_id   = EXCLUDED.ml_item_id,
+                 ml_status    = 'active',
+                 last_sync_at = NOW()`,
+          [businessId, productId, v.id, listing.mlItemId],
+        )
+      }
+
+      syncMLVariationIds(businessId, listing.mlItemId, variants.map(v => v.id))
+        .catch(e => console.error('[ml/items] Error sincronizando variation ids:', e))
     }
 
-    // ── Actualizar ml_variation_id ─────────────────────────────────────────
-    // Los IDs de variantes de ML están disponibles consultando el ítem recién creado.
-    // Lo hacemos en background para no demorar la respuesta.
-    syncMLVariationIds(businessId, listing.mlItemId, variants.map(v => v.id))
-      .catch(e => console.error('[ml/items] Error sincronizando variation ids:', e))
+    // mlItemId y permalink apuntan al primer ítem nuevo (para el toast de la UI)
+    const firstNew  = newMlItemIds[0] ?? mlItemIds[0] ?? null
+    const permalink = firstNew ? `https://articulo.mercadolibre.com.ar/${firstNew}` : null
 
     return NextResponse.json({
-      ok:          true,
-      mlItemId:    listing.mlItemId,
-      permalink:   listing.permalink,
-      variantCount: variants.length,
+      ok:              true,
+      mlItemId:        firstNew,        // compat con la UI (toast)
+      permalink,                        // compat con la UI
+      mlItemIds,                        // todos (existentes + nuevos)
+      newMlItemIds,                     // solo los publicados en esta llamada
+      newCount:        newMlItemIds.length,
+      skippedCount:    mlItemIds.length - newMlItemIds.length,
+      variantCount:    variants.length,
+      model:           uniqueColors.length > 0 ? 'flat-family' : 'standard',
     })
 
   } catch (err) {
@@ -229,10 +313,6 @@ export async function POST(req: Request) {
   }
 }
 
-/**
- * Consulta el ítem recién creado en ML y actualiza los ml_variation_id
- * en la tabla ml_items para cada variante.
- */
 async function syncMLVariationIds(
   businessId: number,
   mlItemId:   string,
@@ -242,8 +322,6 @@ async function syncMLVariationIds(
   const item = await getMLItem(businessId, mlItemId)
   if (!item.variations?.length) return
 
-  // Asociamos por posición: el orden de variantes en ML debería coincidir
-  // con el orden en que las mandamos (color + size). Guardamos el ml_variation_id.
   for (let i = 0; i < Math.min(variantIds.length, item.variations.length); i++) {
     await pool.query(
       `UPDATE ml_items
@@ -254,7 +332,7 @@ async function syncMLVariationIds(
   }
 }
 
-// ── GET — listar productos ya publicados en ML ────────────────────────────────
+// ── GET ───────────────────────────────────────────────────────────────────────
 
 export async function GET(req: Request) {
   const result = await requireBusinessId()

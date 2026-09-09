@@ -8,7 +8,7 @@ import {
   ImageOff, Loader2, X, ChevronDown, Package, Plus, Rows3,
   Globe, CheckCircle2, Circle, History, Calendar, ShoppingCart,
   Tag, ArrowLeftRight, Truck, RefreshCw, ExternalLink, Trash2, AlertTriangle,
-  ShoppingBag, Sparkles,
+  ShoppingBag, Sparkles, LinkIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useAdminCurrency } from "@/hooks/use-admin-currency"
@@ -1284,6 +1284,9 @@ function EditProductDialog({
 
           {/* ── Fotos por color ─────────────────────────────────────────────── */}
           <PhotosByColorSection productId={product.id} />
+
+          {/* ── MercadoLibre ─────────────────────────────────────────────────── */}
+          <MLPublishSection product={product} />
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
@@ -1643,21 +1646,61 @@ const LISTING_TYPES = [
 function MLPublishSection({ product }: { product: Product }) {
   const [open,       setOpen      ] = useState(false)
   const [mlStatus,   setMLStatus  ] = useState<{ mlItemId: string; permalink: string } | null>(null)
+  const [mlItems,    setMLItems   ] = useState<Array<{ ml_item_id: string; ml_status: string }>>([])
   const [checking,   setChecking  ] = useState(false)
 
+  // ── Vincular existente ──
+  const [linkMode,   setLinkMode  ] = useState(false)
+  const [linkItemId, setLinkItemId] = useState('')
+  const [linking,    setLinking   ] = useState(false)
+  const [linkResult, setLinkResult] = useState<{
+    linkedCount: number
+    linked:      Array<{ mlItemId: string; color: string | null; size: string | null }>
+    unmatched:   Array<{ mlItemId: string; color: string | null; size: string | null; reason: string }>
+  } | null>(null)
+
   // Verificar si ya está publicado en ML
-  useEffect(() => {
+  const reloadMLItems = () => {
     setChecking(true)
     fetch(`/api/ml/items?productId=${product.id}`)
       .then(r => r.ok ? r.json() : null)
       .then((data: Array<{ ml_item_id: string; ml_status: string }> | null) => {
         if (data?.length) {
+          setMLItems(data)
           setMLStatus({ mlItemId: data[0].ml_item_id, permalink: `https://articulo.mercadolibre.com.ar/${data[0].ml_item_id}` })
         }
       })
       .catch(() => {/* ML no configurado — silencioso */})
       .finally(() => setChecking(false))
-  }, [product.id])
+  }
+
+  useEffect(() => { reloadMLItems() }, [product.id])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleLink = async () => {
+    const id = linkItemId.trim().toUpperCase()
+    if (!id.startsWith('MLA')) { toast.error('Ingresá un ID válido (MLA...)'); return }
+    setLinking(true)
+    setLinkResult(null)
+    try {
+      const res  = await fetch('/api/ml/items/link', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ productId: product.id, mlItemId: id }),
+      })
+      const data = await res.json() as typeof linkResult & { error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Error')
+      setLinkResult(data)
+      if (data.linkedCount > 0) {
+        toast.success(`${data.linkedCount} publicación${data.linkedCount > 1 ? 'es' : ''} vinculada${data.linkedCount > 1 ? 's' : ''}`)
+        setLinkItemId('')
+        reloadMLItems()
+      }
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setLinking(false)
+    }
+  }
 
   return (
     <div className="border rounded-lg p-3 bg-yellow-50 border-yellow-200 space-y-2">
@@ -1669,32 +1712,100 @@ function MLPublishSection({ product }: { product: Product }) {
           <Loader2 className="h-3 w-3 animate-spin" /> Verificando…
         </div>
       ) : mlStatus ? (
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
-            ● Publicado · {mlStatus.mlItemId}
-          </span>
-          <a
-            href={mlStatus.permalink}
-            target="_blank" rel="noopener noreferrer"
-            className="text-xs text-yellow-700 underline flex items-center gap-1"
-          >
-            Ver en ML <ExternalLink className="h-3 w-3" />
-          </a>
-          <button
-            onClick={() => setOpen(true)}
-            className="text-xs text-yellow-700 underline"
-          >
-            Republicar
-          </button>
+        <div className="space-y-1.5">
+          {/* Mostrar todos los ítems vinculados */}
+          {mlItems.map(it => (
+            <div key={it.ml_item_id} className="flex items-center gap-2 flex-wrap">
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                it.ml_status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+              }`}>
+                {it.ml_status === 'active' ? '●' : '○'} {it.ml_item_id}
+              </span>
+              <a
+                href={`https://articulo.mercadolibre.com.ar/${it.ml_item_id}`}
+                target="_blank" rel="noopener noreferrer"
+                className="text-xs text-yellow-700 underline flex items-center gap-1"
+              >
+                Ver <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+          ))}
+          <div className="flex gap-3 pt-0.5">
+            <button onClick={() => setOpen(true)} className="text-xs text-yellow-700 underline">
+              Republicar
+            </button>
+            <button onClick={() => { setLinkMode(v => !v); setLinkResult(null) }}
+              className="text-xs text-yellow-600 underline">
+              + Vincular otro ítem
+            </button>
+          </div>
         </div>
       ) : (
-        <button
-          onClick={() => setOpen(true)}
-          className="text-xs bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-semibold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
-        >
-          <ShoppingBag className="h-3.5 w-3.5" />
-          Publicar en MercadoLibre
-        </button>
+        <div className="space-y-2">
+          <button
+            onClick={() => setOpen(true)}
+            className="text-xs bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-semibold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+          >
+            <ShoppingBag className="h-3.5 w-3.5" />
+            Publicar en MercadoLibre
+          </button>
+          <button
+            onClick={() => { setLinkMode(v => !v); setLinkResult(null) }}
+            className="text-xs text-yellow-600 underline block"
+          >
+            ¿Ya publicaste este producto a mano?
+          </button>
+        </div>
+      )}
+
+      {/* ── Modo vincular existente ── */}
+      {linkMode && (
+        <div className="border-t border-yellow-200 pt-2 space-y-2">
+          <p className="text-xs text-yellow-700 font-medium">Vincular publicación existente</p>
+          <p className="text-[11px] text-yellow-600">
+            Ingresá el ID de cualquier ítem de la familia en ML. El sistema va a encontrar todos los ítems del mismo producto y vincularlos automáticamente.
+          </p>
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              value={linkItemId}
+              onChange={e => {
+                let v = e.target.value.trim()
+                // Si el usuario pega solo el número (sin MLA), lo completamos
+                if (/^\d+$/.test(v)) v = 'MLA' + v
+                setLinkItemId(v.toUpperCase())
+              }}
+              placeholder="MLA3928256458 (o pegá solo el número)"
+              className="flex-1 text-xs font-mono border border-yellow-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-yellow-400"
+            />
+            <button
+              onClick={handleLink}
+              disabled={linking || !linkItemId.trim()}
+              className="text-xs bg-yellow-500 hover:bg-yellow-600 disabled:opacity-50 text-white font-semibold px-3 py-1.5 rounded-md flex items-center gap-1 transition-colors"
+            >
+              {linking ? <Loader2 className="h-3 w-3 animate-spin" /> : <LinkIcon className="h-3 w-3" />}
+              Vincular
+            </button>
+          </div>
+          {/* Resultado */}
+          {linkResult && (
+            <div className="space-y-1">
+              {linkResult.linked.map(l => (
+                <p key={l.mlItemId} className="text-[11px] text-green-700">
+                  ✓ {l.mlItemId} — {l.color ?? '—'} T{l.size ?? '—'}
+                </p>
+              ))}
+              {linkResult.unmatched.map(u => (
+                <p key={u.mlItemId} className="text-[11px] text-red-600">
+                  ✗ {u.mlItemId} — {u.color ?? '—'} T{u.size ?? '—'}: {u.reason}
+                </p>
+              ))}
+              {linkResult.linkedCount === 0 && linkResult.unmatched.length === 0 && (
+                <p className="text-[11px] text-yellow-600">No se encontraron ítems nuevos para vincular.</p>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {open && (
@@ -1704,7 +1815,8 @@ function MLPublishSection({ product }: { product: Product }) {
           onPublished={(result) => {
             setMLStatus(result)
             setOpen(false)
-            toast.success(`Publicado en ML: ${result.mlItemId}`)
+            reloadMLItems()
+            // El toast ya lo muestra MLPublishModal con el mensaje detallado
           }}
         />
       )}
@@ -1905,9 +2017,21 @@ function MLPublishModal({
           colorValueMap: Object.fromEntries(colorValues.map(v => [v.name, v.id])),
         }),
       })
-      const data = await res.json() as { mlItemId?: string; permalink?: string; error?: string }
+      const data = await res.json() as {
+        mlItemId?:    string
+        permalink?:   string
+        newCount?:    number
+        skippedCount?: number
+        error?:       string
+      }
       if (!res.ok) throw new Error(data.error ?? 'Error al publicar')
-      onPublished({ mlItemId: data.mlItemId!, permalink: data.permalink! })
+      const label = data.newCount === 0
+        ? 'Sin cambios — todos los talles ya estaban publicados'
+        : data.skippedCount
+          ? `${data.newCount} talle${data.newCount! > 1 ? 's' : ''} nuevo${data.newCount! > 1 ? 's' : ''} publicado${data.newCount! > 1 ? 's' : ''} (${data.skippedCount} ya existía${data.skippedCount! > 1 ? 'n' : ''})`
+          : `Publicado: ${data.mlItemId}`
+      onPublished({ mlItemId: data.mlItemId ?? '', permalink: data.permalink ?? '' })
+      toast.success(label)
     } catch (err) {
       toast.error(String(err))
     } finally {

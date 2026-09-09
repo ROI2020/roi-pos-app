@@ -610,10 +610,11 @@ export default function PurchaseTable() {
                       return (
                         <div key={line.id} className="space-y-1">
                           <div className="grid grid-cols-2 sm:grid-cols-[1fr_70px_1.2fr_70px_36px] gap-2 items-start">
-                            {/* Color */}
+                            {/* Color — datalist con colores estándar ML */}
                             <div className="space-y-1 sm:space-y-0">
                               <span className="sm:hidden text-xs text-gray-400">Color</span>
                               <Input placeholder="Negro, Rojo…" value={line.color}
+                                list="ml-colors-list"
                                 onChange={e => setLineField(detail.id, line.id, "color", e.target.value)} />
                             </div>
                             {/* Curvas */}
@@ -887,6 +888,28 @@ export default function PurchaseTable() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Colores estándar ML — datalist para autocompletado en el campo Color */}
+      <datalist id="ml-colors-list">
+        <option value="Amarillo" />
+        <option value="Azul" />
+        <option value="Beige" />
+        <option value="Blanco" />
+        <option value="Bordó" />
+        <option value="Celeste" />
+        <option value="Dorado" />
+        <option value="Gris" />
+        <option value="Marrón" />
+        <option value="Multicolor" />
+        <option value="Naranja" />
+        <option value="Negro" />
+        <option value="Plateado" />
+        <option value="Rosa" />
+        <option value="Rojo" />
+        <option value="Turquesa" />
+        <option value="Verde" />
+        <option value="Violeta" />
+      </datalist>
     </div>
   )
 }

@@ -16,6 +16,7 @@
  */
 
 import { getMLToken, ML_API_BASE } from '@/lib/ml-auth'
+import pool from '@/lib/db'
 
 // ── Helper: fetch autenticado ─────────────────────────────────────────────────
 
@@ -67,7 +68,25 @@ export interface MLListingParams {
   pictureIds:       string[] // IDs de imágenes ya subidas a ML
   variations:       MLVariationParams[]
   /** Atributos adicionales requeridos por la categoría (ej: BRAND, GENDER) */
-  extraAttributes?: Array<{ id: string; value_name: string }>
+  extraAttributes?: Array<{ id: string; value_id?: string; value_name: string }>
+  /**
+   * Modelo "Family Listing" para indumentaria (ropa con COLOR + talle):
+   * - familyName: nombre compartido por todos los ítems de la familia
+   * - colorAttribute: COLOR va como atributo raíz del ítem (no en attribute_combinations)
+   * - Las variations solo contienen SIZE
+   * Sin estos campos se usa el modelo estándar (COLOR+SIZE en attribute_combinations).
+   */
+  familyName?:      string
+  colorAttribute?:  { id: string; value_id?: string; value_name: string } | null
+  /**
+   * Guía de talles ML para la categoría.
+   * Si se provee, agrega SIZE_GRID_ID y SIZE_GRID_ROW_ID a los atributos raíz.
+   * Obtenido desde la tabla ml_size_grids (descubierto una vez y reutilizado).
+   */
+  sizeGrid?: {
+    gridId:  string                   // ej: "7498374"
+    rowMap:  Record<string, string>   // ej: { "14": "7498374:6", "16": "7498374:7" }
+  } | null
 }
 
 export interface MLListingResult {
@@ -180,72 +199,158 @@ export async function getCategoryAttributes(
 }
 
 /**
- * Crea una publicación en ML con variantes (color + talle).
- * Las imágenes deben estar ya subidas con uploadImage().
+ * Crea una publicación en ML.
+ *
+ * Modelos soportados:
+ *
+ * 1. FLAT FAMILY (isFamilyModel + singleVariant):
+ *    Un ítem por cada combinación color+talle. Sin `variations`.
+ *    COLOR y SIZE en `attributes` raíz. family_name compartido.
+ *    → Probado necesario para Buzos y Hoodies (MLA109085) y similares.
+ *
+ * 2. FAMILY + SIZE VARIATIONS (isFamilyModel + múltiples talles):
+ *    Un ítem por color, SIZE en `variations.attribute_combinations`.
+ *    COLOR en `attributes` raíz. family_name compartido.
+ *    → Formato estándar ML para indumentaria con varios talles.
+ *    → ML rechaza este formato para algunas categorías (error 374).
+ *
+ * 3. ESTÁNDAR (no isFamilyModel):
+ *    Un único ítem con COLOR+SIZE en `attribute_combinations`.
+ *    → Para categorías que no requieren family_name.
  */
 export async function createListing(
   businessId: number,
   params:     MLListingParams,
 ): Promise<MLListingResult> {
-  // Construir variantes ML
-  const variations = params.variations.map(v => {
-    // attribute_combinations: incluir value_id cuando ML lo tiene en su catálogo
-    const attributeCombinations: Array<{ id: string; value_id?: string; value_name: string }> = []
-    if (v.color) attributeCombinations.push({
-      id: 'COLOR',
-      ...(v.colorValueId && { value_id: v.colorValueId }),
-      value_name: v.color,
-    })
-    if (v.size)  attributeCombinations.push({
-      id: 'SIZE',
-      ...(v.sizeValueId && { value_id: v.sizeValueId }),
-      value_name: v.size,
-    })
+  const isFamilyModel  = !!params.familyName
+  // Flat family: un ítem sin variations (SIZE como atributo raíz)
+  const isFlatFamily   = isFamilyModel && params.variations.length <= 1
 
-    // Estructura mínima de variante — probando sin variation-level attributes
-    // porque parecen ser la causa del "variations is invalid".
-    // GTIN / SELLER_SKU los re-agregamos una vez que esto funcione.
-    return {
-      attribute_combinations: attributeCombinations,
-      price:               v.price,
-      available_quantity:  v.availableQuantity,
-      ...(v.pictureId && { picture_ids: [v.pictureId] }),
-      ...(v.sku       && { seller_custom_field: v.sku }),
-    }
-  })
+  // ── Variantes ML ─────────────────────────────────────────────────────────────
+  // Flat family: no usamos variations[]
+  // Family + sizes: solo SIZE en attribute_combinations
+  // Estándar: COLOR + SIZE en attribute_combinations
+  let variations: unknown[] = []
 
-  // Precio base = mínimo entre variantes (ML lo requiere)
+  if (!isFlatFamily) {
+    variations = params.variations.map(v => {
+      const attributeCombinations: Array<{ id: string; value_id?: string; value_name: string }> = []
+
+      if (!isFamilyModel && v.color) {
+        attributeCombinations.push({
+          id: 'COLOR',
+          ...(v.colorValueId && { value_id: v.colorValueId }),
+          value_name: v.color,
+        })
+      }
+      if (v.size) {
+        attributeCombinations.push({
+          id: 'SIZE',
+          ...(v.sizeValueId && { value_id: v.sizeValueId }),
+          value_name: v.size,
+        })
+      }
+
+      return {
+        attribute_combinations: attributeCombinations,
+        price:               v.price,
+        available_quantity:  v.availableQuantity,
+        ...(v.pictureId && { picture_ids: [v.pictureId] }),
+        ...(v.sku       && { seller_custom_field: v.sku }),
+      }
+    })
+  }
+
   const basePrice  = Math.min(...params.variations.map(v => v.price))
-  // Stock total en el root (requerido por ML incluso cuando hay variantes)
   const totalStock = params.variations.reduce((s, v) => s + v.availableQuantity, 0)
 
+  // ── Atributos raíz ───────────────────────────────────────────────────────────
+  const rootAttributes: Array<{ id: string; value_id?: string; value_name: string }> = [
+    ...(params.extraAttributes ?? []),
+  ]
+  if (isFamilyModel && params.colorAttribute) {
+    rootAttributes.push(params.colorAttribute)
+  }
+  // Flat family: SIZE también va en atributos raíz (no hay variations)
+  if (isFlatFamily && params.variations[0]?.size) {
+    const v = params.variations[0]
+    rootAttributes.push({
+      id: 'SIZE',
+      value_name: v.size!,
+      ...(v.sizeValueId && { value_id: v.sizeValueId }),
+    })
+    // SIZE_GRID_ID + SIZE_GRID_ROW_ID: requeridos por ML en categorías de indumentaria
+    // con catalog_domain. El grid se obtiene de ml_size_grids (descubierto una vez
+    // publicando un ítem a mano y guardado en DB). Ver /api/ml/size-grids.
+    if (params.sizeGrid) {
+      rootAttributes.push({
+        id:         'SIZE_GRID_ID',
+        value_name: params.sizeGrid.gridId,
+      })
+      const rowId = params.sizeGrid.rowMap[v.size!]
+      if (rowId) {
+        rootAttributes.push({
+          id:         'SIZE_GRID_ROW_ID',
+          value_name: rowId,
+        })
+      } else {
+        console.warn(`[ml createListing] SIZE_GRID_ROW_ID no encontrado para talle "${v.size}" en grid ${params.sizeGrid.gridId}. El talle puede no estar en el mapa.`)
+      }
+    }
+  }
+
+  // En modo catálogo (flat family con catalog_domain), ML ignora/rechaza el campo
+  // "title" porque el título viene del catalog_product_id. Lo omitimos para que
+  // el error cambie y nos indique qué campo falta en su lugar.
+  const isCatalogMode = isFlatFamily
+
   const body: Record<string, unknown> = {
-    title:              params.title,
+    ...(!isCatalogMode && { title: params.title }),
     category_id:        params.categoryId,
     price:              basePrice,
     currency_id:        params.currency,
-    available_quantity: totalStock,    // ML lo pide siempre en el root
+    available_quantity: totalStock,
     buying_mode:        'buy_it_now',
     listing_type_id:    params.listingType,
     condition:          params.condition,
     pictures:           params.pictureIds.map(id => ({ id })),
-    attributes:         [...(params.extraAttributes ?? [])],
+    attributes:         rootAttributes,
     ...(params.description && {
       description: { plain_text: params.description.slice(0, 50000) },
     }),
   }
 
-  if (variations.length > 0) {
-    body.variations  = variations
-    // family_name requerido por ML para ítems con variantes en categorías de catálogo
-    body.family_name = params.title
+  if (isFamilyModel) {
+    body.family_name = params.familyName
   }
 
-  const result = await mlFetch<{ id: string; permalink: string }>(
-    businessId,
-    '/items',
-    { method: 'POST', body: JSON.stringify(body) },
-  )
+  if (variations.length > 0) {
+    body.variations = variations
+  }
+
+  let result: { id: string; permalink: string }
+  try {
+    result = await mlFetch<{ id: string; permalink: string }>(
+      businessId,
+      '/items',
+      { method: 'POST', body: JSON.stringify(body) },
+    )
+  } catch (err) {
+    // Log del error en background — no bloquea el throw
+    pool.query(
+      `INSERT INTO ml_api_logs (business_id, action, request_body, error)
+       VALUES ($1, 'createListing', $2, $3)`,
+      [businessId, body, String(err)],
+    ).catch(() => {/* silencioso */})
+    throw err
+  }
+
+  // Log exitoso en background
+  pool.query(
+    `INSERT INTO ml_api_logs (business_id, action, request_body, response_body, ml_item_id)
+     VALUES ($1, 'createListing', $2, $3, $4)`,
+    [businessId, body, { id: result.id, permalink: result.permalink }, result.id],
+  ).catch(() => {/* silencioso */})
 
   return { mlItemId: result.id, permalink: result.permalink }
 }

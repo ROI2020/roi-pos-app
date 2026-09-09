@@ -7,7 +7,7 @@ import {
   Loader2, Save, Upload, X, CheckCircle2, Star,
   Globe, Copy, RefreshCw, Eye, EyeOff, Rss, BarChart2,
   Wallet, ChevronDown, ChevronRight, CreditCard, Sparkles, Receipt,
-  FileText, ExternalLink, Mail, Send, Code, Clock, ShoppingBag, LinkIcon, Unlink,
+  FileText, ExternalLink, Mail, Send, Code, Clock, ShoppingBag, LinkIcon, Unlink, Search,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button }   from "@/components/ui/button"
@@ -3005,6 +3005,15 @@ interface MLSettings {
   ml_msg_dispatched?:    string | null
 }
 
+interface SizeGrid {
+  id:           number
+  category_id:  string
+  grid_id:      string
+  row_map:      Record<string, string>
+  grid_name:    string | null
+  updated_at:   string
+}
+
 function MLTab() {
   const [cfg,      setCfg     ] = useState<MLSettings | null>(null)
   const [loading,  setLoading ] = useState(true)
@@ -3017,21 +3026,90 @@ function MLTab() {
   const [msgDispatched,   setMsgDispatched  ] = useState('')
   const [savingMsgs,      setSavingMsgs     ] = useState(false)
 
+  // ── Guías de talles ──
+  const [grids,        setGrids       ] = useState<SizeGrid[]>([])
+  const [discoverCat,  setDiscoverCat ] = useState('')
+  const [discovering,  setDiscovering ] = useState(false)
+
+  // ── Logs de publicación ML ──
+  interface MLLog {
+    id:            number
+    created_at:    string
+    action:        string
+    request_body:  Record<string, unknown> | null
+    response_body: Record<string, unknown> | null
+    error:         string | null
+    ml_item_id:    string | null
+  }
+  const [mlLogs,       setMlLogs      ] = useState<MLLog[]>([])
+  const [logsOpen,     setLogsOpen    ] = useState(false)
+  const [logsLoading,  setLogsLoading ] = useState(false)
+  const [logsCleaning, setLogsCleaning] = useState(false)
+
+  const loadLogs = useCallback(async () => {
+    setLogsLoading(true)
+    try {
+      const data = await fetch('/api/ml/logs?limit=50').then(r => r.json()) as MLLog[]
+      setMlLogs(Array.isArray(data) ? data : [])
+    } finally {
+      setLogsLoading(false)
+    }
+  }, [])
+
+  const clearLogs = async () => {
+    if (!confirm('¿Borrar todos los logs de ML?')) return
+    setLogsCleaning(true)
+    try {
+      await fetch('/api/ml/logs', { method: 'DELETE' })
+      setMlLogs([])
+      toast.success('Logs borrados')
+    } finally {
+      setLogsCleaning(false)
+    }
+  }
+
   const DEFAULT_CONFIRMATION = '¡Hola {{buyerNickname}}! Recibimos tu pedido en {{storeName}} y ya lo estamos preparando 🙌. Ante cualquier consulta, escribinos acá.'
   const DEFAULT_DISPATCHED   = '¡Hola {{buyerNickname}}! Tu pedido ya fue despachado por {{carrier}} 📦. Número de seguimiento: {{trackingNumber}}. Podés rastrearlo en el sitio del correo. ¡Gracias por tu compra!'
 
   useEffect(() => {
-    fetch('/api/settings/ml')
-      .then(r => r.json())
-      .then((d: MLSettings) => {
+    Promise.all([
+      fetch('/api/settings/ml').then(r => r.json()),
+      fetch('/api/ml/size-grids').then(r => r.json()),
+    ])
+      .then(([d, g]: [MLSettings, SizeGrid[]]) => {
         setCfg(d)
         setAppId(d.ml_app_id ?? '')
         setMsgConfirmation(d.ml_msg_confirmation ?? '')
         setMsgDispatched(d.ml_msg_dispatched ?? '')
+        setGrids(Array.isArray(g) ? g : [])
       })
       .catch(() => toast.error('Error al cargar configuración ML'))
       .finally(() => setLoading(false))
   }, [])
+
+  const handleDiscover = async () => {
+    const cat = discoverCat.trim().toUpperCase()
+    if (!cat) { toast.error('Ingresá el ID de categoría ML'); return }
+    setDiscovering(true)
+    try {
+      const res = await fetch('/api/ml/size-grids', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ action: 'discover', categoryId: cat }),
+      })
+      const data = await res.json() as { ok?: boolean; grid?: SizeGrid; error?: string; rowsFound?: number }
+      if (!res.ok) throw new Error(data.error ?? 'Error')
+      toast.success(`Guía descubierta: ${data.rowsFound} talles mapeados`)
+      setDiscoverCat('')
+      // Refrescar lista
+      const updated = await fetch('/api/ml/size-grids').then(r => r.json()) as SizeGrid[]
+      setGrids(updated)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setDiscovering(false)
+    }
+  }
 
   const handleSave = async () => {
     if (!appId.trim()) { toast.error('El App ID es obligatorio'); return }
@@ -3279,6 +3357,79 @@ function MLTab() {
         </Button>
       </div>
 
+      {/* ── Guías de talles por categoría ── */}
+      <div className="space-y-4 border-t border-gray-100 pt-5">
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            Guías de talles por categoría
+          </p>
+          <p className="text-xs text-gray-400 mt-1">
+            Necesario para publicar indumentaria en ML. Publicá un ítem a mano en la categoría nueva,
+            ingresá el ID y hacé clic en Descubrir.
+          </p>
+        </div>
+
+        {/* Grids ya configurados */}
+        {grids.length > 0 && (
+          <div className="space-y-2">
+            {grids.map(g => {
+              const sizes = Object.keys(g.row_map).sort((a, b) => {
+                const na = parseFloat(a), nb = parseFloat(b)
+                return isNaN(na) || isNaN(nb) ? a.localeCompare(b) : na - nb
+              })
+              return (
+                <div key={g.id} className="flex items-center justify-between bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
+                  <div>
+                    <span className="text-xs font-mono font-semibold text-yellow-800">{g.category_id}</span>
+                    <span className="mx-2 text-yellow-300">·</span>
+                    <span className="text-xs text-yellow-700">grid {g.grid_id}</span>
+                    {g.grid_name && <span className="text-xs text-yellow-600 ml-1">({g.grid_name})</span>}
+                    <p className="text-[11px] text-yellow-600 mt-0.5">
+                      {sizes.length} talles: {sizes.join(', ')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setDiscoverCat(g.category_id)
+                      await handleDiscover()
+                    }}
+                    className="text-[11px] text-yellow-700 hover:text-yellow-900 underline shrink-0 ml-2"
+                    disabled={discovering}
+                  >
+                    Actualizar
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Input para descubrir nueva categoría */}
+        <div className="flex gap-2">
+          <Input
+            value={discoverCat}
+            onChange={e => setDiscoverCat(e.target.value.toUpperCase())}
+            placeholder="ID categoría ML (ej: MLA109085)"
+            className="text-sm font-mono flex-1"
+          />
+          <Button
+            onClick={handleDiscover}
+            disabled={discovering || !discoverCat.trim()}
+            variant="outline"
+            className="shrink-0"
+          >
+            {discovering
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <Search className="h-4 w-4" />}
+            <span className="ml-1.5">Descubrir</span>
+          </Button>
+        </div>
+        <p className="text-[11px] text-gray-400">
+          El sistema busca tus publicaciones en esa categoría y mapea automáticamente los talles.
+        </p>
+      </div>
+
       {/* ── Instrucciones redirect URI ── */}
       <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-2">
         <p className="text-xs font-semibold text-gray-600">Redirect URI requerido en la app ML</p>
@@ -3299,6 +3450,84 @@ function MLTab() {
         </div>
         <p className="text-xs text-gray-400">
           Copiá esta URL y pegála en Redirect URIs de tu aplicación en developers.mercadolibre.com.ar
+        </p>
+      </div>
+
+      {/* ── Logs de publicación ML ── */}
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-gray-600">Logs de publicación ML</p>
+          <div className="flex gap-2">
+            <Button
+              size="sm" variant="outline" className="text-xs h-7"
+              onClick={async () => {
+                setLogsOpen(v => !v)
+                if (!logsOpen) await loadLogs()
+              }}
+              disabled={logsLoading}
+            >
+              {logsLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Code className="h-3 w-3 mr-1" />}
+              {logsOpen ? 'Ocultar' : 'Ver logs'}
+            </Button>
+            {logsOpen && mlLogs.length > 0 && (
+              <Button
+                size="sm" variant="outline" className="text-xs h-7 text-red-600 border-red-200 hover:bg-red-50"
+                onClick={clearLogs}
+                disabled={logsCleaning}
+              >
+                {logsCleaning ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Trash2 className="h-3 w-3 mr-1" />}
+                Limpiar
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {logsOpen && (
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {mlLogs.length === 0 && !logsLoading && (
+              <p className="text-xs text-gray-400 text-center py-4">Sin logs todavía</p>
+            )}
+            {mlLogs.map(log => (
+              <div
+                key={log.id}
+                className={`rounded-lg border p-3 text-xs space-y-1 ${
+                  log.error ? 'border-red-200 bg-red-50' : 'border-green-200 bg-green-50'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`font-semibold ${log.error ? 'text-red-700' : 'text-green-700'}`}>
+                    {log.error ? '✗ Error' : '✓ OK'} — {log.action}
+                  </span>
+                  <span className="text-gray-400 shrink-0">
+                    {new Date(log.created_at).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}
+                  </span>
+                </div>
+                {log.ml_item_id && (
+                  <p className="text-gray-600">
+                    Ítem: <a
+                      href={`https://articulo.mercadolibre.com.ar/${log.ml_item_id}`}
+                      target="_blank" rel="noreferrer"
+                      className="underline text-blue-600"
+                    >{log.ml_item_id}</a>
+                  </p>
+                )}
+                {log.error && (
+                  <p className="text-red-700 break-all">{log.error}</p>
+                )}
+                {log.request_body && (
+                  <details>
+                    <summary className="cursor-pointer text-gray-500 hover:text-gray-700">Body enviado a ML</summary>
+                    <pre className="mt-1 text-[10px] bg-white border border-gray-200 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
+                      {JSON.stringify(log.request_body, null, 2)}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-gray-400">
+          Guarda el body de cada publicación en ML. Útil para depurar nuevas categorías.
         </p>
       </div>
 
