@@ -3008,6 +3008,7 @@ interface MLSettings {
 interface SizeGrid {
   id:           number
   category_id:  string
+  gender:       string
   grid_id:      string
   row_map:      Record<string, string>
   grid_name:    string | null
@@ -3097,9 +3098,10 @@ function MLTab() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ action: 'discover', categoryId: cat }),
       })
-      const data = await res.json() as { ok?: boolean; grid?: SizeGrid; error?: string; rowsFound?: number }
+      const data = await res.json() as { ok?: boolean; grids?: SizeGrid[]; error?: string; rowsFound?: number }
       if (!res.ok) throw new Error(data.error ?? 'Error')
-      toast.success(`Guía descubierta: ${data.rowsFound} talles mapeados`)
+      const genderList = data.grids?.map(g => g.gender).join(', ') ?? ''
+      toast.success(`Guía descubierta: ${data.rowsFound} talles (${genderList})`)
       setDiscoverCat('')
       // Refrescar lista
       const updated = await fetch('/api/ml/size-grids').then(r => r.json()) as SizeGrid[]
@@ -3381,6 +3383,8 @@ function MLTab() {
                 <div key={g.id} className="flex items-center justify-between bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
                   <div>
                     <span className="text-xs font-mono font-semibold text-yellow-800">{g.category_id}</span>
+                    <span className="mx-2 text-yellow-300">·</span>
+                    <span className="text-xs text-yellow-700">{g.gender}</span>
                     <span className="mx-2 text-yellow-300">·</span>
                     <span className="text-xs text-yellow-700">grid {g.grid_id}</span>
                     {g.grid_name && <span className="text-xs text-yellow-600 ml-1">({g.grid_name})</span>}

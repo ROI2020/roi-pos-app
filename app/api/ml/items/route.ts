@@ -58,13 +58,22 @@ export async function POST(req: Request) {
 
   try {
     // ── 0. Guía de talles para la categoría (flat family la necesita) ───────
+    // Busca por categoría + gender del producto (del extraAttributes GENDER).
+    // Si no hay coincidencia exacta por gender, intenta sin filtro de gender (fallback).
+    const mlGender = extraAttributes?.find(a => a.id === 'GENDER')?.value_name ?? null
     const { rows: gridRows } = await pool.query<{
       grid_id: string
       row_map:  Record<string, string>
     }>(
-      `SELECT grid_id, row_map FROM ml_size_grids
-       WHERE business_id = $1 AND category_id = $2 LIMIT 1`,
-      [businessId, categoryId],
+      mlGender
+        ? `SELECT grid_id, row_map FROM ml_size_grids
+           WHERE business_id = $1 AND category_id = $2
+             AND (gender = $3 OR gender ILIKE $3)
+           LIMIT 1`
+        : `SELECT grid_id, row_map FROM ml_size_grids
+           WHERE business_id = $1 AND category_id = $2
+           LIMIT 1`,
+      mlGender ? [businessId, categoryId, mlGender] : [businessId, categoryId],
     )
     // sizeGrid puede ser null; ml-service lo omitirá y ML dirá 2610 si lo necesita
     const sizeGrid = gridRows[0]
