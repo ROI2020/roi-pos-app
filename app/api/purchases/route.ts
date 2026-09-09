@@ -161,21 +161,21 @@ export async function POST(request: Request) {
       }
     }
 
-    // Compras se asumen pagadas desde Efectivo Caja Central
+    // Compras se asumen pagadas desde Efectivo Caja Central.
+    // Si la cuenta no existe, la compra se graba igual (stock y variantes ok)
+    // pero sin el movimiento contable — se avisa con warning en la respuesta.
+    let missingAccount = false
     if (totalAmount > 0) {
       const fopId = await getFopId(client, null, 'efectivo')
       if (!fopId) {
-        await client.query('ROLLBACK')
-        console.error(`[POST /api/purchases] fopId not found for Caja Central / efectivo`)
-        return NextResponse.json(
-          { error: 'No se encontró la cuenta Efectivo Caja Central. Verificá la configuración de cuentas.' },
-          { status: 422 }
-        )
+        console.warn(`[POST /api/purchases] cuenta "Caja Central" no configurada — compra grabada sin movimiento contable`)
+        missingAccount = true
+      } else {
+        await insertTransaction(client, {
+          businessId: purchase.business_id, branchId: null, fopId,
+          type: 'purchase', typeId: purchase.id, amount: -totalAmount,
+        })
       }
-      await insertTransaction(client, {
-        businessId: purchase.business_id, branchId: null, fopId,
-        type: 'purchase', typeId: purchase.id, amount: -totalAmount,
-      })
     }
 
     await client.query('COMMIT')
@@ -185,6 +185,7 @@ export async function POST(request: Request) {
         id: purchase.id,
         total_amount: totalAmount,
         variants_created: totalVariants,
+        missing_account: missingAccount,
         message: `Compra #${purchase.id} grabada — ${totalVariants} prendas registradas`,
       },
       { status: 201 }

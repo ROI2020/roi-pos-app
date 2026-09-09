@@ -16,8 +16,7 @@ const PAYMENT_FOP_MAP: Record<string, { accountName: string; fopName: string }> 
 
 /**
  * Resuelve el fop_id correspondiente a una forma de pago en una sucursal
- * (branchId = null → Caja Central, siempre vía la cuenta "Efectivo Caja
- * Central" / fop "Efectivo").
+ * (branchId = null → Caja Central, vía la cuenta "Efectivo Caja Central" / fop "Efectivo").
  */
 export async function getFopId(
   client: PoolClient, branchId: number | null, paymentMethod: string

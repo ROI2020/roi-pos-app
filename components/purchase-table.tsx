@@ -243,7 +243,14 @@ export default function PurchaseTable() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? "Error desconocido")
-      setProducts(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name, "es")))
+      // upsertProduct devuelve { id, slug, created } sin name — lo completamos con el form
+      const newProduct: Product = {
+        id:          String(data.id),
+        name:        newProd.name.trim(),
+        description: newProd.description,
+        base_price:  newProd.base_price,
+      }
+      setProducts(prev => [...prev, newProduct].sort((a, b) => a.name.localeCompare(b.name, "es")))
       if (targetDetailId) {
         setForm(f => ({
           ...f,
@@ -255,7 +262,7 @@ export default function PurchaseTable() {
       setNewProd({ name: "", description: "", base_price: 0 })
       setProductOpen(false)
       setTargetDetailId(null)
-      toast.success(`Producto "${data.name}" creado`)
+      toast.success(`Producto "${newProduct.name}" creado`)
     } catch (err: unknown) {
       toast.error(String((err as Error).message))
     } finally { setSavingProduct(false) }
@@ -347,10 +354,15 @@ export default function PurchaseTable() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? "Error desconocido")
-      toast.success(
-        `Compra #${data.id} grabada — Total: $${(data.total_amount as number)
-          .toLocaleString("es-AR", { minimumFractionDigits: 2 })}`
-      )
+      const totalFmt = (data.total_amount as number).toLocaleString("es-AR", { minimumFractionDigits: 2 })
+      if (data.missing_account) {
+        toast.warning(
+          `Compra #${data.id} grabada — Total: $${totalFmt}. ⚠️ Falta cuenta "Caja Central" en Settings → Cuentas (sin sucursal, FOP Efectivo) para registrar el egreso contable.`,
+          { duration: 8000 }
+        )
+      } else {
+        toast.success(`Compra #${data.id} grabada — Total: $${totalFmt}`)
+      }
       counter.current = 0
       setForm({
         supplier_id: "", invoice_number: "",
