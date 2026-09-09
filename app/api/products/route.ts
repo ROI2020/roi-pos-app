@@ -31,6 +31,7 @@ export async function GET(req: Request) {
   const genderId        = searchParams.get('gender_id')
   const unclassified    = searchParams.get('unclassified') === 'true'
   const hasPhoto        = searchParams.get('has_photo')
+  const hasStock        = searchParams.get('has_stock')
   const exportable      = searchParams.get('exportable')
   /** 'ds' = solo dropshipping (cj_pid IS NOT NULL); 'fisico' = solo físicos; omitido = todos */
   const dsFilter        = searchParams.get('ds_filter')
@@ -121,6 +122,7 @@ export async function GET(req: Request) {
     LEFT JOIN branch_inventory bi ON bi.product_variant_id = pv.id
     ${where}
     GROUP BY p.id, c.name, ag.name, s.name, g.name
+    ${hasStock === 'true' ? 'HAVING COUNT(DISTINCT bi.id) > 0' : ''}
     ORDER BY ${ORDER}
     LIMIT $${p++} OFFSET $${p}
   `, params)

@@ -2347,6 +2347,7 @@ export default function ProductsPanel() {
   const [filterGender, setFilterGender] = useState('__all__')
   const [filterExport, setFilterExport] = useState('__all__')
   const [filterPhoto,  setFilterPhoto ] = useState('__all__')
+  const [filterStock,  setFilterStock ] = useState<'yes' | '__all__'>('yes')
   /** Físico/DS filter: '__all__' | 'fisico' | 'ds' */
   const [filterDS,     setFilterDS    ] = useState<'__all__' | 'fisico' | 'ds'>('__all__')
   const [showFilters,  setShowFilters ] = useState(false)
@@ -2384,9 +2385,10 @@ export default function ProductsPanel() {
     if (filterExport !== '__all__') qs.set('exportable',   filterExport)
     if (filterPhoto  === 'yes')     qs.set('has_photo',    'true')
     if (filterPhoto  === 'no')      qs.set('has_photo',    'false')
+    if (filterStock  === 'yes')     qs.set('has_stock',    'true')
     if (filterDS     !== '__all__') qs.set('ds_filter',    filterDS)
     return qs.toString()
-  }, [debouncedQ, sort, filterCat, filterAge, filterSeason, filterGender, filterExport, filterPhoto, filterDS])
+  }, [debouncedQ, sort, filterCat, filterAge, filterSeason, filterGender, filterExport, filterPhoto, filterStock, filterDS])
 
   useEffect(() => {
     setLoading(true); setOffset(0)
@@ -2514,6 +2516,19 @@ export default function ProductsPanel() {
               ))}
             </div>
 
+            {/* Botón rápido con Stock */}
+            <button
+              onClick={() => setFilterStock(filterStock === 'yes' ? '__all__' : 'yes')}
+              className={`flex items-center gap-1.5 h-9 px-3 rounded-md text-sm font-medium border transition-colors
+                ${filterStock === 'yes'
+                  ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                  : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                }`}
+            >
+              <Package className="h-3.5 w-3.5" />
+              Con stock
+            </button>
+
             {/* Botón rápido Sin foto */}
             <button
               onClick={() => setFilterPhoto(sinFotoActive ? '__all__' : 'no')}
@@ -2613,7 +2628,8 @@ export default function ProductsPanel() {
               <Button variant="outline" size="sm" onClick={() => {
                 setQ(''); setFilterCat('__all__'); setFilterAge('__all__')
                 setFilterSeason('__all__'); setFilterGender('__all__')
-                setFilterExport('__all__'); setFilterPhoto('__all__'); setFilterDS('__all__')
+                setFilterExport('__all__'); setFilterPhoto('__all__')
+                setFilterStock('yes'); setFilterDS('__all__')
               }}>
                 Limpiar filtros
               </Button>
