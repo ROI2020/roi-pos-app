@@ -48,8 +48,14 @@ export async function GET(req: Request) {
   params.push(businessId)
 
   if (q) {
-    conditions.push(`p.name ILIKE $${p++}`)
+    conditions.push(
+      `(p.name ILIKE $${p} OR EXISTS (
+         SELECT 1 FROM product_variants pv
+         WHERE pv.product_id = p.id AND pv.sku ILIKE $${p}
+       ))`
+    )
     params.push(`%${q}%`)
+    p++
   }
   if (categoryId)   { conditions.push(`p.category_id  = $${p++}`); params.push(parseInt(categoryId))  }
   if (ageGroupId)   { conditions.push(`p.age_group_id = $${p++}`); params.push(parseInt(ageGroupId))  }

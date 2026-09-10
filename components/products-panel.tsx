@@ -401,6 +401,7 @@ function VariantsDialog({
               <thead>
                 <tr className="text-xs font-semibold text-gray-400 uppercase tracking-wide border-b">
                   <th className="text-left px-2 py-2">Color / Talle</th>
+                  <th className="text-left px-2 py-2 hidden sm:table-cell">SKU</th>
                   <th className="text-left px-2 py-2">Estado</th>
                   <th className="text-left px-2 py-2 hidden sm:table-cell">Sucursal</th>
                   <th className="text-right px-2 py-2 hidden sm:table-cell">Fecha venta</th>
@@ -419,6 +420,9 @@ function VariantsDialog({
                         <span className={`${vi === 0 ? 'ml-2' : ''} text-gray-500`}>
                           T.{v.size}
                         </span>
+                      </td>
+                      <td className="px-2 py-1.5 text-xs text-gray-400 font-mono hidden sm:table-cell">
+                        {v.sku || '—'}
                       </td>
                       <td className={`px-2 py-1.5 font-medium text-xs ${statusCfg[v.status].cls}`}>
                         {statusCfg[v.status].label}
