@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireBusinessId } from '@/lib/get-business-id'
+import { getBusinessTimezone } from '@/lib/timezone'
 
 /**
  * GET /api/reports/products-sold?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -26,6 +27,8 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const from = searchParams.get('from')
   const to   = searchParams.get('to')
+
+  const tz = await getBusinessTimezone(pool, businessId)
 
   if (!from || !to)
     return NextResponse.json({ error: 'from y to requeridos' }, { status: 400 })
@@ -78,8 +81,8 @@ export async function GET(req: Request) {
     JOIN  sale_details sd ON sd.product_variant_id = pv.id
     JOIN  sales sal
            ON sal.id = sd.sale_id
-          -- ZONA HORARIA: doble AT TIME ZONE para fecha ART correcta (ver sales/route.ts)
-          AND (sal.sold_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+          -- ZONA HORARIA: doble AT TIME ZONE para fecha correcta en la zona del negocio (ver lib/timezone.ts)
+          AND (sal.sold_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
               BETWEEN $1 AND $2
           AND sal.business_id = $3
           AND NOT EXISTS (
@@ -95,7 +98,7 @@ export async function GET(req: Request) {
         END
       ), 0) - COALESCE(SUM(pd.unit_cost), 0)
     ) DESC NULLS LAST
-  `, [from, to, businessId])
+  `, [from, to, businessId, tz])
 
   return NextResponse.json(rows)
 }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
 import { requireBusinessId } from '@/lib/get-business-id'
+import { getBusinessTimezone } from '@/lib/timezone'
 
 /**
  * GET /api/reports/sales?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -24,6 +25,8 @@ export async function GET(req: Request) {
 
   if (!from || !to)
     return NextResponse.json({ error: 'from y to son requeridos (YYYY-MM-DD)' }, { status: 400 })
+
+  const tz = await getBusinessTimezone(pool, businessId)
 
   const { rows: ventas } = await pool.query(
     `SELECT
@@ -60,15 +63,14 @@ export async function GET(req: Request) {
      JOIN branches  br ON br.id = s.branch_id
      LEFT JOIN app_users u  ON u.id  = s.user_id
      LEFT JOIN facturas  f  ON f.venta_id = s.id::text AND f.estado = 'emitida'
-     -- ZONA HORARIA: sold_at es TIMESTAMP que almacena UTC. El doble AT TIME ZONE
-     -- convierte correctamente a fecha ART (ventas entre 21:00–23:59 ART caen en
-     -- el día siguiente en UTC y se perdían con sold_at::date).
-     WHERE (s.sold_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+     -- ZONA HORARIA: sold_at es TIMESTAMP (UTC). Doble AT TIME ZONE para obtener
+     -- la fecha correcta en la zona del negocio (ver lib/timezone.ts).
+     WHERE (s.sold_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
            BETWEEN $1::date AND $2::date
        AND s.business_id = $3
        AND NOT EXISTS (SELECT 1 FROM exchanges ex WHERE ex.exchange_sale_id = s.id)
      ORDER BY s.sold_at DESC`,
-    [from, to, businessId]
+    [from, to, businessId, tz]
   )
 
   const { rows: cambios } = await pool.query(
@@ -105,11 +107,11 @@ export async function GET(req: Request) {
      LEFT JOIN products          rp ON rp.id = rv.product_id
      LEFT JOIN product_variants nv ON nv.id = ex.new_variant_id
      LEFT JOIN products          np ON np.id = nv.product_id
-     WHERE (s.sold_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+     WHERE (s.sold_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
            BETWEEN $1::date AND $2::date
        AND s.business_id = $3
      ORDER BY s.sold_at DESC`,
-    [from, to, businessId]
+    [from, to, businessId, tz]
   )
 
   const all = [...ventas, ...cambios]

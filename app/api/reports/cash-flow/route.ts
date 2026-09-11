@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import pool from '@/lib/db'
 import { requireFeature } from '@/lib/plan-gate'
 import { requireBusinessId } from '@/lib/get-business-id'
+import { getBusinessTimezone } from '@/lib/timezone'
 
 /**
  * GET /api/reports/cash-flow?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -39,6 +40,8 @@ export async function GET(req: Request) {
 
   if (!from || !to)
     return NextResponse.json({ error: 'from y to son requeridos (YYYY-MM-DD)' }, { status: 400 })
+
+  const tz = await getBusinessTimezone(pool, businessId)
 
   const { rows } = await pool.query(`
     WITH tx_agg AS (
@@ -80,8 +83,8 @@ export async function GET(req: Request) {
       SELECT COUNT(*)::int AS n FROM sale_details WHERE sale_id = s.id
     ) cnt ON true
     -- ZONA HORARIA: sold_at es TIMESTAMP que almacena UTC. Doble AT TIME ZONE
-    -- para obtener la fecha correcta en ART (evita error en ventas 21–23:59 ART).
-    WHERE (s.sold_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+    -- para obtener la fecha correcta en la zona del negocio (ver lib/timezone.ts).
+    WHERE (s.sold_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
           BETWEEN $1::date AND $2::date
       AND s.business_id = $3
       AND NOT EXISTS (SELECT 1 FROM exchanges ex WHERE ex.exchange_sale_id = s.id)
@@ -113,7 +116,7 @@ export async function GET(req: Request) {
     LEFT JOIN products          rp ON rp.id = rv.product_id
     LEFT JOIN product_variants nv ON nv.id = ex.new_variant_id
     LEFT JOIN products          np ON np.id = nv.product_id
-    WHERE (s.sold_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+    WHERE (s.sold_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
           BETWEEN $1::date AND $2::date
       AND s.business_id = $3
 
@@ -140,7 +143,7 @@ export async function GET(req: Request) {
     JOIN branches br      ON br.id  = e.branch_id
     LEFT JOIN app_users ug ON ug.id = e.user_id
     LEFT JOIN expense_types et ON et.id = e.expense_type_id
-    WHERE e.created_at::date BETWEEN $1::date AND $2::date
+    WHERE (e.created_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date BETWEEN $1::date AND $2::date
       AND e.business_id = $3
 
     UNION ALL
@@ -166,7 +169,7 @@ export async function GET(req: Request) {
     JOIN cash_transfers ct ON ct.id = t.type_id AND t.type = 'transfer' AND t.branch_id IS NOT NULL
     JOIN branches br       ON br.id = ct.from_branch_id
     LEFT JOIN app_users ur ON ur.id = ct.user_id
-    WHERE ct.created_at::date BETWEEN $1::date AND $2::date
+    WHERE (ct.created_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date BETWEEN $1::date AND $2::date
       AND ct.business_id = $3
 
     UNION ALL
@@ -193,11 +196,11 @@ export async function GET(req: Request) {
     JOIN cash_transfers ct ON ct.id = t.type_id AND t.type = 'transfer' AND t.branch_id IS NULL
     JOIN branches br       ON br.id = ct.from_branch_id
     LEFT JOIN app_users ur ON ur.id = ct.user_id
-    WHERE ct.created_at::date BETWEEN $1::date AND $2::date
+    WHERE (ct.created_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date BETWEEN $1::date AND $2::date
       AND ct.business_id = $3
 
     ORDER BY datetime DESC
-  `, [from, to, businessId])
+  `, [from, to, businessId, tz])
 
   return NextResponse.json(rows)
 }
