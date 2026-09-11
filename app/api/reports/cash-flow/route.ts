@@ -79,7 +79,10 @@ export async function GET(req: Request) {
     LEFT JOIN LATERAL (
       SELECT COUNT(*)::int AS n FROM sale_details WHERE sale_id = s.id
     ) cnt ON true
-    WHERE s.sold_at::date BETWEEN $1::date AND $2::date
+    -- ZONA HORARIA: sold_at es TIMESTAMP que almacena UTC. Doble AT TIME ZONE
+    -- para obtener la fecha correcta en ART (evita error en ventas 21–23:59 ART).
+    WHERE (s.sold_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+          BETWEEN $1::date AND $2::date
       AND s.business_id = $3
       AND NOT EXISTS (SELECT 1 FROM exchanges ex WHERE ex.exchange_sale_id = s.id)
 
@@ -110,7 +113,8 @@ export async function GET(req: Request) {
     LEFT JOIN products          rp ON rp.id = rv.product_id
     LEFT JOIN product_variants nv ON nv.id = ex.new_variant_id
     LEFT JOIN products          np ON np.id = nv.product_id
-    WHERE s.sold_at::date BETWEEN $1::date AND $2::date
+    WHERE (s.sold_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+          BETWEEN $1::date AND $2::date
       AND s.business_id = $3
 
     UNION ALL

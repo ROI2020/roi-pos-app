@@ -78,7 +78,9 @@ export async function GET(req: Request) {
     JOIN  sale_details sd ON sd.product_variant_id = pv.id
     JOIN  sales sal
            ON sal.id = sd.sale_id
-          AND sal.sold_at::date BETWEEN $1 AND $2
+          -- ZONA HORARIA: doble AT TIME ZONE para fecha ART correcta (ver sales/route.ts)
+          AND (sal.sold_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+              BETWEEN $1 AND $2
           AND sal.business_id = $3
           AND NOT EXISTS (
             SELECT 1 FROM exchanges ex WHERE ex.exchange_sale_id = sal.id
