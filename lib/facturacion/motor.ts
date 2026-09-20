@@ -94,10 +94,15 @@ export async function motorFacturacion(rawInput: FacturacionInput): Promise<Fact
   }
   const authConCuit = { ...auth, cuit: input.emisor.cuit }
 
-  // 4. Obtener último nro de comprobante y calcular el siguiente
-  let ultimoNro: number
+  // 4. Obtener último nro de comprobante y calcular el siguiente.
+  //
+  // IMPORTANTE: FECompUltimoAutorizado puede devolver datos desactualizados durante
+  // unos segundos/minutos tras una autorización reciente (cache interno de ARCA).
+  // Para protegernos comparamos también el máximo de nuestra tabla facturas
+  // y usamos el mayor de los dos → evita el error 10016 "ya fue autorizado antes".
+  let ultimoNroArca: number
   try {
-    ultimoNro = await obtenerUltimoNroComprobante(authConCuit, cfg.punto_venta, 11, ambiente)
+    ultimoNroArca = await obtenerUltimoNroComprobante(authConCuit, cfg.punto_venta, 11, ambiente)
   } catch (e) {
     if ((e as ErrorFacturacion).categoria) throw e
     const err: ErrorFacturacion = {
@@ -107,7 +112,21 @@ export async function motorFacturacion(rawInput: FacturacionInput): Promise<Fact
     }
     throw err
   }
-  const nroComprobante = ultimoNro + 1
+
+  // Máximo conocido en nuestra DB (emitidas + errores que igual consumieron un número en ARCA)
+  const localMax = await pool.query<{ max_nro: number | null }>(
+    `SELECT MAX(nro_comprobante)::int AS max_nro FROM facturas
+     WHERE cuit_emisor = $1 AND punto_venta = $2 AND tipo_cbte = 11`,
+    [input.emisor.cuit, cfg.punto_venta]
+  )
+  const ultimoNroLocal = localMax.rows[0]?.max_nro ?? 0
+
+  if (ultimoNroArca < ultimoNroLocal) {
+    console.warn(
+      `[motor] ARCA devolvió último nro ${ultimoNroArca} pero nuestra DB tiene ${ultimoNroLocal} — usando el local (ARCA posiblemente desactualizado)`
+    )
+  }
+  const nroComprobante = Math.max(ultimoNroArca, ultimoNroLocal) + 1
 
   // 5-6. Solicitar CAE a ARCA
   let cae: string, caeVto: string, nroCbte: number, rawResponse: unknown

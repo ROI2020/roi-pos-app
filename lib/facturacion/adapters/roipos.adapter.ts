@@ -100,15 +100,28 @@ export async function adaptarVentaROIPOS(
 
   // Fecha en formato YYYYMMDD — ARCA rechaza fechas de más de 5 días (error 10148).
   // Si la venta es antigua, usamos la fecha de hoy como fecha del comprobante.
-  const fechaVenta = new Date(primera.sold_at)
-  const hoy = new Date()
-  const diffDias = (hoy.getTime() - fechaVenta.getTime()) / (1000 * 60 * 60 * 24)
-  const fechaEfectiva = diffDias > 4 ? hoy : fechaVenta
-  const fecha = [
-    fechaEfectiva.getFullYear(),
-    String(fechaEfectiva.getMonth() + 1).padStart(2, '0'),
-    String(fechaEfectiva.getDate()).padStart(2, '0'),
-  ].join('')
+  //
+  // IMPORTANTE — timezone: sold_at es TIMESTAMP WITHOUT TIME ZONE que almacena UTC.
+  // Los métodos JS getDate()/getMonth()/getFullYear() usan el timezone LOCAL del proceso
+  // (Node.js en prod corre en UTC), por lo que para ventas entre las 21:00–23:59 ART
+  // devuelven el día siguiente. Siempre convertir a ART antes de armar la fecha ARCA.
+  const ART = 'America/Argentina/Buenos_Aires'
+  /** Devuelve "YYYY-MM-DD" en la zona Argentina a partir de cualquier Date UTC. */
+  function toARTDate(d: Date): string {
+    return new Intl.DateTimeFormat('sv-SE', { timeZone: ART }).format(d)
+  }
+
+  const fechaVentaStr = toARTDate(new Date(primera.sold_at))  // "YYYY-MM-DD"
+  const fechaHoyStr   = toARTDate(new Date())
+
+  // Diferencia de días calendario (en ART)
+  const diffDias =
+    (new Date(fechaHoyStr + 'T00:00:00').getTime() -
+     new Date(fechaVentaStr + 'T00:00:00').getTime()) /
+    (1000 * 60 * 60 * 24)
+
+  const fechaEfectiva = diffDias > 4 ? fechaHoyStr : fechaVentaStr
+  const fecha = fechaEfectiva.replace(/-/g, '')  // "YYYYMMDD"
 
   const condIva = primera.condicion_iva as 'monotributo' | 'responsable_inscripto'
 
