@@ -102,7 +102,7 @@ export default function Nav() {
         .catch(() => {})
     }
     fetchCount()
-    const iv = setInterval(fetchCount, 60_000)
+    const iv = setInterval(fetchCount, 3 * 60_000)  // 3min: el badge no necesita actualizarse cada minuto
     return () => clearInterval(iv)
   }, [path])
 

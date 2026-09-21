@@ -48,7 +48,10 @@ export async function syncMLStockForVariants(
      WHERE business_id = $1 AND key = 'ml_enabled' AND is_secret = false`,
     [businessId],
   )
-  if (enabledRows[0]?.value !== 'true') return
+  if (enabledRows[0]?.value !== 'true') {
+    console.info(`[ml-stock-sync] biz=${businessId} ML no habilitado — skip`)
+    return
+  }
 
   // Buscar los ml_items correspondientes a las variantes
   const { rows: mlItems } = await pool.query<MLItemRow>(
@@ -60,7 +63,12 @@ export async function syncMLStockForVariants(
     [businessId, variantIds],
   )
 
-  if (!mlItems.length) return  // Ninguna variante tiene publicación ML
+  if (!mlItems.length) {
+    console.info(`[ml-stock-sync] biz=${businessId} variants=[${variantIds}] sin publicaciones ML activas — skip`)
+    return
+  }
+
+  console.info(`[ml-stock-sync] biz=${businessId} iniciando sync: ${mlItems.length} pub(s) para variants=[${variantIds}]`)
 
   // Agrupar por ml_item_id para procesar publicación por publicación
   const byItem = new Map<string, MLItemRow[]>()
@@ -70,11 +78,24 @@ export async function syncMLStockForVariants(
     byItem.set(row.ml_item_id, list)
   }
 
+  let synced = 0, errors = 0
   for (const [mlItemId, rows] of byItem.entries()) {
     for (const row of rows) {
-      await syncOneVariant(businessId, mlItemId, row)
+      try {
+        await syncOneVariant(businessId, mlItemId, row)
+        synced++
+      } catch (e) {
+        errors++
+        console.error(`[ml-stock-sync] biz=${businessId} ${mlItemId} var=${row.ml_variation_id ?? 'base'}: ERROR`, e)
+        await pool.query(
+          `INSERT INTO ml_api_logs (business_id, action, ml_item_id, error)
+           VALUES ($1, 'stockSync', $2, $3)`,
+          [businessId, mlItemId, String(e)],
+        ).catch(() => {})
+      }
     }
   }
+  console.info(`[ml-stock-sync] biz=${businessId} fin: ${synced} ok, ${errors} errores`)
 }
 
 /**
@@ -108,6 +129,8 @@ async function syncOneVariant(
     await updateItemStock(businessId, mlItemId, newStock)
   }
 
+  const varLabel = `${mlItemId} var=${row.ml_variation_id ?? 'base'}`
+
   // Pausar si sin stock / reactivar si recuperó stock
   if (newStock === 0 && row.ml_status !== 'paused') {
     await pauseListing(businessId, mlItemId)
@@ -116,7 +139,12 @@ async function syncOneVariant(
        WHERE business_id = $1 AND ml_item_id = $2`,
       [businessId, mlItemId],
     )
-    console.info(`[ml-stock-sync] ${mlItemId} pausado (sin stock)`)
+    console.info(`[ml-stock-sync] ${varLabel}: PAUSADO (sin stock)`)
+    await pool.query(
+      `INSERT INTO ml_api_logs (business_id, action, ml_item_id, request_body)
+       VALUES ($1, 'stockSync:pause', $2, $3)`,
+      [businessId, mlItemId, JSON.stringify({ newStock, prevStatus: row.ml_status })],
+    ).catch(() => {})
 
   } else if (newStock > 0 && row.ml_status === 'paused') {
     await activateListing(businessId, mlItemId)
@@ -125,9 +153,15 @@ async function syncOneVariant(
        WHERE business_id = $1 AND ml_item_id = $2`,
       [businessId, mlItemId],
     )
-    console.info(`[ml-stock-sync] ${mlItemId} reactivado (stock: ${newStock})`)
+    console.info(`[ml-stock-sync] ${varLabel}: REACTIVADO (stock: ${newStock})`)
+    await pool.query(
+      `INSERT INTO ml_api_logs (business_id, action, ml_item_id, request_body)
+       VALUES ($1, 'stockSync:activate', $2, $3)`,
+      [businessId, mlItemId, JSON.stringify({ newStock })],
+    ).catch(() => {})
 
   } else {
+    console.info(`[ml-stock-sync] ${varLabel}: stock → ${newStock}`)
     await pool.query(
       `UPDATE ml_items SET last_sync_at = NOW()
        WHERE business_id = $1 AND ml_item_id = $2`,

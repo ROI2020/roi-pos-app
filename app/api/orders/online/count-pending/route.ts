@@ -20,7 +20,10 @@ export async function GET() {
        WHERE business_id = $1 AND status = 'pending'`,
       [businessId]
     )
-    return NextResponse.json({ count: rows[0].count })
+    return NextResponse.json(
+      { count: rows[0].count },
+      { headers: { 'Cache-Control': 's-maxage=30, stale-while-revalidate=30' } }
+    )
   } catch (err) {
     console.error('[GET /api/orders/online/count-pending]', err)
     return NextResponse.json({ count: 0 })

@@ -114,7 +114,9 @@ export async function POST(req: Request) {
     // ── Despachar por topic ───────────────────────────────────────────────────
     if (body.topic === 'orders_v2' && body.resource?.includes('/orders/')) {
       const mlOrderId = body.resource.split('/orders/')[1]
-      // Procesar de forma asíncrona para responder 200 rápido
+      // Procesar de forma asíncrona: respondemos 200 a ML en <500ms para evitar reintentos.
+      // La lambda de Netlify sigue corriendo con handleMLOrder hasta su timeout (~10s).
+      // Si handleMLOrder supera ese tiempo, se corta — ML ya recibió el 200 y no reintenta.
       handleMLOrder(businessId, mlOrderId).catch(e =>
         console.error(`[ml/webhook] Error procesando pedido ML ${mlOrderId}:`, e),
       )

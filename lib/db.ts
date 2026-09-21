@@ -20,9 +20,15 @@ declare global {
   var _pgPool: Pool | undefined
 }
 
+// Guardar el pool en globalThis SIEMPRE (no solo en dev).
+// En producción, Netlify/AWS Lambda reusan el mismo proceso Node para múltiples
+// invocaciones consecutivas ("warm starts"). Sin esto, cada invocación crea un
+// Pool nuevo y paga 400–600ms de establecimiento de conexión TCP a PgBouncer,
+// aunque la query tarde <5ms. Con el singleton en globalThis, las warm invocations
+// reusan el pool y las conexiones ya establecidas → latencia cae a <20ms.
 const pool =
   globalThis._pgPool ??
-  (process.env.DB_HOST
+  (globalThis._pgPool = process.env.DB_HOST
     ? new Pool({
         host:     process.env.DB_HOST,
         port:     parseInt(process.env.DB_PORT ?? '6543'),
@@ -39,9 +45,5 @@ const pool =
             : false,
       })
   )
-
-if (process.env.NODE_ENV !== 'production') {
-  globalThis._pgPool = pool
-}
 
 export default pool
