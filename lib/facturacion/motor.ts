@@ -129,32 +129,41 @@ export async function motorFacturacion(rawInput: FacturacionInput): Promise<Fact
   const nroComprobante = Math.max(ultimoNroArca, ultimoNroLocal) + 1
 
   // 5-6. Solicitar CAE a ARCA
-  let cae: string, caeVto: string, nroCbte: number, rawResponse: unknown
-  try {
-    ;({ cae, caeVto, nroCbte, rawResponse } = await solicitarCAE(
-      authConCuit,
-      input,
-      nroComprobante,
-      ambiente
-    ))
-  } catch (e) {
-    if ((e as ErrorFacturacion).categoria) {
-      const mappedErr = mapearErrorArca(e as ErrorFacturacion)
-      // Persistir intento fallido (non-fatal si falla el INSERT)
-      try {
-        await persistirFactura({ input, nroComprobante, estado: 'error', errorDetalle: mappedErr.mensaje, rawResponse: null })
-      } catch (persistErr) {
-        console.error('[motor] No se pudo guardar el error ARCA:', persistErr)
+  // Si ARCA rechaza con 10016 (nro ya autorizado) guardamos el error y reintentamos
+  // hasta MAX_REINTENTOS_10016 veces con el siguiente número. Esto cubre el caso donde
+  // ARCA autorizó un nro en una llamada anterior pero el INSERT en facturas falló, por
+  // lo que nuestra DB no tiene ese nro como 'emitida' pero ARCA ya lo usó.
+  const MAX_REINTENTOS_10016 = 3
+  let nroActual = nroComprobante
+  let solicitarResult: { cae: string; caeVto: string; nroCbte: number; rawResponse: unknown } | null = null
+
+  for (let intento = 0; intento <= MAX_REINTENTOS_10016; intento++) {
+    try {
+      solicitarResult = await solicitarCAE(authConCuit, input, nroActual, ambiente)
+      break
+    } catch (e) {
+      if ((e as ErrorFacturacion).categoria) {
+        const mappedErr = mapearErrorArca(e as ErrorFacturacion)
+        if (mappedErr.codigoAfip === 10016 && intento < MAX_REINTENTOS_10016) {
+          console.warn(`[motor] Nro ${nroActual} ya autorizado en ARCA (10016) — guardando y reintentando con ${nroActual + 1}`)
+          await persistirFactura({ input, nroComprobante: nroActual, estado: 'error', errorDetalle: mappedErr.mensaje, rawResponse: null })
+            .catch(pe => console.error('[motor] No se pudo guardar error 10016:', pe))
+          nroActual++
+          continue
+        }
+        // Otro error ARCA, o agotamos reintentos
+        await persistirFactura({ input, nroComprobante: nroActual, estado: 'error', errorDetalle: mappedErr.mensaje, rawResponse: null })
+          .catch(pe => console.error('[motor] No se pudo guardar el error ARCA:', pe))
+        throw mappedErr
       }
-      throw mappedErr
+      throw { categoria: 'red', mensaje: 'Error de red al comunicarse con ARCA.', detalle: String(e) } as ErrorFacturacion
     }
-    const err: ErrorFacturacion = {
-      categoria: 'red',
-      mensaje: 'Error de red al comunicarse con ARCA.',
-      detalle: String(e),
-    }
-    throw err
   }
+
+  if (!solicitarResult) {
+    throw { categoria: 'arca', mensaje: 'ARCA rechazó el comprobante reiteradamente. Contactá soporte.', codigoAfip: 10016 } as ErrorFacturacion
+  }
+  const { cae, caeVto, nroCbte, rawResponse } = solicitarResult
 
   // 7. Parsear CAEFchVto de YYYYMMDD a ISO date string
   const caeVtoISO = `${caeVto.slice(0, 4)}-${caeVto.slice(4, 6)}-${caeVto.slice(6, 8)}`

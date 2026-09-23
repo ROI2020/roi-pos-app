@@ -125,6 +125,59 @@ export async function obtenerUltimoNroComprobante(
   return Number(xmlTag(xml, 'CbteNro') || '0')
 }
 
+/** Resultado de FECompConsultar — null si el nro no existe en ARCA */
+export interface CompConsultaResult {
+  nro:     number
+  fecha:   string   // YYYYMMDD
+  cae:     string
+  caeVto:  string
+  importe: number
+}
+
+/**
+ * FECompConsultar: devuelve los datos de un comprobante ya autorizado.
+ * Retorna null si ARCA no tiene ese nro (error 10004 o similar).
+ */
+export async function consultarComprobante(
+  auth:       Auth,
+  puntoVenta: number,
+  tipoCbte:   number,
+  nro:        number,
+  ambiente:   'homo' | 'prod'
+): Promise<CompConsultaResult | null> {
+  const soapBody = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" ${AR_NS}>
+  <soapenv:Header/>
+  <soapenv:Body>
+    <ar:FECompConsultar>
+      ${authXml(auth)}
+      <ar:FeCompConsReq>
+        <ar:CbteTipo>${tipoCbte}</ar:CbteTipo>
+        <ar:PtoVta>${puntoVenta}</ar:PtoVta>
+        <ar:CbteNro>${nro}</ar:CbteNro>
+      </ar:FeCompConsReq>
+    </ar:FECompConsultar>
+  </soapenv:Body>
+</soapenv:Envelope>`
+
+  const xml = await wsfeFetch(soapBody, ambiente, 'FECompConsultar')
+
+  // Si hay error (nro no existe, etc.) → null
+  const errContent = xmlTag(xmlTag(xml, 'Errors'), 'Err')
+  if (errContent) return null
+
+  const detXml = xmlTag(xml, 'ResultGet')
+  if (!detXml) return null
+
+  return {
+    nro:     Number(xmlTag(detXml, 'CbteDesde') || String(nro)),
+    fecha:   xmlTag(detXml, 'CbteFch'),
+    cae:     xmlTag(detXml, 'CodAutorizacion'),
+    caeVto:  xmlTag(detXml, 'FchVto'),
+    importe: Number(xmlTag(detXml, 'ImpTotal') || '0'),
+  }
+}
+
 export async function solicitarCAE(
   auth: Auth,
   input: FacturacionInput,

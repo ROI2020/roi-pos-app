@@ -98,29 +98,43 @@ export async function adaptarVentaROIPOS(
     })
   }
 
-  // Fecha en formato YYYYMMDD — ARCA rechaza fechas de más de 5 días (error 10148).
-  // Si la venta es antigua, usamos la fecha de hoy como fecha del comprobante.
+  // Fecha en formato YYYYMMDD.
+  // Restricciones de ARCA:
+  //   1. No puede ser anterior a hoy - 4 días (error 10148).
+  //   2. No puede ser anterior a la fecha del comprobante previo del mismo punto de venta
+  //      (ARCA exige orden cronológico).
+  //
+  // Solución: usar el MÁXIMO de (fechaVenta, hoy-4, fechaÚltimaFactura).
+  // Así se respeta la fecha real de la venta cuando es reciente, y se avanza al mínimo
+  // necesario cuando la venta es antigua o ya hay facturas con fecha posterior.
   //
   // IMPORTANTE — timezone: sold_at es TIMESTAMP WITHOUT TIME ZONE que almacena UTC.
-  // Los métodos JS getDate()/getMonth()/getFullYear() usan el timezone LOCAL del proceso
-  // (Node.js en prod corre en UTC), por lo que para ventas entre las 21:00–23:59 ART
-  // devuelven el día siguiente. Siempre convertir a ART antes de armar la fecha ARCA.
+  // Node.js en prod corre en UTC, así que SIEMPRE convertir a ART antes de armar la fecha.
   const ART = 'America/Argentina/Buenos_Aires'
-  /** Devuelve "YYYY-MM-DD" en la zona Argentina a partir de cualquier Date UTC. */
   function toARTDate(d: Date): string {
     return new Intl.DateTimeFormat('sv-SE', { timeZone: ART }).format(d)
   }
 
-  const fechaVentaStr = toARTDate(new Date(primera.sold_at))  // "YYYY-MM-DD"
+  const fechaVentaStr = toARTDate(new Date(primera.sold_at))
   const fechaHoyStr   = toARTDate(new Date())
 
-  // Diferencia de días calendario (en ART)
-  const diffDias =
-    (new Date(fechaHoyStr + 'T00:00:00').getTime() -
-     new Date(fechaVentaStr + 'T00:00:00').getTime()) /
-    (1000 * 60 * 60 * 24)
+  // Fecha más antigua que ARCA acepta: hoy - 4 días
+  const hoyBase = new Date(fechaHoyStr + 'T12:00:00Z')
+  hoyBase.setUTCDate(hoyBase.getUTCDate() - 4)
+  const fechaMinimaStr = hoyBase.toISOString().slice(0, 10)
 
-  const fechaEfectiva = diffDias > 4 ? fechaHoyStr : fechaVentaStr
+  // Fecha de la última factura emitida para este punto de venta (orden cronológico)
+  const { rows: ultimaRows } = await pool.query<{ fecha: string }>(
+    `SELECT TO_CHAR(fecha_cbte, 'YYYY-MM-DD') AS fecha
+     FROM facturas
+     WHERE cuit_emisor = $1 AND punto_venta = $2 AND tipo_cbte = 11 AND estado = 'emitida'
+     ORDER BY nro_comprobante DESC LIMIT 1`,
+    [primera.cuit, primera.punto_venta],
+  )
+  const fechaUltimaStr = ultimaRows[0]?.fecha ?? '1900-01-01'
+
+  // MAX de los tres: garantiza que cumple todas las restricciones
+  const fechaEfectiva = [fechaVentaStr, fechaMinimaStr, fechaUltimaStr].sort().at(-1)!
   const fecha = fechaEfectiva.replace(/-/g, '')  // "YYYYMMDD"
 
   const condIva = primera.condicion_iva as 'monotributo' | 'responsable_inscripto'
