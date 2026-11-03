@@ -5,7 +5,7 @@ import { adaptarDirecto } from './adapters/direct.adapter'
 import type { FacturacionInput, FacturacionOutput, ErrorFacturacion } from './types'
 // Códigos de error ARCA con mensajes en español
 const ERRORES_ARCA: Record<number, string> = {
-  10016: 'El comprobante ya fue autorizado anteriormente.',
+  10016: 'El número de comprobante no es el próximo a autorizar en ARCA. Reintentá; si persiste, contactá soporte.',
   10040: 'El punto de venta no está habilitado para este CUIT.',
   10043: 'El CUIT no está autorizado a emitir este tipo de comprobante.',
   10148: 'Fecha de comprobante fuera del rango permitido.',
@@ -113,10 +113,11 @@ export async function motorFacturacion(rawInput: FacturacionInput): Promise<Fact
     throw err
   }
 
-  // Máximo conocido en nuestra DB (emitidas + errores que igual consumieron un número en ARCA)
+  // Máximo de nuestra DB — SOLO emitidas. Las filas 'error' no consumieron número en ARCA;
+  // contarlas inflaba el MAX y desincronizaba la numeración (bug MALEMA 2026-10-29).
   const localMax = await pool.query<{ max_nro: number | null }>(
     `SELECT MAX(nro_comprobante)::int AS max_nro FROM facturas
-     WHERE cuit_emisor = $1 AND punto_venta = $2 AND tipo_cbte = 11`,
+     WHERE cuit_emisor = $1 AND punto_venta = $2 AND tipo_cbte = 11 AND estado = 'emitida'`,
     [input.emisor.cuit, cfg.punto_venta]
   )
   const ultimoNroLocal = localMax.rows[0]?.max_nro ?? 0
@@ -129,11 +130,11 @@ export async function motorFacturacion(rawInput: FacturacionInput): Promise<Fact
   const nroComprobante = Math.max(ultimoNroArca, ultimoNroLocal) + 1
 
   // 5-6. Solicitar CAE a ARCA
-  // Si ARCA rechaza con 10016 (nro ya autorizado) guardamos el error y reintentamos
-  // hasta MAX_REINTENTOS_10016 veces con el siguiente número. Esto cubre el caso donde
-  // ARCA autorizó un nro en una llamada anterior pero el INSERT en facturas falló, por
-  // lo que nuestra DB no tiene ese nro como 'emitida' pero ARCA ya lo usó.
-  const MAX_REINTENTOS_10016 = 3
+  // 10016 = "el número no es el próximo a autorizar" (puede ser mayor O menor al esperado).
+  // Ante 10016 NO sumamos de a uno a ciegas: re-consultamos FECompUltimoAutorizado y
+  // reintentamos con ese +1. Si ARCA devuelve el mismo nro que ya rechazó (cache interno),
+  // recién ahí avanzamos uno. Los reintentos no se persisten como filas de error.
+  const MAX_REINTENTOS_10016 = 2
   let nroActual = nroComprobante
   let solicitarResult: { cae: string; caeVto: string; nroCbte: number; rawResponse: unknown } | null = null
 
@@ -145,11 +146,27 @@ export async function motorFacturacion(rawInput: FacturacionInput): Promise<Fact
       if ((e as ErrorFacturacion).categoria) {
         const mappedErr = mapearErrorArca(e as ErrorFacturacion)
         if (mappedErr.codigoAfip === 10016 && intento < MAX_REINTENTOS_10016) {
-          console.warn(`[motor] Nro ${nroActual} ya autorizado en ARCA (10016) — guardando y reintentando con ${nroActual + 1}`)
-          await persistirFactura({ input, nroComprobante: nroActual, estado: 'error', errorDetalle: mappedErr.mensaje, rawResponse: null })
-            .catch(pe => console.error('[motor] No se pudo guardar error 10016:', pe))
-          nroActual++
-          continue
+          let ultimoReconsulta: number | null = null
+          try {
+            ultimoReconsulta = await obtenerUltimoNroComprobante(authConCuit, cfg.punto_venta, 11, ambiente)
+          } catch (re) {
+            console.error('[motor] Falló la re-consulta de último nro tras 10016:', re)
+          }
+          if (ultimoReconsulta !== null && ultimoReconsulta + 1 !== nroActual) {
+            console.warn(`[motor] 10016 con nro ${nroActual} — ARCA dice último ${ultimoReconsulta}, reintentando con ${ultimoReconsulta + 1}`)
+            nroActual = ultimoReconsulta + 1
+            continue
+          }
+          // El número ES el correcto (o no pudimos verificar) → el rechazo es por la FECHA:
+          // ARCA exige que la fecha no sea anterior a la del último comprobante autorizado.
+          // Avanzar el número no lo arregla, así que cortamos acá.
+          const errFecha: ErrorFacturacion = {
+            ...mappedErr,
+            mensaje: `ARCA rechazó el comprobante ${nroActual} (10016). El número es el correcto, revisá la fecha: no puede ser anterior a la del último comprobante autorizado (${ultimoReconsulta ?? '?'}).`,
+          }
+          await persistirFactura({ input, nroComprobante: nroActual, estado: 'error', errorDetalle: errFecha.mensaje, rawResponse: null })
+            .catch(pe => console.error('[motor] No se pudo guardar el error ARCA:', pe))
+          throw errFecha
         }
         // Otro error ARCA, o agotamos reintentos
         await persistirFactura({ input, nroComprobante: nroActual, estado: 'error', errorDetalle: mappedErr.mensaje, rawResponse: null })

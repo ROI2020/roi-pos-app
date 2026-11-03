@@ -1,0 +1,246 @@
+import pool from '@/lib/db'
+import { obtenerToken } from './wsaa'
+import { obtenerUltimoNroComprobante, solicitarCAE } from './wsfev1'
+import { adaptarDirecto } from './adapters/direct.adapter'
+import type { FacturacionInput, FacturacionOutput, ErrorFacturacion } from './types'
+// Códigos de error ARCA con mensajes en español
+const ERRORES_ARCA: Record<number, string> = {
+  10016: 'El comprobante ya fue autorizado anteriormente.',
+  10040: 'El punto de venta no está habilitado para este CUIT.',
+  10043: 'El CUIT no está autorizado a emitir este tipo de comprobante.',
+  10148: 'Fecha de comprobante fuera del rango permitido.',
+  600:   'Error interno de ARCA. Reintentá en unos minutos.',
+  601:   'Servicio ARCA temporalmente no disponible.',
+}
+
+interface ConfigRow {
+  cuit: string
+  punto_venta: number
+  razon_social: string
+  condicion_iva: string
+  ambiente: 'homo' | 'prod'
+}
+
+// Modelo B: certs en env vars — no hay nada que resolver desde DB
+// getCertificadoRoisol() vive en wsaa.ts y se llama internamente en obtenerToken()
+
+function mapearErrorArca(err: ErrorFacturacion): ErrorFacturacion {
+  if (err.codigoAfip && ERRORES_ARCA[err.codigoAfip]) {
+    return { ...err, mensaje: ERRORES_ARCA[err.codigoAfip] }
+  }
+  if (err.codigoAfip) {
+    return {
+      ...err,
+      mensaje: `ARCA rechazó el comprobante (código ${err.codigoAfip}). Contactá soporte.`,
+    }
+  }
+  return err
+}
+
+// Orquestador principal. Recibe FacturacionInput y retorna FacturacionOutput.
+// No sabe de dónde vienen los datos ni qué sistema los originó.
+export async function motorFacturacion(rawInput: FacturacionInput): Promise<FacturacionOutput> {
+  // 0. Idempotencia: si ya existe una factura emitida para este origen, devolverla
+  if (rawInput.meta.origenSistema === 'roipos' && rawInput.meta.origenId) {
+    const dup = await pool.query<{ id: string; cae: string; cae_vto: string; nro_comprobante: number }>(
+      `SELECT id, cae, cae_vto, nro_comprobante FROM facturas
+       WHERE venta_id = $1 AND estado = 'emitida' LIMIT 1`,
+      [rawInput.meta.origenId]
+    )
+    if (dup.rows[0]?.cae) {
+      const r = dup.rows[0]
+      return {
+        cae: r.cae,
+        caeVencimiento: r.cae_vto,
+        nroComprobante: r.nro_comprobante,
+        facturaId: r.id,
+        pdfUrl: `/api/facturacion/pdf/${r.id}`,
+      }
+    }
+  }
+
+  // 1. Validar input
+  const input = adaptarDirecto(rawInput)
+
+  // 2. Leer config del emisor desde DB
+  const cfgResult = await pool.query<ConfigRow>(
+    `SELECT cuit, punto_venta, razon_social, condicion_iva, ambiente
+     FROM facturacion_config
+     WHERE cuit = $1 AND activo = true`,
+    [input.emisor.cuit]
+  )
+  if (!cfgResult.rows.length) {
+    const err: ErrorFacturacion = {
+      categoria: 'validacion',
+      mensaje: `No existe configuración ARCA activa para el CUIT ${input.emisor.cuit}`,
+    }
+    throw err
+  }
+  const cfg = cfgResult.rows[0]
+  const ambiente = cfg.ambiente   // siempre del DB, no de env var global
+
+  // 3. Obtener token WSAA — errores de red se convierten en ErrorFacturacion
+  let auth: { token: string; sign: string }
+  try {
+    auth = await obtenerToken(input.emisor.cuit, ambiente)
+  } catch (e) {
+    if ((e as ErrorFacturacion).categoria) throw e
+    const err: ErrorFacturacion = {
+      categoria: 'red',
+      mensaje: 'No se pudo autenticar con ARCA (WSAA). Verificá la conexión y reintentá en unos minutos.',
+      detalle: String(e),
+    }
+    throw err
+  }
+  const authConCuit = { ...auth, cuit: input.emisor.cuit }
+
+  // 4. Obtener último nro de comprobante y calcular el siguiente.
+  //
+  // IMPORTANTE: FECompUltimoAutorizado puede devolver datos desactualizados durante
+  // unos segundos/minutos tras una autorización reciente (cache interno de ARCA).
+  // Para protegernos comparamos también el máximo de nuestra tabla facturas
+  // y usamos el mayor de los dos → evita el error 10016 "ya fue autorizado antes".
+  let ultimoNroArca: number
+  try {
+    ultimoNroArca = await obtenerUltimoNroComprobante(authConCuit, cfg.punto_venta, 11, ambiente)
+  } catch (e) {
+    if ((e as ErrorFacturacion).categoria) throw e
+    const err: ErrorFacturacion = {
+      categoria: 'red',
+      mensaje: 'No se pudo consultar el último comprobante en ARCA. Reintentá en unos minutos.',
+      detalle: String(e),
+    }
+    throw err
+  }
+
+  // Máximo conocido en nuestra DB (emitidas + errores que igual consumieron un número en ARCA)
+  const localMax = await pool.query<{ max_nro: number | null }>(
+    `SELECT MAX(nro_comprobante)::int AS max_nro FROM facturas
+     WHERE cuit_emisor = $1 AND punto_venta = $2 AND tipo_cbte = 11`,
+    [input.emisor.cuit, cfg.punto_venta]
+  )
+  const ultimoNroLocal = localMax.rows[0]?.max_nro ?? 0
+
+  if (ultimoNroArca < ultimoNroLocal) {
+    console.warn(
+      `[motor] ARCA devolvió último nro ${ultimoNroArca} pero nuestra DB tiene ${ultimoNroLocal} — usando el local (ARCA posiblemente desactualizado)`
+    )
+  }
+  const nroComprobante = Math.max(ultimoNroArca, ultimoNroLocal) + 1
+
+  // 5-6. Solicitar CAE a ARCA
+  // Si ARCA rechaza con 10016 (nro ya autorizado) guardamos el error y reintentamos
+  // hasta MAX_REINTENTOS_10016 veces con el siguiente número. Esto cubre el caso donde
+  // ARCA autorizó un nro en una llamada anterior pero el INSERT en facturas falló, por
+  // lo que nuestra DB no tiene ese nro como 'emitida' pero ARCA ya lo usó.
+  const MAX_REINTENTOS_10016 = 3
+  let nroActual = nroComprobante
+  let solicitarResult: { cae: string; caeVto: string; nroCbte: number; rawResponse: unknown } | null = null
+
+  for (let intento = 0; intento <= MAX_REINTENTOS_10016; intento++) {
+    try {
+      solicitarResult = await solicitarCAE(authConCuit, input, nroActual, ambiente)
+      break
+    } catch (e) {
+      if ((e as ErrorFacturacion).categoria) {
+        const mappedErr = mapearErrorArca(e as ErrorFacturacion)
+        if (mappedErr.codigoAfip === 10016 && intento < MAX_REINTENTOS_10016) {
+          console.warn(`[motor] Nro ${nroActual} ya autorizado en ARCA (10016) — guardando y reintentando con ${nroActual + 1}`)
+          await persistirFactura({ input, nroComprobante: nroActual, estado: 'error', errorDetalle: mappedErr.mensaje, rawResponse: null })
+            .catch(pe => console.error('[motor] No se pudo guardar error 10016:', pe))
+          nroActual++
+          continue
+        }
+        // Otro error ARCA, o agotamos reintentos
+        await persistirFactura({ input, nroComprobante: nroActual, estado: 'error', errorDetalle: mappedErr.mensaje, rawResponse: null })
+          .catch(pe => console.error('[motor] No se pudo guardar el error ARCA:', pe))
+        throw mappedErr
+      }
+      throw { categoria: 'red', mensaje: 'Error de red al comunicarse con ARCA.', detalle: String(e) } as ErrorFacturacion
+    }
+  }
+
+  if (!solicitarResult) {
+    throw { categoria: 'arca', mensaje: 'ARCA rechazó el comprobante reiteradamente. Contactá soporte.', codigoAfip: 10016 } as ErrorFacturacion
+  }
+  const { cae, caeVto, nroCbte, rawResponse } = solicitarResult
+
+  // 7. Parsear CAEFchVto de YYYYMMDD a ISO date string
+  const caeVtoISO = `${caeVto.slice(0, 4)}-${caeVto.slice(4, 6)}-${caeVto.slice(6, 8)}`
+
+  // 8. Persistir comprobante emitido — si falla, ARCA ya aprobó: devolvemos el CAE de todas formas
+  let facturaId: string
+  try {
+    facturaId = await persistirFactura({ input, nroComprobante: nroCbte, estado: 'emitida', cae, caeVto: caeVtoISO, rawResponse })
+  } catch (persistErr) {
+    console.error('[motor] CRÍTICO: ARCA aprobó (CAE:', cae, 'nro:', nroCbte, ') pero el INSERT en facturas falló:', persistErr)
+    // Devolver el output igual — la factura ES válida ante ARCA aunque no esté en nuestra DB
+    // El operador debe verificar en el panel ARCA y registrar manualmente si es necesario
+    return {
+      cae,
+      caeVencimiento: caeVtoISO,
+      nroComprobante: nroCbte,
+      facturaId: 'sin-guardar',
+      pdfUrl: '',
+    }
+  }
+
+  // 9. Retornar output
+  return {
+    cae,
+    caeVencimiento: caeVtoISO,
+    nroComprobante: nroCbte,
+    facturaId,
+    pdfUrl: `/api/facturacion/pdf/${facturaId}`,
+  }
+}
+
+interface PersistirParams {
+  input: FacturacionInput
+  nroComprobante: number
+  estado: 'emitida' | 'error'
+  cae?: string
+  caeVto?: string
+  errorDetalle?: string
+  rawResponse: unknown
+}
+
+async function persistirFactura(p: PersistirParams): Promise<string> {
+  const params = [
+    p.input.meta.origenId,
+    p.input.meta.origenSistema,
+    p.input.emisor.cuit,
+    p.input.emisor.puntoVenta,
+    11,
+    p.nroComprobante,
+    p.input.comprobante.fecha.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'),
+    p.cae ?? null,
+    p.caeVto ?? null,
+    p.input.comprobante.importeTotal,
+    p.input.receptor.cuit ?? null,
+    p.input.receptor.razonSocial ?? null,
+    p.estado,
+    p.errorDetalle ?? null,
+    JSON.stringify(p.input),
+    p.rawResponse ? JSON.stringify(p.rawResponse) : null,
+  ]
+  console.log('[persistirFactura] params:', JSON.stringify(params.slice(0, 14)))
+  try {
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO facturas
+         (venta_id, origen_sistema, cuit_emisor, punto_venta, tipo_cbte,
+          nro_comprobante, fecha_cbte, cae, cae_vto,
+          importe_total, receptor_cuit, receptor_nombre,
+          estado, error_detalle, raw_request, raw_response,
+          business_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+         (SELECT business_id FROM facturacion_config WHERE cuit = $3::varchar AND activo = true LIMIT 1))
+       RETURNING id`,
+      params
+    )
+    return rows[0].id
+  } catch (dbErr) {
+    console.error('[persistirFactura] DB ERROR (estado=' + p.estado + '):', dbErr)
+    throw dbErr
+  }
+}
