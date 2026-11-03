@@ -98,15 +98,13 @@ export async function adaptarVentaROIPOS(
     })
   }
 
-  // Fecha en formato YYYYMMDD.
-  // Restricciones de ARCA:
-  //   1. No puede ser anterior a hoy - 4 días (error 10148).
+  // Fecha en formato YYYYMMDD = SIEMPRE la fecha de la venta (no se reemplaza por otra).
+  // Restricciones de ARCA (concepto 1 = productos):
+  //   1. No puede ser anterior a hoy - 5 días (error 10148 / 10016).
   //   2. No puede ser anterior a la fecha del comprobante previo del mismo punto de venta
-  //      (ARCA exige orden cronológico).
-  //
-  // Solución: usar el MÁXIMO de (fechaVenta, hoy-4, fechaÚltimaFactura).
-  // Así se respeta la fecha real de la venta cuando es reciente, y se avanza al mínimo
-  // necesario cuando la venta es antigua o ya hay facturas con fecha posterior.
+  //      (ARCA exige orden cronológico → error 10016).
+  // Si la fecha de la venta no cumple, NO se cambia: se corta con un error de validación
+  // ANTES de llamar a ARCA (no consume número ni genera filas de error).
   //
   // IMPORTANTE — timezone: sold_at es TIMESTAMP WITHOUT TIME ZONE que almacena UTC.
   // Node.js en prod corre en UTC, así que SIEMPRE convertir a ART antes de armar la fecha.
@@ -118,9 +116,9 @@ export async function adaptarVentaROIPOS(
   const fechaVentaStr = toARTDate(new Date(primera.sold_at))
   const fechaHoyStr   = toARTDate(new Date())
 
-  // Fecha más antigua que ARCA acepta: hoy - 4 días
+  // Fecha más antigua que ARCA acepta: hoy - 5 días
   const hoyBase = new Date(fechaHoyStr + 'T12:00:00Z')
-  hoyBase.setUTCDate(hoyBase.getUTCDate() - 4)
+  hoyBase.setUTCDate(hoyBase.getUTCDate() - 5)
   const fechaMinimaStr = hoyBase.toISOString().slice(0, 10)
 
   // Fecha de la última factura emitida para este punto de venta (orden cronológico)
@@ -133,9 +131,22 @@ export async function adaptarVentaROIPOS(
   )
   const fechaUltimaStr = ultimaRows[0]?.fecha ?? '1900-01-01'
 
-  // MAX de los tres: garantiza que cumple todas las restricciones
-  const fechaEfectiva = [fechaVentaStr, fechaMinimaStr, fechaUltimaStr].sort().at(-1)!
-  const fecha = fechaEfectiva.replace(/-/g, '')  // "YYYYMMDD"
+  const fmtAR = (iso: string) => iso.split('-').reverse().join('/')
+  if (fechaVentaStr < fechaUltimaStr) {
+    const err: ErrorFacturacion = {
+      categoria: 'validacion',
+      mensaje: `La venta es del ${fmtAR(fechaVentaStr)} y la última factura emitida es del ${fmtAR(fechaUltimaStr)}. ARCA no acepta facturas con fecha anterior a la última emitida.`,
+    }
+    throw err
+  }
+  if (fechaVentaStr < fechaMinimaStr) {
+    const err: ErrorFacturacion = {
+      categoria: 'validacion',
+      mensaje: `La venta es del ${fmtAR(fechaVentaStr)}. ARCA solo acepta facturas de productos con hasta 5 días de antigüedad (desde el ${fmtAR(fechaMinimaStr)}).`,
+    }
+    throw err
+  }
+  const fecha = fechaVentaStr.replace(/-/g, '')  // "YYYYMMDD"
 
   const condIva = primera.condicion_iva as 'monotributo' | 'responsable_inscripto'
 
