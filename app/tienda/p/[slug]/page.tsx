@@ -11,6 +11,7 @@ import { notFound } from 'next/navigation'
 import pool from '@/lib/db'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
+import { getStoreBaseUrl } from '@/lib/store-base-url'
 import { ArrowLeft } from 'lucide-react'
 import type { Metadata } from 'next'
 
@@ -39,11 +40,13 @@ export async function generateMetadata(
   const host = h.get('host') ?? 'localhost'
   try {
     const businessId = await resolveBusinessFromHost(host)
-    const page = await getPage(businessId, slug)
-    const s    = await getPublicSettingsByKeys(businessId, ['business_name', 'catalog_base_url', 'locale'])
+    const [page, s, baseUrl] = await Promise.all([
+      getPage(businessId, slug),
+      getPublicSettingsByKeys(businessId, ['business_name', 'locale']),
+      getStoreBaseUrl(businessId, host),
+    ])
     const locale    = s['locale'] ?? 'es-AR'
     const storePath = locale.startsWith('en') ? '/store' : '/tienda'
-    const baseUrl   = (s['catalog_base_url'] ?? `https://${host}`).replace(/\/$/, '')
     const canonical = `${baseUrl}${storePath}/p/${slug}`
     return {
       title: page ? `${page.title} — ${s.business_name ?? ''}` : 'Page not found',

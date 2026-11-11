@@ -8,6 +8,7 @@ import type { MetadataRoute } from 'next'
 import { headers } from 'next/headers'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
+import { getStoreBaseUrl } from '@/lib/store-base-url'
 
 export default async function robots(): Promise<MetadataRoute.Robots> {
   const hdrs      = await headers()
@@ -19,10 +20,13 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
 
   try {
     const businessId = await resolveBusinessFromHost(rawHost)
-    const s = await getPublicSettingsByKeys(businessId, ['locale', 'catalog_base_url'])
+    const [s, resolvedBase] = await Promise.all([
+      getPublicSettingsByKeys(businessId, ['locale']),
+      getStoreBaseUrl(businessId, rawHost),
+    ])
     const locale = s['locale'] ?? 'es-AR'
     storePath = locale.startsWith('en') ? '/store' : '/tienda'
-    if (s['catalog_base_url']) baseUrl = s['catalog_base_url'].replace(/\/$/, '')
+    baseUrl = resolvedBase
   } catch {
     // fallback: /tienda en el dominio del request
   }

@@ -13,6 +13,7 @@ import { notFound }  from 'next/navigation'
 import Script        from 'next/script'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
+import { getStoreBaseUrl } from '@/lib/store-base-url'
 import { toProxyUrl } from '@/lib/proxy-image'
 import pool from '@/lib/db'
 import ItemClient, { type ItemProduct } from './_client'
@@ -64,24 +65,23 @@ export async function generateMetadata({
     const h           = await headers()
     const host        = h.get('host') ?? 'localhost'
     const businessId  = await resolveBusinessFromHost(host)
-    const s           = await getPublicSettingsByKeys(businessId, [
-      'business_name', 'catalog_base_url', 'locale', 'business_logo',
+    const [s, baseUrl, { rows }] = await Promise.all([
+      getPublicSettingsByKeys(businessId, ['business_name', 'locale', 'business_logo']),
+      getStoreBaseUrl(businessId, host),
+      pool.query<Pick<ProductRow, 'id' | 'name' | 'long_name' | 'description' | 'base_price' | 'general_image_url'>>(
+        `SELECT id, name, long_name, description, base_price::float, general_image_url
+         FROM products
+         WHERE business_id = $1 AND slug = $2
+         LIMIT 1`,
+        [businessId, slug]
+      ),
     ])
-
-    const { rows } = await pool.query<Pick<ProductRow, 'id' | 'name' | 'long_name' | 'description' | 'base_price' | 'general_image_url'>>(
-      `SELECT id, name, long_name, description, base_price::float, general_image_url
-       FROM products
-       WHERE business_id = $1 AND slug = $2
-       LIMIT 1`,
-      [businessId, slug]
-    )
     if (!rows.length) return { title: 'Producto no encontrado' }
 
     const p        = rows[0]
     const bizName  = s['business_name'] ?? 'Tienda'
     const locale   = s['locale'] ?? 'es-AR'
     const stPath   = locale.startsWith('en') ? '/store' : '/tienda'
-    const baseUrl  = (s['catalog_base_url'] ?? `https://${host}`).replace(/\/$/, '')
     const canonical = `${baseUrl}${stPath}/item/${slug}`
     const imgUrl   = toProxyUrl(p.general_image_url)
     const logo     = s['business_logo'] ?? null
@@ -142,16 +142,18 @@ export default async function ProductItemPage({
   }
 
   // ── Settings del negocio ──────────────────────────────────────────────────
-  const s = await getPublicSettingsByKeys(businessId, [
-    'business_name', 'catalog_base_url', 'locale', 'currency',
-    'whatsapp_number', 'catalog_cuotas',
-    'payment_gateway', 'catalog_envio_info',
-  ]).catch(() => ({} as Record<string, string>))
+  const [s, baseUrl] = await Promise.all([
+    getPublicSettingsByKeys(businessId, [
+      'business_name', 'locale', 'currency',
+      'whatsapp_number', 'catalog_cuotas',
+      'payment_gateway', 'catalog_envio_info',
+    ]).catch(() => ({} as Record<string, string>)),
+    getStoreBaseUrl(businessId, host),
+  ])
 
   const locale          = s['locale']          ?? 'es-AR'
   const currency        = s['currency']        ?? 'ARS'
   const cuotas          = parseInt(s['catalog_cuotas'] ?? '0') || 0
-  const baseUrl         = (s['catalog_base_url'] ?? `https://${host}`).replace(/\/$/, '')
   const stPath          = locale.startsWith('en') ? '/store' : '/tienda'
   const waRaw           = s['whatsapp_number'] ?? null
   const waNumber        = waRaw ? waRaw.replace(/\D/g, '') : null

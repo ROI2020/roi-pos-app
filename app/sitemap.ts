@@ -16,6 +16,7 @@ import { headers } from 'next/headers'
 import pool from '@/lib/db'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
+import { getStoreBaseUrl } from '@/lib/store-base-url'
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const hdrs = await headers()
@@ -37,18 +38,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
 
   // ── Settings del negocio ─────────────────────────────────────────────────────
-  const settings = await getPublicSettingsByKeys(businessId, [
-    'locale',
-    'catalog_base_url',
-  ]).catch(() => ({} as Record<string, string | null>))
+  const [settings, baseUrl] = await Promise.all([
+    getPublicSettingsByKeys(businessId, ['locale'])
+      .catch(() => ({} as Record<string, string | null>)),
+    getStoreBaseUrl(businessId, cleanHost),
+  ])
 
   const locale    = settings['locale'] ?? 'es-AR'
   const storePath = locale.startsWith('en') ? '/store' : '/tienda'
-
-  // catalog_base_url tiene el dominio canonical (ej: https://malema.com.ar)
-  // Fallback: construir desde el host del request
-  const baseUrl = (settings['catalog_base_url'] ?? `https://${cleanHost}`)
-    .replace(/\/$/, '')
 
   const entries: MetadataRoute.Sitemap = []
 

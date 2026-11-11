@@ -13,6 +13,7 @@
 
 import pool from '@/lib/db'
 import { getPublicSettingsByKeys } from '@/lib/settings'
+import { getStoreBaseUrl } from '@/lib/store-base-url'
 import { sendEmail } from '@/lib/email'
 import {
   orderConfirmationHtml,
@@ -64,7 +65,6 @@ async function loadOrderItems(orderId: number): Promise<OrderItem[]> {
 async function loadStoreSettings(businessId: number) {
   return getPublicSettingsByKeys(businessId, [
     'business_name',
-    'catalog_base_url',
     'catalog_color_primary',
     'email_subject_confirmation',
     'email_intro_confirmation',
@@ -101,13 +101,13 @@ export async function sendOrderConfirmation(orderId: number): Promise<void> {
       return
     }
 
-    const [items, settings] = await Promise.all([
+    const [items, settings, storeUrl] = await Promise.all([
       loadOrderItems(orderId),
       loadStoreSettings(order.business_id),
+      getStoreBaseUrl(order.business_id, ''),
     ])
 
     const storeName   = settings.business_name    || 'Your store'
-    const storeUrl    = (settings.catalog_base_url || '').replace(/\/$/, '')
     const accentColor = settings.catalog_color_primary || '#7c3aed'
 
     const tplVars = { buyerName: order.buyer_name, orderId: String(order.id), storeName }
@@ -182,10 +182,12 @@ export async function sendShipmentNotification(
       return
     }
 
-    const settings = await loadStoreSettings(order.business_id)
+    const [settings, storeUrl] = await Promise.all([
+      loadStoreSettings(order.business_id),
+      getStoreBaseUrl(order.business_id, ''),
+    ])
 
     const storeName   = settings.business_name    || 'Your store'
-    const storeUrl    = (settings.catalog_base_url || '').replace(/\/$/, '')
     const accentColor = settings.catalog_color_primary || '#7c3aed'
 
     const tplVars = { buyerName: order.buyer_name, orderId: String(order.id), storeName }

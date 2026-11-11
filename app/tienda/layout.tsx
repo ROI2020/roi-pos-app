@@ -21,6 +21,7 @@ import { CurrencyProvider }   from './_context/currency-context'
 import { StorePathProvider }  from './_context/store-path-context'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
+import { getStoreBaseUrl } from '@/lib/store-base-url'
 import StoreJsonLd from './_components/store-jsonld'
 import './store-theme.css'
 
@@ -30,9 +31,12 @@ export async function generateMetadata(): Promise<Metadata> {
     const h    = await headers()
     const host = h.get('host') ?? 'localhost'
     const businessId = await resolveBusinessFromHost(host)
-    const s = await getPublicSettingsByKeys(businessId, [
-      'business_name', 'catalog_description', 'catalog_base_url',
-      'business_logo', 'locale', 'catalog_pinterest_verify',
+    const [s, baseUrl] = await Promise.all([
+      getPublicSettingsByKeys(businessId, [
+        'business_name', 'catalog_description',
+        'business_logo', 'locale', 'catalog_pinterest_verify',
+      ]),
+      getStoreBaseUrl(businessId, host),
     ])
 
     const name      = s['business_name']      ?? 'Tienda'
@@ -42,7 +46,6 @@ export async function generateMetadata(): Promise<Metadata> {
       : `Comprá en ${name} — envíos a todo el país`
     const desc      = s['catalog_description'] ?? descFallback
     const storePath = locale.startsWith('en') ? '/store' : '/tienda'
-    const baseUrl   = (s['catalog_base_url'] ?? `https://${host}`).replace(/\/$/, '')
     const canonical = `${baseUrl}${storePath}`
     const logo      = s['business_logo'] ?? null
 
@@ -116,14 +119,16 @@ export default async function TiendaLayout({
 
     const businessId = await resolveBusinessFromHost(host)
     businessId_ = businessId
-    const s = await getPublicSettingsByKeys(businessId, [
-      'locale', 'currency',
-      'catalog_base_url',
-      'catalog_color_primary', 'catalog_color_secondary',
-      'catalog_color_bg', 'catalog_color_surface', 'catalog_color_text',
-      'catalog_color_muted', 'catalog_color_border', 'catalog_font',
+    const [s, resolvedBase] = await Promise.all([
+      getPublicSettingsByKeys(businessId, [
+        'locale', 'currency',
+        'catalog_color_primary', 'catalog_color_secondary',
+        'catalog_color_bg', 'catalog_color_surface', 'catalog_color_text',
+        'catalog_color_muted', 'catalog_color_border', 'catalog_font',
+      ]),
+      getStoreBaseUrl(businessId, host),
     ])
-    baseUrl_ = (s['catalog_base_url'] ?? `https://${host}`).replace(/\/$/, '')
+    baseUrl_ = resolvedBase
 
     fullLocale = s.locale   ?? 'es-AR'
     currency   = s.currency ?? 'ARS'
