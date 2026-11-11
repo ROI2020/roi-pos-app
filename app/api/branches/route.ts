@@ -10,7 +10,7 @@ export async function GET() {
   const { businessId } = result
 
   const { rows } = await pool.query(
-    `SELECT id, name, address, arca_pos_number, cuit_emisor, is_default
+    `SELECT id, name, address, arca_pos_number, cuit_emisor, is_default, store_code
      FROM branches
      WHERE business_id = $1
      ORDER BY is_default DESC, name`,
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   if (blocked) return blocked
 
   try {
-    const { name, address, arca_pos_number } = await req.json()
+    const { name, address, arca_pos_number, store_code } = await req.json()
 
     if (!name?.trim())
       return NextResponse.json({ error: 'El nombre es obligatorio' }, { status: 400 })
@@ -39,10 +39,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'El número ARCA debe ser un entero' }, { status: 400 })
 
     const { rows } = await pool.query(
-      `INSERT INTO branches (name, address, arca_pos_number, business_id)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, name, address, arca_pos_number`,
-      [name.trim(), address?.trim() || null, arcaNum, businessId]
+      `INSERT INTO branches (name, address, arca_pos_number, business_id, store_code)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, name, address, arca_pos_number, store_code`,
+      [name.trim(), address?.trim() || null, arcaNum, businessId, store_code?.trim() || null]
     )
     return NextResponse.json(rows[0], { status: 201 })
   } catch (err) {

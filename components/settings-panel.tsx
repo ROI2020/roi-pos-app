@@ -28,7 +28,7 @@ interface AppUser {
   role: 'vendedor' | 'encargado' | 'administrador'
   active: boolean; created_at: string
 }
-interface Branch { id: number; name: string; address: string | null; arca_pos_number: number; cuit_emisor: string | null; is_default: boolean }
+interface Branch { id: number; name: string; address: string | null; arca_pos_number: number; cuit_emisor: string | null; is_default: boolean; store_code: string | null }
 interface Fop { id: number; name: string; use_for_sales: boolean }
 interface Account {
   id: number; name: string; type: string; currency: string
@@ -541,6 +541,7 @@ function BranchDialog({
   const [address,    setAddress   ] = useState(branch?.address      ?? '')
   const [arcaNum,    setArcaNum   ] = useState(String(branch?.arca_pos_number ?? ''))
   const [cuitEmisor, setCuitEmisor] = useState(branch?.cuit_emisor  ?? '')
+  const [storeCode,  setStoreCode ] = useState(branch?.store_code   ?? '')
   const [saving,     setSaving    ] = useState(false)
 
   const handleSubmit = async () => {
@@ -552,6 +553,7 @@ function BranchDialog({
         address: address.trim() || null,
         arca_pos_number: parseInt(arcaNum) || 0,
         cuit_emisor: cuitEmisor.trim() || null,
+        store_code: storeCode.trim() || null,
       }
       const res = branch
         ? await fetch(`/api/branches/${branch.id}`, {
@@ -609,6 +611,18 @@ function BranchDialog({
             />
             <p className="text-xs text-gray-400">
               CUIT del titular de esta sucursal para facturación. Dejar vacío si usa el CUIT general.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Código de tienda (Google Business Profile)</Label>
+            <Input
+              value={storeCode}
+              onChange={e => setStoreCode(e.target.value)}
+              placeholder="MALEMA_LOCAL"
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-gray-400">
+              Código de tienda del Perfil de Empresa de Google. Dejalo vacío si esta sucursal no atiende al público.
             </p>
           </div>
         </div>

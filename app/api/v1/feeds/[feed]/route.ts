@@ -51,6 +51,18 @@ function fixTitleCase(title: string): string {
   }).join(' ')
 }
 
+function makeGid(productId: number, sku: string | null | undefined, isDS: boolean): string {
+  if (isDS) return `ds-${productId}`
+  if (sku)  return sku
+  return `p-${productId}`
+}
+
+function localAvailability(qty: number): string {
+  if (qty <= 0) return 'out_of_stock'
+  if (qty <= 2) return 'limited_availability'
+  return 'in_stock'
+}
+
 function esc(s: string | null | undefined): string {
   if (!s) return ''
   return s
@@ -107,6 +119,130 @@ export async function GET(
   const locale       = cfg.locale        ?? 'es-AR'
   const currency     = cfg.currency      ?? 'ARS'
   const storePath    = locale.startsWith('en') ? '/store' : '/tienda'
+
+  // ── 3a. Feed de inventario local ─────────────────────────────────────────
+  if (feed === 'local-inventory.xml') {
+    const { rows: branches } = await pool.query<{ id: number; store_code: string }>(
+      `SELECT id, store_code FROM branches
+       WHERE business_id = $1 AND store_code IS NOT NULL AND store_code <> ''`,
+      [businessId]
+    )
+
+    if (branches.length === 0) {
+      const emptyXml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
+  <channel>
+    <title>${esc(businessName)} — Inventario local</title>
+    <link>${esc(baseUrl)}</link>
+    <description>Sin sucursales con código de tienda</description>
+  </channel>
+</rss>`
+      return new NextResponse(emptyXml, {
+        headers: { 'Content-Type': 'application/rss+xml; charset=UTF-8' },
+      })
+    }
+
+    // Productos físicos (no DS) exportables en google-catalog
+    const { rows: localProducts } = await pool.query<{ product_id: number }>(
+      `SELECT p.id AS product_id
+       FROM products p
+       WHERE p.business_id = $1
+         AND p.exportable_web = true
+         AND COALESCE(p.cj_pid, '') = ''
+         AND (p.photo_url IS NOT NULL OR p.general_image_url IS NOT NULL)
+       ORDER BY p.id`,
+      [businessId]
+    )
+
+    const localProductIds = localProducts.map(r => r.product_id)
+
+    if (localProductIds.length === 0) {
+      const emptyXml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
+  <channel>
+    <title>${esc(businessName)} — Inventario local</title>
+    <link>${esc(baseUrl)}</link>
+    <description>Sin productos para inventario local</description>
+  </channel>
+</rss>`
+      return new NextResponse(emptyXml, {
+        headers: { 'Content-Type': 'application/rss+xml; charset=UTF-8' },
+      })
+    }
+
+    // Variantes con cantidades por sucursal
+    const branchIds = branches.map(b => b.id)
+    const { rows: invRows } = await pool.query<{
+      variant_id: number; product_id: number; sku: string
+      branch_id: number; quantity: number
+    }>(
+      `SELECT pv.id AS variant_id, pv.product_id, pv.sku,
+              b.id  AS branch_id,
+              COALESCE(bi.quantity, 0) AS quantity
+       FROM product_variants pv
+       CROSS JOIN branches b
+       LEFT JOIN branch_inventory bi
+              ON bi.product_variant_id = pv.id AND bi.branch_id = b.id
+       WHERE pv.product_id = ANY($1)
+         AND b.id = ANY($2)
+       ORDER BY b.id, pv.product_id, pv.id`,
+      [localProductIds, branchIds]
+    )
+
+    // Agrupar: productId → { branchId → variant[] }
+    const variantsByProduct = new Map<number, { sku: string; variantId: number }[]>()
+    const invByBranchVariant = new Map<string, number>()
+    for (const r of invRows) {
+      if (!variantsByProduct.has(r.product_id)) variantsByProduct.set(r.product_id, [])
+      const list = variantsByProduct.get(r.product_id)!
+      if (!list.find(v => v.variantId === r.variant_id))
+        list.push({ sku: r.sku, variantId: r.variant_id })
+      invByBranchVariant.set(`${r.branch_id}_${r.variant_id}`, r.quantity)
+    }
+
+    const localItems: string[] = []
+    for (const branch of branches) {
+      for (const pid of localProductIds) {
+        const variants = variantsByProduct.get(pid) ?? []
+        if (variants.length === 0) {
+          // Producto sin variantes: g:id = p-<id>, qty = 0
+          localItems.push(`    <item>
+      <g:store_code>${esc(branch.store_code)}</g:store_code>
+      <g:id>${esc(makeGid(pid, null, false))}</g:id>
+      <g:availability>out_of_stock</g:availability>
+      <g:quantity>0</g:quantity>
+    </item>`)
+        } else {
+          for (const v of variants) {
+            const qty  = invByBranchVariant.get(`${branch.id}_${v.variantId}`) ?? 0
+            localItems.push(`    <item>
+      <g:store_code>${esc(branch.store_code)}</g:store_code>
+      <g:id>${esc(makeGid(pid, v.sku, false))}</g:id>
+      <g:availability>${localAvailability(qty)}</g:availability>
+      <g:quantity>${qty}</g:quantity>
+    </item>`)
+          }
+        }
+      }
+    }
+
+    const localXml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
+  <channel>
+    <title>${cdata(businessName)} — Inventario local</title>
+    <link>${esc(baseUrl)}</link>
+    <description>${cdata(businessName)} — Inventario en sucursales</description>
+${localItems.join('\n')}
+  </channel>
+</rss>`
+
+    return new NextResponse(localXml, {
+      headers: {
+        'Content-Type':  'application/rss+xml; charset=UTF-8',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    })
+  }
 
   // ── 3. Filtro según feed ──────────────────────────────────────────────────
   let whereClause: string
@@ -229,7 +365,7 @@ export async function GET(
     if (isDS) {
       // ── Producto DS: un solo ítem por producto ──────────────────────────
       items.push(`    <item>
-      <g:id>ds-${row.product_id}</g:id>
+      <g:id>${esc(makeGid(row.product_id, null, true))}</g:id>
       <g:item_group_id>${row.product_id}</g:item_group_id>
       <g:title>${cdata(fixTitleCase(row.product_name))}</g:title>
       <g:description>${cdata(description)}</g:description>
@@ -239,6 +375,8 @@ export async function GET(
       <g:price>${row.price.toFixed(2)} ${currency}</g:price>
       <g:brand>${cdata(businessName)}</g:brand>
       <g:condition>new</g:condition>
+      <g:excluded_destination>free_local_listings</g:excluded_destination>
+      <g:excluded_destination>local_inventory_ads</g:excluded_destination>
     </item>`)
     } else {
       // ── Producto físico: un ítem por variante ───────────────────────────
@@ -247,7 +385,7 @@ export async function GET(
       if (variants.length === 0) {
         // Sin variantes cargadas → ítem genérico
         items.push(`    <item>
-      <g:id>p-${row.product_id}</g:id>
+      <g:id>${esc(makeGid(row.product_id, null, false))}</g:id>
       <g:item_group_id>${row.product_id}</g:item_group_id>
       <g:title>${cdata(fixTitleCase(row.product_name))}</g:title>
       <g:description>${cdata(description)}</g:description>
@@ -274,7 +412,7 @@ export async function GET(
             : ''
 
           items.push(`    <item>
-      <g:id>${esc(v.sku)}</g:id>
+      <g:id>${esc(makeGid(row.product_id, v.sku, false))}</g:id>
       <g:item_group_id>${row.product_id}</g:item_group_id>
       <g:title>${cdata(fixTitleCase(title))}</g:title>
       <g:description>${cdata(description)}</g:description>
