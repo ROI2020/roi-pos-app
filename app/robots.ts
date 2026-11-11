@@ -31,19 +31,37 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
     // fallback: /tienda en el dominio del request
   }
 
+  // Construir allow/disallow una sola vez: se reusan en el grupo * y en los bots
+  // específicos (un grupo con user-agent propio reemplaza al * para ese bot, así
+  // que tiene que tener las mismas reglas completas).
+  const allowPaths = [
+    storePath,
+    `${storePath}/`,
+    '/sitemap.xml',
+    '/api/images/',   // fotos de producto (Googlebot-Image y Merchant Center)
+    '/_next/static/', // CSS/JS de Next.js (renderización de páginas de producto)
+    '/_next/image',
+    '/favicon',
+  ]
+  const disallowPaths = [
+    `${storePath}/checkout`,
+    `${storePath}/tracking`,
+    '/api/',
+    '/',  // bloquea todo lo demás (panel admin, login, etc.)
+  ]
+
   return {
     rules: [
       {
         userAgent: '*',
-        // Permitir: la tienda completa…
-        allow: [storePath, `${storePath}/`],
-        // …excepto rutas de proceso que no deben indexarse
-        disallow: [
-          `${storePath}/checkout`,
-          `${storePath}/tracking`,
-          '/api/',
-          '/',  // bloquea todo lo demás (panel admin, login, etc.)
-        ],
+        allow:    allowPaths,
+        disallow: disallowPaths,
+      },
+      {
+        // Merchant Center usa Storebot-Google; reglas explícitas para no depender de *
+        userAgent: ['Googlebot', 'Googlebot-Image', 'Storebot-Google'],
+        allow:    allowPaths,
+        disallow: disallowPaths,
       },
     ],
     sitemap: `${baseUrl}/sitemap.xml`,
