@@ -20,6 +20,7 @@ import { useTranslations } from "next-intl"
 import { toast }           from "sonner"
 import { useCart }         from "../../_context/cart-context"
 import { useCurrency }     from "../../_context/currency-context"
+import { trackViewItem }   from "@/lib/analytics"
 import { colorToCss, sortSizes } from "../../_utils"
 import type { CJFreightOption }  from "../../_types"
 
@@ -66,8 +67,8 @@ interface Props {
 // ── Componente ─────────────────────────────────────────────────────────────────
 
 export default function ItemClient({ product, waNumber, storePath, paymentGateway, shippingInfo }: Props) {
-  const router  = useRouter()
-  const { fmt } = useCurrency()
+  const router              = useRouter()
+  const { fmt, currency }   = useCurrency()
   const { addItem, items: cartItems, openCart } = useCart()
   const t = useTranslations('ProductModal')
 
@@ -131,6 +132,10 @@ export default function ItemClient({ product, waNumber, storePath, paymentGatewa
 
   // ── Precio ──────────────────────────────────────────────────────────────────
   const displayPrice = product.promo_price ?? product.price
+
+  useEffect(() => {
+    trackViewItem({ productId: product.id, productName: product.name, price: displayPrice, currency })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Estado carrito ───────────────────────────────────────────────────────────
   const isInCart = cartItems.some(i => i.productId === product.id)

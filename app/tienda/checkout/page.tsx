@@ -8,8 +8,9 @@ import {
   ArrowLeft, ShoppingCart, MapPin, Store, Building2,
   AlertCircle, Loader2, CreditCard, Package,
 } from "lucide-react"
-import { useCart }      from "../_context/cart-context"
-import { useCurrency }  from "../_context/currency-context"
+import { useCart }              from "../_context/cart-context"
+import { useCurrency }          from "../_context/currency-context"
+import { trackBeginCheckout }   from "@/lib/analytics"
 import { useStoreHref } from "../_context/store-path-context"
 import { PAQAR_PROVINCES } from "@/lib/correo/provinces"
 import { US_STATES }       from "@/lib/us-states"
@@ -665,6 +666,21 @@ export default function CheckoutPage() {
       .catch(() => {})
       .finally(() => setConfigLoaded(true))
   }, [])
+
+  useEffect(() => {
+    if (items.length === 0) return
+    trackBeginCheckout({
+      value:    items.reduce((s, i) => s + i.price * i.quantity, 0),
+      currency,
+      items:    items.map(i => ({
+        productId:   i.productId,
+        productName: i.productName,
+        price:       i.price,
+        quantity:    i.quantity,
+        variant:     i.variantSku || undefined,
+      })),
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Estado del formulario ────────────────────────────────────────────────────
   const [step,    setStep   ] = useState(0)

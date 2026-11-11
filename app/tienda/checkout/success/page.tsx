@@ -4,8 +4,10 @@ import { useEffect, useState, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { useTranslations } from 'next-intl'
 import { CheckCircle2, MessageCircle } from "lucide-react"
-import { useCart }      from "../../_context/cart-context"
-import { useStoreHref } from "../../_context/store-path-context"
+import { useCart }        from "../../_context/cart-context"
+import { useCurrency }    from "../../_context/currency-context"
+import { useStoreHref }   from "../../_context/store-path-context"
+import { trackPurchase }  from "@/lib/analytics"
 import Link from "next/link"
 
 /**
@@ -19,12 +21,38 @@ import Link from "next/link"
 function SuccessContent() {
   const params    = useSearchParams()
   const orderId   = params.get('orderId')
-  const { clearCart } = useCart()
+  const { clearCart, getStoredItems } = useCart()
+  const { currency }  = useCurrency()
   const t         = useTranslations('PaymentSuccess')
   const storeHref = useStoreHref('')
   const [waNumber, setWaNumber] = useState<string | null>(null)
 
   useEffect(() => {
+    // Leer el carrito de localStorage ANTES de vaciarlo, para poder disparar purchase.
+    if (orderId) {
+      const storedItems = getStoredItems()
+      if (storedItems.length > 0) {
+        const TRACK_KEY = 'roipos_purchase_tracked'
+        try {
+          const done: string[] = JSON.parse(localStorage.getItem(TRACK_KEY) ?? '[]')
+          if (!done.includes(orderId)) {
+            trackPurchase({
+              transactionId: orderId,
+              value:         storedItems.reduce((s, i) => s + i.price * i.quantity, 0),
+              currency,
+              items:         storedItems.map(i => ({
+                productId:   i.productId,
+                productName: i.productName,
+                price:       i.price,
+                quantity:    i.quantity,
+                variant:     i.variantSku || undefined,
+              })),
+            })
+            localStorage.setItem(TRACK_KEY, JSON.stringify([orderId, ...done].slice(0, 20)))
+          }
+        } catch { /* localStorage no disponible */ }
+      }
+    }
     clearCart()
     // Use public endpoint — no auth required
     fetch('/api/tienda/config')

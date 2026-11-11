@@ -1,6 +1,8 @@
 "use client"
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
+import { useCurrency }     from './currency-context'
+import { trackAddToCart }  from '@/lib/analytics'
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -21,16 +23,17 @@ export interface CartItem {
 }
 
 interface CartContextValue {
-  items:          CartItem[]
-  itemCount:      number
-  total:          number
-  isOpen:         boolean
-  addItem:        (item: CartItem) => void
-  removeItem:     (variantId: number) => void
-  updateQuantity: (variantId: number, quantity: number) => void  // 0 = eliminar
-  clearCart:      () => void
-  openCart:       () => void
-  closeCart:      () => void
+  items:           CartItem[]
+  itemCount:       number
+  total:           number
+  isOpen:          boolean
+  addItem:         (item: CartItem) => void
+  removeItem:      (variantId: number) => void
+  updateQuantity:  (variantId: number, quantity: number) => void  // 0 = eliminar
+  clearCart:       () => void
+  openCart:        () => void
+  closeCart:       () => void
+  getStoredItems:  () => CartItem[]
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -77,6 +80,7 @@ export function CartProvider({
   // Clave namespaceada por negocio — aísla carritos en dev (localhost compartido)
   // En prod cada negocio corre en su propio dominio, localStorage ya es independiente.
   const sKey = storageKey(businessId)
+  const { currency } = useCurrency()
 
   // Leer localStorage al montar (solo cliente)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,8 +103,17 @@ export function CartProvider({
       writeStorage(sKey, next)
       return next
     })
+    // Fuera del updater: en Strict Mode el updater corre 2 veces, el evento no.
+    trackAddToCart({
+      productId:   item.productId,
+      productName: item.productName,
+      price:       item.price,
+      currency,
+      quantity:    item.quantity ?? 1,
+      variant:     item.variantSku || undefined,
+    })
     setIsOpen(true)
-  }, [sKey])
+  }, [sKey, currency])
 
   const removeItem = useCallback((variantId: number) => {
     setItems(prev => {
@@ -132,6 +145,10 @@ export function CartProvider({
     writeStorage(sKey, [])
   }, [sKey])
 
+  // Lee el carrito directamente de localStorage (sin esperar al estado React).
+  // Usar en la página de éxito antes de clearCart para capturar los items del pedido.
+  const getStoredItems = useCallback(() => readStorage(sKey), [sKey])
+
   const itemCount = items.reduce((s, i) => s + i.quantity, 0)
   const total     = items.reduce((s, i) => s + i.price * i.quantity, 0)
 
@@ -139,8 +156,9 @@ export function CartProvider({
     <CartContext.Provider value={{
       items, itemCount, total, isOpen,
       addItem, removeItem, updateQuantity, clearCart,
-      openCart:  () => setIsOpen(true),
-      closeCart: () => setIsOpen(false),
+      openCart:       () => setIsOpen(true),
+      closeCart:      () => setIsOpen(false),
+      getStoredItems,
     }}>
       {children}
     </CartContext.Provider>

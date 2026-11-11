@@ -9,8 +9,9 @@ import {
 } from "lucide-react"
 import type { Product, StoreData, SuggestionProduct } from '../_types'
 import { colorToCss, sortSizes, totalStock } from '../_utils'
-import { useCart }     from '../_context/cart-context'
-import { useCurrency } from '../_context/currency-context'
+import { useCart }       from '../_context/cart-context'
+import { useCurrency }   from '../_context/currency-context'
+import { trackViewItem } from '@/lib/analytics'
 
 const SUGGESTION_ICON: Record<SuggestionProduct['reason'], React.ReactNode> = {
   complementary: <span className="store-text-primary">✦</span>,
@@ -25,7 +26,7 @@ export default function ProductModal({
   allProducts: Product[]
   onClose:     () => void
 }) {
-  const { fmt } = useCurrency()
+  const { fmt, currency } = useCurrency()
   const t = useTranslations('ProductModal')
 
   // Solo colores con al menos un talle en stock; filtramos string vacío (sin color diferenciado)
@@ -80,6 +81,15 @@ export default function ProductModal({
       document.body.style.overflow = ''
     }
   }, [onClose])
+
+  useEffect(() => {
+    trackViewItem({
+      productId:   product.id,
+      productName: product.name,
+      price:       product.promo_price ?? product.price,
+      currency,
+    })
+  }, [product.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sugerencias inteligentes
   useEffect(() => {
