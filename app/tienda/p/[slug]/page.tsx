@@ -51,7 +51,13 @@ export async function generateMetadata(
     return {
       title: page ? `${page.title} — ${s.business_name ?? ''}` : 'Page not found',
       alternates: { canonical },
-      openGraph: { url: canonical },
+      openGraph: {
+        type:     'website',
+        url:      canonical,
+        title:    page?.title ?? 'Page not found',
+        siteName: s.business_name ?? '',
+        locale:   locale.replace('-', '_'),
+      },
     }
   } catch {
     return { title: 'Tienda' }

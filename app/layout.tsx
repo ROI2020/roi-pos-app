@@ -56,10 +56,13 @@ export default async function RootLayout({
   if (isStore && !ga4Id) {
     try {
       const host = hdrs.get('host') ?? 'localhost'
-      const businessId = await resolveBusinessFromHost(host)
-      const s = await getPublicSettingsByKeys(businessId, ['catalog_ga4_measurement_id'])
-      const rawId = s['catalog_ga4_measurement_id'] ?? null
-      if (rawId && /^G-[A-Z0-9]+$/.test(rawId)) ga4Id = rawId
+      const cleanHost = host.replace(/^www\./, '').split(':')[0]
+      if (cleanHost !== 'localhost' && cleanHost !== '127.0.0.1') {
+        const businessId = await resolveBusinessFromHost(host)
+        const s = await getPublicSettingsByKeys(businessId, ['catalog_ga4_measurement_id'])
+        const rawId = s['catalog_ga4_measurement_id'] ?? null
+        if (rawId && /^G-[A-Z0-9]+$/.test(rawId)) ga4Id = rawId
+      }
     } catch { /* fallback: sin GA4 */ }
   }
 
