@@ -116,7 +116,7 @@ export async function middleware(req: NextRequest) {
         host,
         process.env.INTERNAL_API_KEY ?? '',
       )
-      return NextResponse.redirect(new URL(storePath, req.url))
+      return NextResponse.redirect(new URL(storePath, req.url), 308)
     }
     return NextResponse.redirect(new URL('/login', req.url))
   }
