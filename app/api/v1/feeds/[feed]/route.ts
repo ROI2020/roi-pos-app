@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
-import pool from '@/lib/db'
+import { NextResponse }    from 'next/server'
+import pool               from '@/lib/db'
+import { getStoreBaseUrl } from '@/lib/store-base-url'
 
 /**
  * GET /api/v1/feeds/[feed]?token=XXX
@@ -39,7 +40,7 @@ export async function GET(
   { params }: { params: Promise<{ feed: string }> }
 ) {
   const { feed }         = await params
-  const { searchParams } = new URL(req.url)
+  const { searchParams, host } = new URL(req.url)
   const token            = searchParams.get('token') ?? ''
 
   if (!token) {
@@ -59,16 +60,18 @@ export async function GET(
   }
   const businessId = tokenRows[0].business_id
 
+  try {
+
   // ── 2. Cargar settings del negocio ────────────────────────────────────────
   const { rows: settingRows } = await pool.query<{ key: string; value: string | null }>(
     `SELECT key, value FROM settings
      WHERE business_id = $1
-       AND key IN ('catalog_base_url','business_name','locale','currency')`,
+       AND key IN ('business_name','locale','currency')`,
     [businessId]
   )
   const cfg = Object.fromEntries(settingRows.map(r => [r.key, r.value ?? '']))
 
-  const baseUrl      = (cfg.catalog_base_url ?? '').replace(/\/$/, '')
+  const baseUrl      = await getStoreBaseUrl(businessId, host)
   const businessName = cfg.business_name ?? 'Catálogo'
   const locale       = cfg.locale        ?? 'es-AR'
   const currency     = cfg.currency      ?? 'ARS'
@@ -107,11 +110,11 @@ export async function GET(
        p.slug,
        (p.photo_url IS NOT NULL)                                 AS has_local_photo,
        p.general_image_url,
-       EXISTS (
+       (COALESCE(p.cj_pid, '') <> '' OR EXISTS (
          SELECT 1 FROM product_variants pv
-         JOIN branch_inventory bi ON bi.variant_id = pv.id
+         JOIN branch_inventory bi ON bi.product_variant_id = pv.id
          WHERE pv.product_id = p.id
-       )                                                         AS in_stock
+       ))                                                        AS in_stock
      FROM products p
      WHERE p.business_id = $1
        AND ${whereClause}
@@ -182,7 +185,7 @@ export async function GET(
     // URL del producto: individual si tiene slug, sino el home de la tienda
     const productLink = row.slug
       ? `${baseUrl}${storePath}/item/${row.slug}`
-      : baseUrl || 'https://example.com'
+      : `${baseUrl}${storePath}`
 
     // Imagen principal
     const mainImageUrl = row.has_local_photo
@@ -274,4 +277,9 @@ ${items.join('\n')}
       'Cache-Control': 'public, max-age=3600',
     },
   })
+
+  } catch (err) {
+    console.error('[feeds] Error generando feed:', err)
+    return new NextResponse('Internal Server Error', { status: 500 })
+  }
 }
