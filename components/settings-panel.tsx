@@ -920,6 +920,13 @@ function CatalogoTab() {
       description: 'Cualquier producto con al menos un flag activo.',
       color:       'border-violet-200 bg-violet-50 text-violet-700',
     },
+    {
+      key:         'local',
+      label:       'Google Merchant Center — Inventario local',
+      url:         `${base}/api/v1/feeds/local-inventory.xml?token=${tk}`,
+      description: 'Stock por sucursal para fichas locales gratuitas. Requiere "Código de tienda" cargado en Sucursales.',
+      color:       'border-orange-200 bg-orange-50 text-orange-700',
+    },
   ]
 
   if (loading) return (
