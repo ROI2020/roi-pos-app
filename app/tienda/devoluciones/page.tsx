@@ -1,8 +1,31 @@
+import type { Metadata } from 'next'
 import { headers } from 'next/headers'
+import { resolveBusinessFromHost } from '@/lib/tenant-api'
+import { getPublicSettingsByKeys } from '@/lib/settings'
 
-export const metadata = {
-  title: 'Política de devoluciones — MALEMA STORE',
-  description: 'Conocé nuestra política de devoluciones y garantías.',
+export async function generateMetadata(): Promise<Metadata> {
+  try {
+    const h    = await headers()
+    const host = h.get('host') ?? 'localhost'
+    const businessId = await resolveBusinessFromHost(host)
+    const s = await getPublicSettingsByKeys(businessId, ['business_name', 'catalog_base_url', 'locale'])
+    const name      = s['business_name'] ?? 'Tienda'
+    const locale    = s['locale'] ?? 'es-AR'
+    const storePath = locale.startsWith('en') ? '/store' : '/tienda'
+    const baseUrl   = (s['catalog_base_url'] ?? `https://${host}`).replace(/\/$/, '')
+    const canonical = `${baseUrl}${storePath}/devoluciones`
+    return {
+      title: `Política de devoluciones — ${name}`,
+      description: 'Conocé nuestra política de devoluciones y garantías.',
+      alternates: { canonical },
+      openGraph: { url: canonical },
+    }
+  } catch {
+    return {
+      title: 'Política de devoluciones',
+      description: 'Conocé nuestra política de devoluciones y garantías.',
+    }
+  }
 }
 
 export default async function DevolucionesPage() {

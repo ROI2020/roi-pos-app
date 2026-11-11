@@ -40,9 +40,15 @@ export async function generateMetadata(
   try {
     const businessId = await resolveBusinessFromHost(host)
     const page = await getPage(businessId, slug)
-    const s    = await getPublicSettingsByKeys(businessId, ['business_name'])
+    const s    = await getPublicSettingsByKeys(businessId, ['business_name', 'catalog_base_url', 'locale'])
+    const locale    = s['locale'] ?? 'es-AR'
+    const storePath = locale.startsWith('en') ? '/store' : '/tienda'
+    const baseUrl   = (s['catalog_base_url'] ?? `https://${host}`).replace(/\/$/, '')
+    const canonical = `${baseUrl}${storePath}/p/${slug}`
     return {
       title: page ? `${page.title} — ${s.business_name ?? ''}` : 'Page not found',
+      alternates: { canonical },
+      openGraph: { url: canonical },
     }
   } catch {
     return { title: 'Tienda' }
