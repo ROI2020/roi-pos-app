@@ -32,7 +32,7 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
       {
         userAgent: '*',
         // Permitir: la tienda completa…
-        allow: [`${storePath}/`],
+        allow: [storePath, `${storePath}/`],
         // …excepto rutas de proceso que no deben indexarse
         disallow: [
           `${storePath}/checkout`,
