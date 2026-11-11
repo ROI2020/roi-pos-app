@@ -18,7 +18,38 @@ import { getStoreBaseUrl } from '@/lib/store-base-url'
  * Multi-tenant: business_id se resuelve desde el token, no desde el host.
  */
 
-// ── Helpers XML ────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Talles y siglas que siempre van en mayúsculas en el título del feed.
+const FEED_SIGLAS = new Set(['BB', 'XL', 'XXL', 'XS', 'XXS', 'S', 'M', 'L', 'CJ', 'XC', 'MP'])
+
+/**
+ * Si más del 60 % de las letras de un título están en mayúsculas, pasa cada
+ * palabra a "Primera en mayúscula", salvo:
+ *   • palabras con dígitos (SKUs, talles numéricos como T38, 2X1)
+ *   • talles/siglas conocidas (XL, XXL, BB, CJ…)
+ *   • palabras de ≤ 2 caracteres sin vocales (iniciales, etc.)
+ * Si el título ya viene en minúsculas/mixto, no lo toca.
+ */
+function fixTitleCase(title: string): string {
+  const letters = [...title].filter(c => /\p{L}/u.test(c))
+  if (letters.length === 0) return title
+  const upperRatio = letters.filter(c => c === c.toUpperCase() && c !== c.toLowerCase()).length / letters.length
+  if (upperRatio <= 0.6) return title
+
+  return title.split(' ').map(word => {
+    if (!word) return word
+    // Dígitos: mantener tal cual (SKU, talle numérico)
+    if (/\d/.test(word)) return word
+    // Sigla conocida
+    if (FEED_SIGLAS.has(word.toUpperCase())) return word.toUpperCase()
+    // ≤ 2 chars sin vocales (inicial, abreviatura)
+    if (word.length <= 2 && !/[aeiouáéíóúüAEIOUÁÉÍÓÚÜ]/i.test(word)) return word.toUpperCase()
+    // Resto: primera letra mayúscula, resto minúsculas
+    const lower = word.toLocaleLowerCase('es-AR')
+    return lower.charAt(0).toUpperCase() + lower.slice(1)
+  }).join(' ')
+}
 
 function esc(s: string | null | undefined): string {
   if (!s) return ''
@@ -200,7 +231,7 @@ export async function GET(
       items.push(`    <item>
       <g:id>ds-${row.product_id}</g:id>
       <g:item_group_id>${row.product_id}</g:item_group_id>
-      <g:title>${cdata(row.product_name)}</g:title>
+      <g:title>${cdata(fixTitleCase(row.product_name))}</g:title>
       <g:description>${cdata(description)}</g:description>
       <g:link>${esc(productLink)}</g:link>
       <g:image_link>${esc(mainImageUrl)}</g:image_link>
@@ -218,7 +249,7 @@ export async function GET(
         items.push(`    <item>
       <g:id>p-${row.product_id}</g:id>
       <g:item_group_id>${row.product_id}</g:item_group_id>
-      <g:title>${cdata(row.product_name)}</g:title>
+      <g:title>${cdata(fixTitleCase(row.product_name))}</g:title>
       <g:description>${cdata(description)}</g:description>
       <g:link>${esc(productLink)}</g:link>
       <g:image_link>${esc(mainImageUrl)}</g:image_link>
@@ -245,7 +276,7 @@ export async function GET(
           items.push(`    <item>
       <g:id>${esc(v.sku)}</g:id>
       <g:item_group_id>${row.product_id}</g:item_group_id>
-      <g:title>${cdata(title)}</g:title>
+      <g:title>${cdata(fixTitleCase(title))}</g:title>
       <g:description>${cdata(description)}</g:description>
       <g:link>${esc(productLink)}</g:link>
       <g:image_link>${esc(variantImg)}</g:image_link>${additionalImgTag}
