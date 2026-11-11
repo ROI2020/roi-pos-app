@@ -6,6 +6,8 @@ import { Toaster } from '@/components/ui/sonner'
 import Nav from '@/components/nav'
 import { PlanProvider } from '@/contexts/PlanContext'
 import { ThemeProvider } from '@/components/theme-provider'
+import { resolveBusinessFromHost } from '@/lib/tenant-api'
+import { getPublicSettingsByKeys } from '@/lib/settings'
 import './globals.css'
 
 
@@ -49,7 +51,17 @@ export default async function RootLayout({
   const isStore = !!hdrs.get('x-store-base')
   // GA4 ID por negocio — viene del middleware vía settings.catalog_ga4_measurement_id
   // Solo se inyecta en producción (localhost no tiene ga4Id para no contaminar métricas)
-  const ga4Id   = hdrs.get('x-ga4-id') ?? null
+  // Si el middleware no lo inyectó (pasos 1/2 salen antes del paso 8), lo resolvemos directo.
+  let ga4Id = hdrs.get('x-ga4-id') ?? null
+  if (isStore && !ga4Id) {
+    try {
+      const host = hdrs.get('host') ?? 'localhost'
+      const businessId = await resolveBusinessFromHost(host)
+      const s = await getPublicSettingsByKeys(businessId, ['catalog_ga4_measurement_id'])
+      const rawId = s['catalog_ga4_measurement_id'] ?? null
+      if (rawId && /^G-[A-Z0-9]+$/.test(rawId)) ga4Id = rawId
+    } catch { /* fallback: sin GA4 */ }
+  }
 
   const showAdminShell = !isFacturaRapida && !isStore
 
