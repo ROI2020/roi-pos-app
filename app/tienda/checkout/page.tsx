@@ -619,7 +619,7 @@ export default function CheckoutPage() {
   const messages = useMessages()
   const router   = useRouter()
 
-  const { items, clearCart }          = useCart()
+  const { items, clearCart, getStoredItems } = useCart()
   const { fmt, locale, currency }     = useCurrency()
   const storeHref                     = useStoreHref('')
   const isUS                          = locale.startsWith('en')
@@ -668,11 +668,12 @@ export default function CheckoutPage() {
   }, [])
 
   useEffect(() => {
-    if (items.length === 0) return
+    const stored = getStoredItems()
+    if (stored.length === 0) return
     trackBeginCheckout({
-      value:    items.reduce((s, i) => s + i.price * i.quantity, 0),
+      value:    stored.reduce((s, i) => s + i.price * i.quantity, 0),
       currency,
-      items:    items.map(i => ({
+      items:    stored.map(i => ({
         productId:   i.productId,
         productName: i.productName,
         price:       i.price,
