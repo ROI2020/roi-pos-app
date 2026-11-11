@@ -16,16 +16,16 @@ const TIENDA_CSP = [
   // PayPal inyecta scripts inline; unsafe-inline es requerido por su SDK
   // GA4 carga gtag.js desde googletagmanager.com
   // Cloudflare Insights beacon es inyectado automáticamente por el proxy de Cloudflare
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.paypal.com https://www.paypalobjects.com https://*.paypal.com https://www.googletagmanager.com https://static.cloudflareinsights.com",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.paypal.com https://www.paypalobjects.com https://*.paypal.com https://*.googletagmanager.com https://static.cloudflareinsights.com",
   // Frames del modal de pago PayPal
   "frame-src 'self' https://www.paypal.com https://*.paypal.com",
-  // Imágenes de productos (CDN CJ proxiado por /api/images/proxy) + PayPal logos
-  "img-src 'self' data: blob: https://www.paypal.com https://www.paypalobjects.com",
+  // Imágenes de productos (CDN CJ proxiado por /api/images/proxy) + PayPal logos + GA4 pixel
+  "img-src 'self' data: blob: https://www.paypal.com https://www.paypalobjects.com https://*.google-analytics.com https://*.googletagmanager.com https://www.google.com https://www.google.com.ar",
   // Estilos: tema custom inline + Google Fonts
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   // Fetch a nuestras APIs + PayPal REST API (sandbox y live) + GA4 + Cloudflare Insights telemetry
-  "connect-src 'self' https://www.paypal.com https://*.paypal.com https://api-m.sandbox.paypal.com https://api-m.paypal.com https://www.google-analytics.com https://region1.google-analytics.com https://cloudflareinsights.com",
+  "connect-src 'self' https://www.paypal.com https://*.paypal.com https://api-m.sandbox.paypal.com https://api-m.paypal.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://www.google.com https://www.google.com.ar https://*.g.doubleclick.net https://cloudflareinsights.com",
 ].join('; ')
 
 /** @type {import('next').NextConfig} */
