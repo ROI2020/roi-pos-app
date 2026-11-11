@@ -3565,6 +3565,7 @@ const SUGGESTED_PAGES = [
   { slug: 'politica-envios', title: 'Política de Envíos'           },
   { slug: 'terminos',        title: 'Términos y Condiciones'       },
   { slug: 'devoluciones',    title: 'Política de Devoluciones'     },
+  { slug: 'returns',         title: 'Return Policy'                },
   { slug: 'faq',             title: 'Preguntas Frecuentes'         },
 ]
 
