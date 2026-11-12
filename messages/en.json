@@ -214,5 +214,9 @@
     "step3": "You will receive confirmation via WhatsApp",
     "whatsapp": "Contact via WhatsApp",
     "backToStore": "Back to store"
+  },
+  "StorePage": {
+    "lastUpdate": "Last update",
+    "backToStore": "Back to store"
   }
 }

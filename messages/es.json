@@ -214,5 +214,9 @@
     "step3": "Recibirás confirmación por WhatsApp",
     "whatsapp": "Consultar por WhatsApp",
     "backToStore": "Volver a la tienda"
+  },
+  "StorePage": {
+    "lastUpdate": "Última actualización",
+    "backToStore": "Volver a la tienda"
   }
 }

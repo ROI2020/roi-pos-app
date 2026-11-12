@@ -80,12 +80,25 @@ export default async function StorePage(
 
   const [page, s] = await Promise.all([
     getPage(businessId!, slug),
-    getPublicSettingsByKeys(businessId!, ['business_name', 'business_logo']),
+    getPublicSettingsByKeys(businessId!, ['business_name', 'business_logo', 'locale']),
   ])
 
   if (!page) notFound()
 
-  const updatedDate = new Intl.DateTimeFormat('es-AR', {
+  const locale    = s['locale'] ?? 'es-AR'
+  const isEn      = locale.startsWith('en')
+  const lang      = isEn ? 'en' : 'es'
+
+  // Claves i18n — cargadas desde messages/<lang>.json igual que en layout.tsx
+  let lastUpdateLabel = isEn ? 'Last update' : 'Última actualización'
+  let backToStoreLabel = isEn ? 'Back to store' : 'Volver a la tienda'
+  try {
+    const msgs = (await import(`../../../../messages/${lang}.json`)).default as Record<string, Record<string, string>>
+    lastUpdateLabel  = msgs.StorePage?.lastUpdate  ?? lastUpdateLabel
+    backToStoreLabel = msgs.StorePage?.backToStore ?? backToStoreLabel
+  } catch { /* usa fallbacks */ }
+
+  const updatedDate = new Intl.DateTimeFormat(locale, {
     day: 'numeric', month: 'long', year: 'numeric',
   }).format(new Date(page.updated_at))
 
@@ -95,9 +108,9 @@ export default async function StorePage(
       {/* Mini-header de la tienda */}
       <header className="store-surface border-b">
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3">
-          <a href="/tienda" className="flex items-center gap-1.5 text-sm store-text-muted store-hover-primary transition-colors">
+          <a href={isEn ? '/store' : '/tienda'} className="flex items-center gap-1.5 text-sm store-text-muted store-hover-primary transition-colors">
             <ArrowLeft className="h-4 w-4" />
-            Back to store
+            {backToStoreLabel}
           </a>
           {s.business_logo && (
             <img src={s.business_logo} alt={s.business_name ?? ''} className="h-7 object-contain ml-auto" />
@@ -112,7 +125,7 @@ export default async function StorePage(
         <div className="mb-8 pb-6 border-b">
           <h1 className="text-3xl font-bold tracking-tight">{page.title}</h1>
           <p className="mt-2 text-sm store-text-muted">
-            Last update: {updatedDate}
+            {lastUpdateLabel}: {updatedDate}
           </p>
         </div>
 
