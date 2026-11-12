@@ -60,6 +60,11 @@ function localAvailability(qty: number): string {
   return 'in_stock'
 }
 
+// Para el feed local, qty es siempre 0 o 1 (presencia en branch_inventory)
+function localBranchAvailability(qty: number): string {
+  return qty > 0 ? 'in_stock' : 'out_of_stock'
+}
+
 function esc(s: string | null | undefined): string {
   if (!s) return ''
   return s
@@ -167,7 +172,7 @@ export async function GET(
       })
     }
 
-    // Variantes con cantidades por sucursal
+    // Variantes por sucursal — branch_inventory no tiene cantidad, solo presencia (fila = asignada)
     const branchIds = branches.map(b => b.id)
     const { rows: invRows } = await pool.query<{
       variant_id: number; product_id: number; sku: string
@@ -175,7 +180,7 @@ export async function GET(
     }>(
       `SELECT pv.id AS variant_id, pv.product_id, pv.sku,
               b.id  AS branch_id,
-              COALESCE(bi.quantity, 0) AS quantity
+              (bi.id IS NOT NULL)::int AS quantity
        FROM product_variants pv
        CROSS JOIN branches b
        LEFT JOIN branch_inventory bi
@@ -215,7 +220,7 @@ export async function GET(
             localItems.push(`    <item>
       <g:store_code>${esc(branch.store_code)}</g:store_code>
       <g:id>${esc(makeGid(pid, v.sku, false))}</g:id>
-      <g:availability>${localAvailability(qty)}</g:availability>
+      <g:availability>${localBranchAvailability(qty)}</g:availability>
       <g:quantity>${qty}</g:quantity>
     </item>`)
           }
