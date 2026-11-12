@@ -42,6 +42,7 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
     '/_next/static/', // CSS/JS de Next.js (renderización de páginas de producto)
     '/_next/image',
     '/favicon',
+    '/$',             // raíz exacta (308 → /tienda); Google soporta $ como fin de URL
   ]
   const disallowPaths = [
     `${storePath}/checkout`,

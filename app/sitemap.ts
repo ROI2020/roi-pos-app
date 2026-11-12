@@ -50,9 +50,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const entries: MetadataRoute.Sitemap = []
 
   // ── 1. Home de la tienda ─────────────────────────────────────────────────────
+  const { rows: homeRows } = await pool.query<{ lastmod: string | null }>(
+    `SELECT MAX(updated_at)::text AS lastmod
+     FROM products
+     WHERE business_id = $1 AND exportable_web = true`,
+    [businessId]
+  ).catch(() => ({ rows: [{ lastmod: null }] }))
+  const homeLastmod = homeRows[0]?.lastmod ? new Date(homeRows[0].lastmod) : undefined
+
   entries.push({
     url:             `${baseUrl}${storePath}`,
-    lastModified:    new Date(),
+    ...(homeLastmod && { lastModified: homeLastmod }),
     changeFrequency: 'daily',
     priority:        1.0,
   })
@@ -81,10 +89,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // ── 3. Productos con URL individual ─────────────────────────────────────────
   const { rows: products } = await pool.query<{
-    slug:          string
-    cj_last_sync:  string | null
+    slug:    string
+    lastmod: string | null
   }>(
-    `SELECT slug, cj_last_sync
+    `SELECT slug, GREATEST(updated_at, cj_last_sync)::text AS lastmod
      FROM products
      WHERE business_id    = $1
        AND exportable_web = true
@@ -96,7 +104,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   for (const p of products) {
     entries.push({
       url:             `${baseUrl}${storePath}/item/${p.slug}`,
-      lastModified:    p.cj_last_sync ? new Date(p.cj_last_sync) : new Date(),
+      ...(p.lastmod && { lastModified: new Date(p.lastmod) }),
       changeFrequency: 'weekly',
       priority:        0.8,
     })

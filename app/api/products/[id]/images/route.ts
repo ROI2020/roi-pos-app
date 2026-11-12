@@ -63,5 +63,11 @@ export async function POST(
     color !== null ? [id, color, photo_url] : [id, photo_url]
   )
 
+  // Actualizar updated_at del producto para que sitemap.ts refleje el cambio
+  await pool.query(
+    `UPDATE products SET updated_at = NOW() WHERE id = $1`,
+    [id]
+  )
+
   return NextResponse.json({ id: rows[0].id }, { status: 201 })
 }
