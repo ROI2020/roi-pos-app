@@ -109,6 +109,7 @@ export default async function TiendaLayout({
   let storeBasePath = '/tienda'
   let businessId_: number | null = null
   let baseUrl_    = ''
+  let logo_: string | null = null
 
   try {
     const h    = await headers()
@@ -121,7 +122,7 @@ export default async function TiendaLayout({
     businessId_ = businessId
     const [s, resolvedBase] = await Promise.all([
       getPublicSettingsByKeys(businessId, [
-        'locale', 'currency',
+        'locale', 'currency', 'business_logo',
         'catalog_color_primary', 'catalog_color_secondary',
         'catalog_color_bg', 'catalog_color_surface', 'catalog_color_text',
         'catalog_color_muted', 'catalog_color_border', 'catalog_font',
@@ -129,6 +130,7 @@ export default async function TiendaLayout({
       getStoreBaseUrl(businessId, host),
     ])
     baseUrl_ = resolvedBase
+    logo_    = s.business_logo ?? null
 
     fullLocale = s.locale   ?? 'es-AR'
     currency   = s.currency ?? 'ARS'
@@ -189,10 +191,9 @@ export default async function TiendaLayout({
       {businessId_ !== null && (
         <StoreJsonLd
           businessId={businessId_}
-          businessName={''}   // se lee internamente desde el name del producto
           baseUrl={baseUrl_ || `https://localhost`}
           storePath={storeBasePath}
-          currency={currency}
+          logo={logo_}
         />
       )}
 
