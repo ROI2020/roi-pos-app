@@ -47,26 +47,7 @@ Sigue la numeración de `2026-11-11-fix-seo-ga4-tienda.md`. Antes de commitear: 
 2. En `item/[slug]/page.tsx`, si están cargados, agregar en `offers`:
    - `shippingDetails` → `OfferShippingDetails` con `shippingDestination: { '@type': 'DefinedRegion', addressCountry: <país del negocio, AR/US> }`, `shippingRate: { '@type': 'MonetaryAmount', value, currency }`, `deliveryTime` con `handlingTime` y `transitTime` (`QuantitativeValue`, `unitCode: 'DAY'`).
    - `hasMerchantReturnPolicy` → `MerchantReturnPolicy` con `applicableCountry`, `returnPolicyCategory: MerchantReturnFiniteReturnWindow`, `merchantReturnDays`, `returnMethod: ReturnByMail`, `returnFees: FreeReturn | ReturnFeesCustomerResponsibility`.
-3. **Datos de MALEMA (confirmados por ROI el 12/11):** la política vigente es la de `store_pages` slug `devoluciones` editada en PROD (la migración `20261111_store_pages_devoluciones.sql` todavía dice 7 días: **no** volver a correrla ni pisar la página).
-   - Plazo: **10 días corridos** desde la recepción → `seo_return_days = 10`.
-   - Solo se aceptan devoluciones por **defecto de fabricación**; el flete lo adelanta el cliente y se reembolsa si se confirma el defecto → para el cliente la devolución aceptada no tiene costo → `seo_return_fees = free`.
-   - Los cambios por talle/color/preferencia son **solo presenciales** y no son devoluciones: no van al schema.
-   - Schema resultante para MALEMA:
-     ```js
-     hasMerchantReturnPolicy: {
-       '@type': 'MerchantReturnPolicy',
-       applicableCountry: 'AR',
-       returnPolicyCategory: 'https://schema.org/MerchantReturnFiniteReturnWindow',
-       merchantReturnDays: 10,
-       returnMethod: 'https://schema.org/ReturnByMail',
-       returnFees: 'https://schema.org/FreeReturn',
-       itemDefectReturnFees: 'https://schema.org/FreeReturn',
-       merchantReturnLink: `${baseUrl}${storePath}/p/devoluciones`, 
-     }
-     ```
-     `merchantReturnLink` → la página de política del negocio (`devoluciones` en es, `returns` en en), solo si existe y está publicada.
-   - Envío (`seo_shipping_cost`, plazos): **pendiente de ROI**. Hasta que lo cargue, no emitir `shippingDetails`.
-   - Cargar los settings de MALEMA en PROD solo con OK de ROI.
+3. Datos de MALEMA: ver "Pendiente tras deploy" (actualizado 12/11, tarde).
 4. Alternativa válida (decide ROI): cargar envío y devoluciones en **Merchant Center › Envíos y devoluciones**; Google los toma de ahí para Shopping y los avisos del schema pasan a irrelevantes.
 
 ## ~~S15 — `StoreJsonLd` del layout: query rota y Products duplicados en todas las páginas~~
@@ -100,12 +81,33 @@ Sigue la numeración de `2026-11-11-fix-seo-ga4-tienda.md`. Antes de commitear: 
 | S12/S13/S14 | `a4aa6ac` | Los tres se agruparon en un solo commit sobre `item/[slug]/page.tsx`. S12 usó `buildSchemaImages()` con `has_local_photo` (sin traer el Base64). S13 creó `lib/product-sku.ts` y el feed lo importa. S14 lee settings `seo_return_*` y `seo_shipping_*`; para MALEMA solo falta cargar los settings en PROD (OK de ROI pendiente para shipping). |
 | S15 | `469a3cb` | `store-jsonld.tsx` → solo `OnlineStore`; `page.tsx` convertido a Server Component + `_catalog.tsx` extraído como `"use client"`. La query buggy `bi.variant_id` desaparece al eliminar el ItemList del layout. |
 | S16 | `2353db5` | Sitemap usa `GREATEST(updated_at, cj_last_sync)` y omite `lastModified` si es NULL. `robots.ts` agrega `/$`. `images/route.ts` actualiza `products.updated_at` tras upload de foto de color. |
+| S17 | `7f2de7c` | "Last update" y "Back to store" traducidos desde `messages/es.json`+`en.json`; fecha formateada con el locale del negocio; backlink corregido a `/store` en inglés. |
+| S18 | `d4e3eda` | 500 urgente en feed local-inventory: `COALESCE(bi.quantity, 0)` → `(bi.id IS NOT NULL)::int`; nuevo `localBranchAvailability()` que solo emite `in_stock`/`out_of_stock` (no `limited_availability`). |
 
-**Pendiente tras deploy (hace ROI):**
-- Cargar settings de MALEMA: `seo_return_days=10`, `seo_return_fees=free` → activa `hasMerchantReturnPolicy` en el schema.
-- Confirmar plazos de envío (seo_shipping_cost, seo_transit_days_min/max) para activar `shippingDetails`. Alternativa: cargar en Merchant Center directamente (punto 4 de S14).
+**Pendiente tras deploy (hace ROI) — actualizado 12/11, tarde:**
+- **Unificar la política antes de cargar settings.** Hoy hay dos páginas publicadas que se contradicen:
+  - `p/devoluciones`: solo devoluciones por defecto, 10 días corridos; no acepta devoluciones por preferencia; cambios solo presenciales.
+  - `p/politica-envios`: arrepentimiento de 10 días (Ley 24.240) **con** devolución, envío a cargo del comprador; defecto → garantía 6 meses, envío a cargo de la tienda.
+  Google compara el schema con la página y con Merchant Center: tiene que haber **una** política.
+- El código de S14 ya cubre los dos casos sin cambios: `seo_return_fees` = costo de la devolución **por arrepentimiento** (`returnFees`); el defecto ya sale como `itemDefectReturnFees: FreeReturn`. Con lo que dice `politica-envios`: `seo_return_days=10`, `seo_return_fees=customer`. (Antes este doc decía `free`: **descartado**.)
+- **Envío: no cargar `seo_shipping_*` para MALEMA.** El costo se calcula en el checkout por CP y peso (OCA/Andreani/Correo Argentino); no hay tarifa fija y un valor inventado es peor que el aviso opcional. Si se quiere, configurarlo en Merchant Center. Plazos de referencia: CABA/GBA 2–4 días hábiles, interior 4–8, Patagonia hasta 12.
+- **No** volver a correr `20261111_store_pages_devoluciones.sql` (dice 7 días; la página en PROD ya fue editada).
+
+## ~~S17 — "Last update" en inglés en las páginas de contenido~~
+**Causa:** `app/tienda/p/[slug]/page.tsx` línea ~115 tiene el texto fijo `Last update: {updatedDate}`. Sale en inglés en todas las páginas de MALEMA (devoluciones, política de envíos).
+**Arreglo:** pasarlo a `messages/es.json` / `messages/en.json` (ej. `store.pages.lastUpdate`: "Última actualización" / "Last update") y leerlo con `getTranslations` según el locale del negocio. Formatear la fecha con el locale del negocio (ya parece hacerlo; verificar).
+**Prueba:** `malema.com.ar/tienda/p/devoluciones` → "Última actualización: 12 de noviembre de 2026"; `nularione.com/store/p/returns` → "Last update: November 12, 2026".
 
 ---
+
+## ~~S18 — Feed de inventario local da 500: `column bi.quantity does not exist` (URGENTE)~~
+**Causa:** `app/api/v1/feeds/[feed]/route.ts`, rama `local-inventory` (S11), línea ~178: `COALESCE(bi.quantity, 0) AS quantity`. `branch_inventory` **no tiene columna de cantidad**: el modelo es una fila por variante y sucursal (`UNIQUE (product_variant_id, branch_id)`); que exista la fila = esa variante está en esa sucursal. Se suma y se borra la fila (`inventory/assign`, `exchanges`, `ml/webhook`), no se cambia una cantidad. Error en Netlify, 12/11 16:27.
+**Arreglo:**
+1. Reemplazar por `(bi.id IS NOT NULL)::int AS quantity` (0 o 1). **No** agregar una columna `quantity` a la tabla.
+2. `localAvailability(qty)`: con este modelo `qty` siempre vale 0 o 1, así que hoy todo lo que hay saldría `limited_availability`. Para el feed local: `qty > 0 → 'in_stock'`, si no `'out_of_stock'`. Si `localAvailability` se usa en otro lado, crear una función aparte para el feed local en vez de cambiar la compartida.
+3. `<g:quantity>`: mandar `1`/`0` está bien (Google lo acepta como opcional); dejarlo.
+4. Revisar que ningún otro query del repo use `bi.quantity`, `bi.stock` o `bi.variant_id` (`grep -rn "bi\.\(quantity\|stock\|variant_id\)" app lib`).
+**Prueba:** `npm run build` y abrir en local `/api/v1/feeds/local-inventory.xml?token=<token del negocio>` → 200, XML con un `<item>` por sucursal con `store_code` × variante; una variante asignada a la sucursal sale `in_stock`/`1`, una no asignada `out_of_stock`/`0`. Después del deploy, lo mismo en `https://malema.com.ar/api/v1/feeds/local-inventory.xml?token=…` y en Merchant Center › Fuentes de datos › **Obtener ahora**.
 
 ## Después del deploy (lo hace ROI)
 1. Inspección de URL → **Probar URL publicada** en 2 fichas (una física, una CJ). Si ya no hay error crítico → **Solicitar indexación** en 4–5 fichas clave.
