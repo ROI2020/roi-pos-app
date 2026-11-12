@@ -783,6 +783,13 @@ function CatalogoTab() {
   const [infoItems,   setInfoItems  ] = useState('')
   const [htmlBanner,  setHtmlBanner ] = useState('')
   const [ga4MeasurementId, setGa4MeasurementId] = useState('')
+  // SEO: schema de devoluciones y envío (S14)
+  const [seoReturnDays,       setSeoReturnDays      ] = useState('')
+  const [seoReturnFees,       setSeoReturnFees      ] = useState<'free' | 'customer' | ''>('')
+  const [seoShippingCost,     setSeoShippingCost    ] = useState('')
+  const [seoHandlingDaysMax,  setSeoHandlingDaysMax ] = useState('')
+  const [seoTransitDaysMin,   setSeoTransitDaysMin  ] = useState('')
+  const [seoTransitDaysMax,   setSeoTransitDaysMax  ] = useState('')
   const [ga4PropertyId,    setGa4PropertyId   ] = useState('')
   // ── Tema visual ──────────────────────────────────────────────
   const [themeColorPrimary,   setThemeColorPrimary  ] = useState('#7c3aed')
@@ -813,6 +820,12 @@ function CatalogoTab() {
         setInfoItems(d.catalog_info_items ?? '')
         setHtmlBanner(d.catalog_html_banner ?? '')
         setGa4MeasurementId(d.catalog_ga4_measurement_id ?? '')
+        setSeoReturnDays(d.seo_return_days ?? '')
+        setSeoReturnFees((d.seo_return_fees as 'free' | 'customer' | '') ?? '')
+        setSeoShippingCost(d.seo_shipping_cost ?? '')
+        setSeoHandlingDaysMax(d.seo_handling_days_max ?? '')
+        setSeoTransitDaysMin(d.seo_transit_days_min ?? '')
+        setSeoTransitDaysMax(d.seo_transit_days_max ?? '')
         setGa4PropertyId(d.catalog_ga4_property_id ?? '')
         setThemeColorPrimary(d.catalog_color_primary     ?? '#7c3aed')
         setThemeColorSecondary(d.catalog_color_secondary ?? '#ec4899')
@@ -862,6 +875,12 @@ function CatalogoTab() {
           catalog_info_items:          infoItems.trim() || null,
           catalog_html_banner:         htmlBanner.trim() || null,
           catalog_ga4_measurement_id:  ga4MeasurementId.trim() || null,
+          seo_return_days:             seoReturnDays.trim() || null,
+          seo_return_fees:             seoReturnFees || null,
+          seo_shipping_cost:           seoShippingCost.trim() || null,
+          seo_handling_days_max:       seoHandlingDaysMax.trim() || null,
+          seo_transit_days_min:        seoTransitDaysMin.trim() || null,
+          seo_transit_days_max:        seoTransitDaysMax.trim() || null,
           catalog_ga4_property_id:     ga4PropertyId.trim() || null,
           catalog_color_primary:       themeColorPrimary   || null,
           catalog_color_secondary:     themeColorSecondary || null,
@@ -1172,6 +1191,97 @@ function CatalogoTab() {
           <p className="text-xs text-gray-400">
             Número de cuotas sin interés que ofrecés. Ej: <code className="bg-gray-100 px-1 rounded">3</code> muestra
             "3 cuotas sin interés" en todos los productos. Dejar en 0 u vacío para no mostrar.
+          </p>
+        </div>
+
+        {/* SEO: política de devoluciones */}
+        <div className="space-y-3 pt-3 border-t border-gray-100">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">SEO — Devoluciones y envío</p>
+          <p className="text-xs text-gray-400 -mt-1">
+            Google Search Console muestra avisos si el schema de producto no tiene política de devolución ni datos de envío.
+            Completá solo lo que aplica a tu tienda; si dejás vacío, Google no lo ve en el schema pero tampoco lo marca como error.
+          </p>
+
+          {/* Devoluciones */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Plazo de devolución (días)</Label>
+              <Input
+                type="number"
+                min="0"
+                max="365"
+                value={seoReturnDays}
+                onChange={e => setSeoReturnDays(e.target.value)}
+                placeholder="ej: 10"
+                className="text-sm w-full"
+              />
+              <p className="text-xs text-gray-400">Días corridos desde la recepción.</p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Costo de devolución</Label>
+              <select
+                value={seoReturnFees}
+                onChange={e => setSeoReturnFees(e.target.value as 'free' | 'customer' | '')}
+                className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+              >
+                <option value="">— sin definir —</option>
+                <option value="free">Sin costo para el cliente</option>
+                <option value="customer">A cargo del cliente</option>
+              </select>
+              <p className="text-xs text-gray-400">Lo ve Google en la ficha de Search.</p>
+            </div>
+          </div>
+
+          {/* Envío */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Costo de envío (en tu moneda)</Label>
+              <Input
+                type="number"
+                min="0"
+                value={seoShippingCost}
+                onChange={e => setSeoShippingCost(e.target.value)}
+                placeholder="0 = gratis"
+                className="text-sm w-full"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Preparación máx. (días hábiles)</Label>
+              <Input
+                type="number"
+                min="0"
+                value={seoHandlingDaysMax}
+                onChange={e => setSeoHandlingDaysMax(e.target.value)}
+                placeholder="ej: 1"
+                className="text-sm w-full"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Tránsito mín. (días hábiles)</Label>
+              <Input
+                type="number"
+                min="0"
+                value={seoTransitDaysMin}
+                onChange={e => setSeoTransitDaysMin(e.target.value)}
+                placeholder="ej: 2"
+                className="text-sm w-full"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Tránsito máx. (días hábiles)</Label>
+              <Input
+                type="number"
+                min="0"
+                value={seoTransitDaysMax}
+                onChange={e => setSeoTransitDaysMax(e.target.value)}
+                placeholder="ej: 5"
+                className="text-sm w-full"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-gray-400">
+            Los datos de envío se emiten en el schema solo si están completos (costo + tránsito mín. y máx.).
+            Alternativa válida: cargar envío y devoluciones directo en <strong>Google Merchant Center › Envíos y devoluciones</strong>.
           </p>
         </div>
       </div>
