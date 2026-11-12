@@ -1,6 +1,7 @@
 import { NextResponse }    from 'next/server'
 import pool               from '@/lib/db'
 import { getStoreBaseUrl } from '@/lib/store-base-url'
+import { makeProductGid }  from '@/lib/product-sku'
 
 /**
  * GET /api/v1/feeds/[feed]?token=XXX
@@ -51,11 +52,7 @@ function fixTitleCase(title: string): string {
   }).join(' ')
 }
 
-function makeGid(productId: number, sku: string | null | undefined, isDS: boolean): string {
-  if (isDS) return `ds-${productId}`
-  if (sku)  return sku
-  return `p-${productId}`
-}
+const makeGid = makeProductGid
 
 function localAvailability(qty: number): string {
   if (qty <= 0) return 'out_of_stock'

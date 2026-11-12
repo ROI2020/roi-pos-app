@@ -10,11 +10,11 @@
 import type { Metadata } from 'next'
 import { headers }   from 'next/headers'
 import { notFound }  from 'next/navigation'
-import Script        from 'next/script'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
 import { getStoreBaseUrl } from '@/lib/store-base-url'
 import { toProxyUrl } from '@/lib/proxy-image'
+import { makeProductGid } from '@/lib/product-sku'
 import pool from '@/lib/db'
 import ItemClient, { type ItemProduct } from './_client'
 import CartDrawer from '../../_components/cart-drawer'
@@ -35,12 +35,32 @@ interface ProductRow {
   cj_freight_options: object | null
   category:           string | null
   has_image:          boolean
+  has_local_photo:    boolean
   cj_gallery:         string[] | null
+}
+
+function buildSchemaImages(params: {
+  id:              number
+  hasLocalPhoto:   boolean
+  generalImgUrl:   string | null
+  colorImgIds:     number[]
+  cjGallery:       string[] | null
+  baseUrl:         string
+}): string[] {
+  const seen = new Set<string>()
+  const imgs: string[] = []
+  const add = (u: string) => { if (u && !seen.has(u)) { seen.add(u); imgs.push(u) } }
+  if (params.hasLocalPhoto) add(`${params.baseUrl}/api/images/products/${params.id}`)
+  if (params.generalImgUrl) add(params.generalImgUrl)
+  for (const id of params.colorImgIds.slice(0, 5)) add(`${params.baseUrl}/api/images/product-images/${id}`)
+  for (const url of params.cjGallery ?? []) if (url) add(url)
+  return imgs
 }
 
 interface VariantRow {
   id:                 number
   sku:                string
+  barcode:            string | null
   color:              string
   size:               string
   specific_image_url: string | null
@@ -68,8 +88,9 @@ export async function generateMetadata({
     const [s, baseUrl, { rows }] = await Promise.all([
       getPublicSettingsByKeys(businessId, ['business_name', 'locale', 'business_logo']),
       getStoreBaseUrl(businessId, host),
-      pool.query<Pick<ProductRow, 'id' | 'name' | 'long_name' | 'description' | 'base_price' | 'general_image_url'>>(
-        `SELECT id, name, long_name, description, base_price::float, general_image_url
+      pool.query<Pick<ProductRow, 'id' | 'name' | 'long_name' | 'description' | 'base_price' | 'general_image_url' | 'has_local_photo'>>(
+        `SELECT id, name, long_name, description, base_price::float, general_image_url,
+                (photo_url IS NOT NULL) AS has_local_photo
          FROM products
          WHERE business_id = $1 AND slug = $2
          LIMIT 1`,
@@ -83,7 +104,9 @@ export async function generateMetadata({
     const locale   = s['locale'] ?? 'es-AR'
     const stPath   = locale.startsWith('en') ? '/store' : '/tienda'
     const canonical = `${baseUrl}${stPath}/item/${slug}`
-    const imgUrl   = toProxyUrl(p.general_image_url)
+    const imgUrl   = p.has_local_photo
+      ? `${baseUrl}/api/images/products/${p.id}`
+      : toProxyUrl(p.general_image_url)
     const logo     = s['business_logo'] ?? null
     // Favicon: URL tal cual (absoluta o relativa). Ver tienda/layout.tsx.
     const faviconUrl = logo || null
@@ -147,6 +170,9 @@ export default async function ProductItemPage({
       'business_name', 'locale', 'currency',
       'whatsapp_number', 'catalog_cuotas',
       'payment_gateway', 'catalog_envio_info',
+      'seo_return_days', 'seo_return_fees',
+      'seo_shipping_cost', 'seo_handling_days_max',
+      'seo_transit_days_min', 'seo_transit_days_max',
     ]).catch(() => ({} as Record<string, string>)),
     getStoreBaseUrl(businessId, host),
   ])
@@ -169,6 +195,7 @@ export default async function ProductItemPage({
        p.cj_pid,
        p.cj_freight_options,
        (p.photo_url IS NOT NULL OR p.general_image_url IS NOT NULL) AS has_image,
+       (p.photo_url IS NOT NULL) AS has_local_photo,
        c.name AS category,
        CASE
          WHEN p.cj_data IS NOT NULL AND p.cj_data ? 'productImages'
@@ -191,7 +218,7 @@ export default async function ProductItemPage({
   // Físicos: in_stock = EXISTS fila en branch_inventory.
   const isDS = !!prod.cj_pid
   const varRes = await pool.query<VariantRow>(
-    `SELECT pv.id, pv.sku, pv.color, pv.size, pv.specific_image_url,
+    `SELECT pv.id, pv.sku, pv.barcode, pv.color, pv.size, pv.specific_image_url,
             CASE WHEN $2
               THEN true
               ELSE EXISTS (
@@ -274,34 +301,104 @@ export default async function ProductItemPage({
   }
 
   // ── JSON-LD Product (para indexación individual) ──────────────────────────
-  const canonical = `${baseUrl}${stPath}/item/${slug}`
-  const imgForSchema = prod.general_image_url ?? null
+  const canonical  = `${baseUrl}${stPath}/item/${slug}`
+  const bizName    = s['business_name'] ?? 'Tienda'
+  const countryCode = locale.includes('AR') ? 'AR' : locale.includes('US') ? 'US' : 'AR'
 
-  const productSchema = {
+  const schemaImages = buildSchemaImages({
+    id:            prod.id,
+    hasLocalPhoto: prod.has_local_photo,
+    generalImgUrl: prod.general_image_url,
+    colorImgIds:   colorImgRes.rows.map(r => r.id),
+    cjGallery:     prod.cj_gallery,
+    baseUrl,
+  })
+
+  // ── Envío y devoluciones (S14) ────────────────────────────────────────────
+  const returnDays = parseInt(s['seo_return_days'] ?? '') || 0
+  const returnFees = s['seo_return_fees'] ?? null
+
+  const returnPageSlug = locale.startsWith('en') ? 'returns' : 'devoluciones'
+  const returnPageRes = await pool.query<{ is_published: boolean }>(
+    `SELECT is_published FROM store_pages WHERE business_id = $1 AND slug = $2 LIMIT 1`,
+    [businessId, returnPageSlug]
+  ).catch(() => ({ rows: [] as { is_published: boolean }[] }))
+  const hasReturnPage = returnPageRes.rows[0]?.is_published === true
+
+  const returnPolicy = returnDays > 0 ? {
+    '@type':              'MerchantReturnPolicy',
+    applicableCountry:    countryCode,
+    returnPolicyCategory: 'https://schema.org/MerchantReturnFiniteReturnWindow',
+    merchantReturnDays:   returnDays,
+    returnMethod:         'https://schema.org/ReturnByMail',
+    returnFees:           returnFees === 'free'
+      ? 'https://schema.org/FreeReturn'
+      : 'https://schema.org/ReturnFeesCustomerResponsibility',
+    itemDefectReturnFees: 'https://schema.org/FreeReturn',
+    ...(hasReturnPage && { merchantReturnLink: `${baseUrl}${stPath}/p/${returnPageSlug}` }),
+  } : null
+
+  const shippingCostRaw  = s['seo_shipping_cost']
+  const shippingCost     = shippingCostRaw != null && shippingCostRaw !== '' ? parseFloat(shippingCostRaw) : null
+  const handlingDaysMax  = parseInt(s['seo_handling_days_max']  ?? '') || null
+  const transitDaysMin   = parseInt(s['seo_transit_days_min']   ?? '') || null
+  const transitDaysMax   = parseInt(s['seo_transit_days_max']   ?? '') || null
+
+  const shippingDetails = shippingCost !== null && transitDaysMin !== null && transitDaysMax !== null ? {
+    '@type': 'OfferShippingDetails',
+    shippingDestination: { '@type': 'DefinedRegion', addressCountry: countryCode },
+    shippingRate:        { '@type': 'MonetaryAmount', value: shippingCost, currency },
+    deliveryTime: {
+      '@type':       'ShippingDeliveryTime',
+      ...(handlingDaysMax !== null && {
+        handlingTime: { '@type': 'QuantitativeValue', minValue: 0, maxValue: handlingDaysMax, unitCode: 'DAY' },
+      }),
+      transitTime: { '@type': 'QuantitativeValue', minValue: transitDaysMin, maxValue: transitDaysMax, unitCode: 'DAY' },
+    },
+  } : null
+
+  // ── Construir schema ───────────────────────────────────────────────────────
+  const productGid = makeProductGid(prod.id, varRes.rows[0]?.sku ?? null, isDS)
+  const firstVariantBarcode = varRes.rows[0]?.barcode ?? null
+  const gtinValid = firstVariantBarcode && /^\d{8,14}$/.test(firstVariantBarcode)
+
+  const productSchemaData = schemaImages.length === 0 ? null : {
     '@context': 'https://schema.org',
     '@type':    'Product',
     name:       prod.name,
     ...(prod.description && { description: prod.description.slice(0, 300) }),
-    ...(imgForSchema && { image: imgForSchema }),
+    image:      schemaImages,
     url:        canonical,
+    sku:        productGid,
+    brand:      { '@type': 'Brand', name: bizName },
+    ...(gtinValid && { gtin: firstVariantBarcode }),
     offers: {
-      '@type':       'Offer',
-      price:         prod.base_price.toFixed(2),
-      priceCurrency: currency,
-      availability:  varRes.rows.some(v => v.in_stock)
+      '@type':         'Offer',
+      price:           prod.base_price.toFixed(2),
+      priceCurrency:   currency,
+      availability:    varRes.rows.some(v => v.in_stock)
         ? 'https://schema.org/InStock'
         : 'https://schema.org/OutOfStock',
-      url: canonical,
+      url:             canonical,
+      itemCondition:   'https://schema.org/NewCondition',
+      ...(returnPolicy    && { hasMerchantReturnPolicy: returnPolicy }),
+      ...(shippingDetails && { shippingDetails }),
     },
+  }
+
+  if (!productSchemaData) {
+    console.warn(`[S12] Sin imágenes para schema: producto ${prod.id} (${prod.slug})`)
   }
 
   return (
     <>
-      <script
-        type="application/ld+json"
-        // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(productSchema) }}
-      />
+      {productSchemaData && (
+        <script
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(productSchemaData) }}
+        />
+      )}
       <CartDrawer />
       <ItemClient
         product={product}
