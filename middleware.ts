@@ -150,11 +150,17 @@ export async function middleware(req: NextRequest) {
     if (!businessId) {
       businessId = session.business_id ?? parseInt(process.env.DEV_BUSINESS_ID ?? '0', 10)
     }
-    businessName = isFacturaRapida ? 'ROIFAR' : (isQa ? 'QA' : 'DEV')
+    if (isFacturaRapida) {
+      businessName = 'ROIFAR'
+    } else if (isQa && businessId) {
+      businessName = await resolveBusinessNameForQa(req, businessId)
+    } else {
+      businessName = isQa ? 'QA' : 'DEV'
+    }
   } else if (isQa) {
     const qaId = getQaBusinessIdFromReq(req)
     businessId = qaId ?? parseInt(process.env.QA_DEFAULT_BUSINESS_ID ?? '0', 10)
-    businessName = 'QA'
+    businessName = businessId ? await resolveBusinessNameForQa(req, businessId) : 'QA'
   } else {
     try {
       const res = await fetch(
@@ -231,6 +237,20 @@ function getQaBusinessIdFromReq(req: NextRequest): number | null {
   if (!raw) return null
   const id = parseInt(raw, 10)
   return !isNaN(id) && id > 0 ? id : null
+}
+
+async function resolveBusinessNameForQa(req: NextRequest, businessId: number): Promise<string> {
+  try {
+    const res = await fetch(
+      `${req.nextUrl.origin}/api/tenant/resolve-by-id?businessId=${businessId}`,
+      { headers: { 'x-internal-key': process.env.INTERNAL_API_KEY ?? '' } },
+    )
+    if (res.ok) {
+      const data = await res.json() as TenantInfo
+      return data.business_name ?? 'QA'
+    }
+  } catch { /* fallback */ }
+  return 'QA'
 }
 
 async function resolveStorePathForQa(req: NextRequest): Promise<string> {
