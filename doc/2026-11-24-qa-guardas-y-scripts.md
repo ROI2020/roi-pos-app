@@ -34,6 +34,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Causa:** `lib/email.ts:39` (`sendEmail`) manda a `opts.to` (el comprador) y al `bcc` en cualquier ambiente.
 - **Arreglo:** si `!isProd`: `to` = `MAIL_QA_REDIRECT_TO`, sin `bcc`, asunto con prefijo `[QA → destinatario-original]`. Si `MAIL_QA_REDIRECT_TO` está vacío → no enviar, solo `console.info` con destinatario y asunto, y devolver `{ ok: true, reason: 'qa_log_only' }`. Es el único punto de envío (verificar que no haya otro `nodemailer`/`sendMail`).
 - **Prueba:** local con `APP_ENV=qa` y SMTP de prueba: confirmación de pedido → llega a `MAIL_QA_REDIRECT_TO`, no al comprador; sin la variable → solo log.
+ · **24/11: CC `fe5bc89`**: guarda en sendEmail: redirect a MAIL_QA_REDIRECT_TO, sin bcc, asunto [QA→orig]; sin la var → qa_log_only
 
 ## S23 — ARCA: nunca producción fuera de PROD
 - **Causa:** el ambiente (`'homo' | 'prod'`) llega a `lib/facturacion/wsaa.ts` (`obtenerToken`, l. ~41) y a `wsfev1.ts`; nada impide `prod` en QA. `ARCA_MOCK` es hoy igual en todos los contextos.
@@ -93,3 +94,40 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
     - Control final (`SELECT`): dominios (todos con `.qa-off`), cantidad de negocios/productos/ventas, y **0 filas** con credenciales no vacías.
   - **`db/qa-restore/20-perfiles-roi.sql`:** usuario de ROI con acceso total a los negocios de prueba, sin ids fijos, idempotente. **Probarlo contra una base restaurada** antes de darlo por hecho (en Galplace falló dos veces por columnas inexistentes).
 - **Prueba:** `-Simular` OK; ROI corre contra `roipos-qa` dos veces seguidas sin error; control final con 0 credenciales; con la URL de PROD el script se niega.
+
+---
+
+# Migraciones automáticas en el build (agregado 24/11, decisión de ROI) — hoja Q9
+
+**Decisión:** foto del esquema de PROD al 24/11 como **baseline** y, de ahí en adelante, migraciones numeradas que corren **solas en el build de Netlify** (QA al hacer push a `qa`, PROD al hacer push a `main`). En local las corre ROI a mano. Misma lógica que Galplace: `C:\apps\marketplace\marketplace-api\database\migrate.ts` y su `netlify.toml` (`npm run build && npm run migrate`).
+
+**Ojo, consecuencia que hay que dejar escrita:** con el auto publish bloqueado, el build de `main` **corre las migraciones en PROD al construir, antes del *Publish deploy***. Mientras tanto sigue publicado el código viejo. Por eso toda migración tiene que ser **compatible con el código que está publicado**: agregar columnas/tablas/índices sí; borrar o renombrar, en dos pases (primero el código deja de usarlo, después la migración lo borra).
+
+## S33 — Runner de migraciones (`db/migrate.mjs`) y build
+- **Causa:** hoy se corren a mano con `db/scripts/run_migration.mjs` (un archivo por vez, sin registro) y se mueven a mano a `ejecutadas/`. No hay forma de saber qué tiene aplicado cada base.
+- **Arreglo:**
+  - `db/migrate.mjs` (ESM, solo `pg`, sin dependencias nuevas), copia de la lógica de Galplace: `schema_migrations (version text PK, applied_at timestamptz default now())`; lee `db/migrations/*.sql` (solo ese nivel, no subcarpetas) ordenados por nombre; cada archivo en `BEGIN/COMMIT` con su registro; si falla, `ROLLBACK`, mensaje con el archivo y salida ≠ 0. Se puede correr dos veces seguidas sin aplicar nada.
+  - Conexión: la **misma** que `lib/db.ts` (`DB_HOST`/`DB_*` si existe, si no `DATABASE_URL`), con ssl si no es localhost. Imprimir solo el ambiente y el *ref* (como S21), nunca la URL.
+  - **Guarda de la baseline:** si `000_baseline_*.sql` no está en `schema_migrations` y la tabla `business` ya existe → **error y salida ≠ 0** (`Base existente sin baseline registrada: correr db/scripts/adoptar-baseline.sql`). Así nunca se ejecuta la baseline sobre PROD o QA.
+  - **Guarda local (Galplace P157):** fuera del build de Netlify (`process.env.NETLIFY !== 'true'`) solo acepta `localhost`/`127.0.0.1`; cualquier otro host → error. Las bases remotas se migran **solo** desde el build.
+  - `package.json`: `"migrate": "node db/migrate.mjs"`. En local: `node --env-file=.env.local db/migrate.mjs` (o el `.env` que use ROI; documentarlo en el encabezado del archivo).
+  - `netlify.toml`: `command = "npm run build && npm run migrate"`.
+  - Sin `CREATE INDEX CONCURRENTLY` ni nada que no pueda ir dentro de una transacción (avisar en el encabezado).
+- **Prueba:** base local vacía → aplica la baseline y las siguientes; segunda corrida → "No hay migraciones pendientes"; base local con tablas y sin `schema_migrations` → error de la guarda; `DB_HOST` remoto fuera de Netlify → error.
+
+## S34 — Baseline del esquema al 24/11
+- **Arreglo:**
+  - Agregar a `scripts/backup-prod.ps1` (S19) el modo `-SoloEsquema`: `pg_dump --schema-only --schema=public --no-owner --no-privileges` → `db/migrations/000_baseline_20261124.sql`. Limpiar lo que no corre en una base nueva (`CREATE SCHEMA public`, `SET` de Supabase que fallen fuera de Supabase), y que la primera línea sea un comentario con fecha y origen. Lo corre ROI.
+  - Las dos pendientes `20261111_branches_store_code.sql` y `20261111_store_pages_devoluciones.sql`: **ROI confirma si ya están en PROD**. Si están, quedan dentro de la baseline y van a la carpeta histórica; si no, pasan a ser `001_…` y `002_…` (idempotentes).
+  - Mover a `db/historico/` (fuera de `db/migrations/`): `db/migrations/ejecutadas/`, `db/schema-2026-08-05.sql`, `db/esquemas anteriores/`, `basededatosDDL.txt`, y `db/scripts/run_migration.mjs` (reemplazado por S33). `git mv`, sin borrar.
+  - Desde acá: `NNN_descripcion.sql` (3 dígitos, siguiente libre), idempotentes (`IF NOT EXISTS`), comentario `-- S##` al inicio. Una migración aplicada en PROD **no se edita**.
+- **Prueba:** base local vacía + `npm run migrate` → esquema igual al de PROD (comparar `pg_dump --schema-only` de las dos, sin diferencias salvo `schema_migrations`).
+
+## S35 — Adoptar la baseline en PROD y QA (script para ROI)
+- **Arreglo:** `db/scripts/adoptar-baseline.sql`, para que ROI lo corra **una vez** en PROD (y en QA si no viene en la copia de PROD): (a) diagnóstico solo `SELECT` (existe `business`, existe o no `schema_migrations`); (b) `BEGIN;` crear `schema_migrations` si no existe e insertar `000_baseline_20261124.sql` (y `001`/`002` solo si S34 dijo que ya estaban en PROD) con `ON CONFLICT DO NOTHING`, **sin `COMMIT`**; (c) verificación (`SELECT * FROM schema_migrations`). Backup previo (S19).
+  - `restaurar-qa.ps1` (S32): la copia de PROD ya trae `schema_migrations`; al final, avisar qué migraciones de `qa` faltan y que un *Retry deploy* de QA las aplica (como Galplace `restaurar-qa.md` §6).
+- **Prueba:** en una base local restaurada desde un backup de PROD: script → `npm run migrate` no aplica la baseline y aplica solo las nuevas.
+
+## S36 — Forma de trabajo
+- **Arreglo:** `CLAUDE.md`, sección *Base de datos*: reemplazar "Migraciones: `db/migrations/` (las corridas se mueven a `ejecutadas/`)" por la regla nueva (S33–S35: numeración, idempotentes, compatibles con el código publicado, QA al push de `qa`, PROD al build de `main` antes del *Publish*, local a mano con `npm run migrate`, nunca contra una base remota desde la consola). En la hoja (`2026-11-18-hoja-de-ruta-qa.md`) Q9: tachar la alternativa "se corren a mano" y apuntar a S33–S35.
+- **Orden de puesta en marcha (para ROI, dejarlo escrito en S36):** 1) S19 backup de PROD → 2) S34 baseline → 3) S35 `adoptar-baseline.sql` en PROD con `COMMIT` → 4) push de `qa` (QA vacía: el build crea el esquema desde la baseline; después la restauración S32 la pisa) → 5) recién entonces el primer merge a `main` con el `netlify.toml` nuevo (si PROD no adoptó la baseline, la guarda de S33 frena el build y no pasa nada).
