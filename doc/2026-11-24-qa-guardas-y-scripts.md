@@ -22,6 +22,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Causa:** no hay forma de saber en el código si se corre en QA. Los dos usos de `NODE_ENV` (`lib/db.ts:43`, ssl; `app/api/ml/webhook/route.ts:107`, firma) **quedan como están**: en Netlify `NODE_ENV=production` también en QA, y eso ahí es correcto.
 - **Arreglo:** `lib/env.ts` con `APP_ENV` (`development` · `qa` · `production`; valor desconocido o vacío → `development`), `isProd`, `isQa`, `isDev`. Sin dependencias, usable en server y en el middleware (edge).
 - **Prueba:** build limpio; un `console.log` temporal no hace falta: lo muestra S21.
+ · **24/11: CC `65f4a19`**: lib/env.ts con APP_ENV, isProd, isQa, isDev; sin dependencias, edge-compatible
 
 ## S21 — Healthcheck con ambiente y base
 - **Causa:** `app/api/healthcheck/route.ts` devuelve `current_database()`, que en Supabase es `postgres` en QA y en PROD: no sirve para saber a qué base está conectado. El 24/11 hubo que leerlo en los logs.
