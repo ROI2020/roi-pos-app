@@ -46,6 +46,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Causa:** `lib/cj.ts:437` (`createCJOrder`) y `lib/cj-fulfillment.ts:58` (`attemptCJFulfillment`, lee `cj_auto_fulfill`). Hoy el único freno es `paypal_mode === 'live'` en `app/api/paypal/capture-order/route.ts:126`; revisar también `app/api/orders/online/[id]/confirm/route.ts`.
 - **Arreglo:** si `!isProd`, `createCJOrder` lanza `CJ: pedidos bloqueados fuera de PROD` y `attemptCJFulfillment` sale antes (log). Consultas de catálogo, stock y fletes siguen andando.
 - **Prueba:** local `APP_ENV=qa`, confirmar un pedido con `cj_auto_fulfill=true` → log de bloqueo, ninguna llamada a `createOrder`.
+ · **24/11: CC `54f19b1`**: createCJOrder lanza si !isProd; attemptCJFulfillment sale con log
 
 ## S25 — Pagos: solo prueba fuera de PROD
 - **Causa:** `lib/paypal.ts:10` (`paypalBase`) usa `live` si el setting `paypal_mode` lo dice. `lib/mp.ts:77` usa el `mp_access_token` del negocio, sea de prueba o real.
