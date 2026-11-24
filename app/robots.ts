@@ -9,8 +9,12 @@ import { headers } from 'next/headers'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
 import { getStoreBaseUrl } from '@/lib/store-base-url'
+import { isProd } from '@/lib/env'
 
 export default async function robots(): Promise<MetadataRoute.Robots> {
+  if (!isProd) {
+    return { rules: [{ userAgent: '*', disallow: '/' }] }
+  }
   const hdrs      = await headers()
   const rawHost   = hdrs.get('host') ?? ''
   const cleanHost = rawHost.replace(/^www\./, '').replace(/:\d+$/, '')

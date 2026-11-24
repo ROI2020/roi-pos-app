@@ -22,6 +22,7 @@ import { StorePathProvider }  from './_context/store-path-context'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
 import { getStoreBaseUrl } from '@/lib/store-base-url'
+import { isProd } from '@/lib/env'
 import StoreJsonLd from './_components/store-jsonld'
 import './store-theme.css'
 
@@ -87,6 +88,7 @@ export async function generateMetadata(): Promise<Metadata> {
       ...(s['catalog_pinterest_verify'] && {
         other: { 'p:domain_verify': s['catalog_pinterest_verify'] },
       }),
+      ...(!isProd && { robots: { index: false, follow: false } }),
     }
   } catch {
     // Fallback mínimo si el tenant no resuelve

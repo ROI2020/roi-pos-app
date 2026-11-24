@@ -8,6 +8,7 @@ import { PlanProvider } from '@/contexts/PlanContext'
 import { ThemeProvider } from '@/components/theme-provider'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
+import { isProd } from '@/lib/env'
 import './globals.css'
 
 
@@ -30,15 +31,17 @@ export const metadata: Metadata = {
   // Permite que Google use imágenes de alta resolución (>1024px) al rastrear el sitio.
   // Requerido por Google Merchant Center para reconocer imágenes de calidad.
   // Genera: <meta name="googlebot" content="index, follow, max-image-preview:large">
-  robots: {
-    index:  true,
-    follow: true,
-    googleBot: {
-      index:                true,
-      follow:               true,
-      'max-image-preview':  'large',
-    },
-  },
+  robots: isProd
+    ? {
+        index:  true,
+        follow: true,
+        googleBot: {
+          index:                true,
+          follow:               true,
+          'max-image-preview':  'large',
+        },
+      }
+    : { index: false, follow: false },
 }
 
 export default async function RootLayout({
@@ -72,7 +75,7 @@ export default async function RootLayout({
     <html lang="es" suppressHydrationWarning>
       <head>
         {/* Google Analytics 4 — por negocio, solo en tienda pública, solo en producción */}
-        {isStore && ga4Id && (
+        {isProd && isStore && ga4Id && (
           <>
             <Script
               src={`https://www.googletagmanager.com/gtag/js?id=${ga4Id}`}
