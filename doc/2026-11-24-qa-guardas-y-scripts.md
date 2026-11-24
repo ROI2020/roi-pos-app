@@ -52,6 +52,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Causa:** `lib/paypal.ts:10` (`paypalBase`) usa `live` si el setting `paypal_mode` lo dice. `lib/mp.ts:77` usa el `mp_access_token` del negocio, sea de prueba o real.
 - **Arreglo:** PayPal: si `!isProd`, `paypalBase` devuelve siempre sandbox (y se loguea si el setting decía `live`). Mercado Pago: si `!isProd`, rechazar credenciales que no sean de prueba, **con el mismo control que Galplace P141** (mirar cómo se resolvió en `marketplace-api`: email de la cuenta de usuario de prueba). Error claro al iniciar el pago, no un pago real.
 - **Prueba:** local `APP_ENV=qa`: `paypal_mode=live` → la llamada va a `api-m.sandbox.paypal.com`; token real de MP → rechazo; token de prueba → checkout de prueba OK.
+ · **24/11: CC `811d8e5`**: PayPal fuerza sandbox si !isProd; MP verifica /users/me email @testuser.com
 
 ## S26 — Mercado Libre: solo lectura fuera de PROD
 - **Causa:** `lib/ml-service.ts:23` (`mlFetch`) es el punto común; escriben `createListing` (l. 221), `updateVariantStock`, `updateItemStock`, `pauseListing`, `activateListing`, `uploadImage`, y también `lib/ml-messages.ts` y `app/api/ml/answers`.
