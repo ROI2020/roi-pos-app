@@ -40,6 +40,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Causa:** el ambiente (`'homo' | 'prod'`) llega a `lib/facturacion/wsaa.ts` (`obtenerToken`, l. ~41) y a `wsfev1.ts`; nada impide `prod` en QA. `ARCA_MOCK` es hoy igual en todos los contextos.
 - **Arreglo:** si `!isProd` y el ambiente es `prod` → error claro (`ARCA producción bloqueado fuera de PROD`) en `obtenerToken` y en la emisión de `wsfev1`, antes de cualquier `fetch`. `app/api/arca/verificar` lo informa en su respuesta.
 - **Prueba:** local `APP_ENV=qa`, `ARCA_MOCK=false`, negocio con ambiente `prod` → error sin llamada a ARCA; con `homo` o `ARCA_MOCK=true` → como hoy.
+ · **24/11: CC `f2c4aa9`**: guarda en obtenerToken y solicitarCAE si !isProd && ambiente=prod; /api/arca/verificar lo informa
 
 ## S24 — CJ: sin pedidos reales fuera de PROD
 - **Causa:** `lib/cj.ts:437` (`createCJOrder`) y `lib/cj-fulfillment.ts:58` (`attemptCJFulfillment`, lee `cj_auto_fulfill`). Hoy el único freno es `paypal_mode === 'live'` en `app/api/paypal/capture-order/route.ts:126`; revisar también `app/api/orders/online/[id]/confirm/route.ts`.
