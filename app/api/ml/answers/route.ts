@@ -13,6 +13,7 @@
 import { NextResponse }            from 'next/server'
 import { requireBusinessId }       from '@/lib/get-business-id'
 import { getMLToken, ML_API_BASE } from '@/lib/ml-auth'
+import { isProd }                  from '@/lib/env'
 
 export async function POST(req: Request) {
   const result = await requireBusinessId()
@@ -28,6 +29,13 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: 'questionId y text son requeridos' },
       { status: 400 },
+    )
+  }
+
+  if (!isProd) {
+    return NextResponse.json(
+      { error: 'ML: escritura bloqueada fuera de PROD' },
+      { status: 403 },
     )
   }
 

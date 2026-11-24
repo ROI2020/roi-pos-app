@@ -17,6 +17,7 @@
 
 import { getMLToken, ML_API_BASE } from '@/lib/ml-auth'
 import pool from '@/lib/db'
+import { isProd } from '@/lib/env'
 
 // ── Helper: fetch autenticado ─────────────────────────────────────────────────
 
@@ -25,6 +26,10 @@ export async function mlFetch<T>(
   path:       string,
   options:    RequestInit = {},
 ): Promise<T> {
+  const method = (options.method ?? 'GET').toUpperCase()
+  if (!isProd && method !== 'GET') {
+    throw new Error(`ML: escritura bloqueada fuera de PROD (${method} ${path})`)
+  }
   const token = await getMLToken(businessId)
   const res   = await fetch(`${ML_API_BASE}${path}`, {
     ...options,

@@ -11,6 +11,7 @@
 
 import { getMLToken, ML_API_BASE } from '@/lib/ml-auth'
 import { getPublicSettingsByKeys } from '@/lib/settings'
+import { isProd } from '@/lib/env'
 
 /** Reemplaza {{variable}} en templates de texto */
 export function applyMsgVars(tpl: string, vars: Record<string, string>): string {
@@ -64,6 +65,10 @@ export interface SendMLMessageOptions {
  * No lanza — loguea internamente.
  */
 export async function sendMLOrderMessage(opts: SendMLMessageOptions): Promise<boolean> {
+  if (!isProd) {
+    console.info(`[ml-messages] ML: escritura bloqueada fuera de PROD — pack ${opts.packId}`)
+    return false
+  }
   const { businessId, packId, sellerId, buyerId, text, attachment } = opts
 
   try {
