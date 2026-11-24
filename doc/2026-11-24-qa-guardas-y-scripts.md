@@ -12,67 +12,69 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 
 ---
 
-## S19 — Backup de PROD (`scripts/backup-prod.ps1`) — hoja Q7
+## ~~S19 — Backup de PROD (`scripts/backup-prod.ps1`) — hoja Q7~~
 - **Causa:** PROD está en Supabase plan gratis, **sin backups automáticos**. Antes de cualquier restore o pase tiene que haber un backup verificado.
 - **Arreglo:** copiar de Galplace `pase.ps1` solo la parte de backup (`-SoloBackup`): `pg_dump -Fc`, verificación de tamaño > 0 y `pg_restore -l` sobre el archivo, nombre `roipos-prod-AAAAMMDDHHMM.dump`, limpieza de `DATABASE_URL`/`APP_ENV`/`NODE_ENV`/`PG*` al empezar y al terminar (también si falla), y `-Simular` (muestra qué haría sin conectarse). Lee `secrets\.env.bck.prod` (`DATABASE_URL_PROD` = session pooler 5432, `PG_BIN`, `BACKUP_DIR`). Agregar `secrets/` a `.gitignore` y un `secrets\.env.bck.prod.example` sin valores. Nunca mostrar la URL ni la contraseña en pantalla.
 - **Prueba:** `-Simular` OK; ROI corre uno real → "Backup OK" y el `.dump` lista objetos con `pg_restore -l`.
  · **24/11: CC `523d0be`**: script backup-prod.ps1 con -Simular, limpieza de env vars, verificación pg_restore -l; .env.bck.prod.example; secrets/ y doc/ en .gitignore
 
-## S20 — `lib/env.ts`
+## ~~S20 — `lib/env.ts`~~
 - **Causa:** no hay forma de saber en el código si se corre en QA. Los dos usos de `NODE_ENV` (`lib/db.ts:43`, ssl; `app/api/ml/webhook/route.ts:107`, firma) **quedan como están**: en Netlify `NODE_ENV=production` también en QA, y eso ahí es correcto.
 - **Arreglo:** `lib/env.ts` con `APP_ENV` (`development` · `qa` · `production`; valor desconocido o vacío → `development`), `isProd`, `isQa`, `isDev`. Sin dependencias, usable en server y en el middleware (edge).
 - **Prueba:** build limpio; un `console.log` temporal no hace falta: lo muestra S21.
  · **24/11: CC `65f4a19`**: lib/env.ts con APP_ENV, isProd, isQa, isDev; sin dependencias, edge-compatible
 
-## S21 — Healthcheck con ambiente y base
+## ~~S21 — Healthcheck con ambiente y base~~
 - **Causa:** `app/api/healthcheck/route.ts` devuelve `current_database()`, que en Supabase es `postgres` en QA y en PROD: no sirve para saber a qué base está conectado. El 24/11 hubo que leerlo en los logs.
 - **Arreglo:** agregar `app_env` y `db_ref` (el *project ref*: sufijo de `DB_USER` después de `postgres.`, o el host si no tiene sufijo; si es `localhost`, `local`) y `version` (`NEXT_PUBLIC_APP_VERSION`). **Nunca** host completo, usuario completo, contraseña ni URL.
 - **Prueba:** local → `app_env: development, db_ref: local`. En QA (después del push de ROI) → `qa` + ref de `roipos-qa`.
  · **24/11: CC `2e5a1a4`**: healthcheck con app_env, db_ref (project ref de DB_USER) y version
 
-## S22 — Mails redirigidos fuera de PROD
+## ~~S22 — Mails redirigidos fuera de PROD~~
 - **Causa:** `lib/email.ts:39` (`sendEmail`) manda a `opts.to` (el comprador) y al `bcc` en cualquier ambiente.
 - **Arreglo:** si `!isProd`: `to` = `MAIL_QA_REDIRECT_TO`, sin `bcc`, asunto con prefijo `[QA → destinatario-original]`. Si `MAIL_QA_REDIRECT_TO` está vacío → no enviar, solo `console.info` con destinatario y asunto, y devolver `{ ok: true, reason: 'qa_log_only' }`. Es el único punto de envío (verificar que no haya otro `nodemailer`/`sendMail`).
 - **Prueba:** local con `APP_ENV=qa` y SMTP de prueba: confirmación de pedido → llega a `MAIL_QA_REDIRECT_TO`, no al comprador; sin la variable → solo log.
  · **24/11: CC `fe5bc89`**: guarda en sendEmail: redirect a MAIL_QA_REDIRECT_TO, sin bcc, asunto [QA→orig]; sin la var → qa_log_only
 
-## S23 — ARCA: nunca producción fuera de PROD
+## ~~S23 — ARCA: nunca producción fuera de PROD~~
 - **Causa:** el ambiente (`'homo' | 'prod'`) llega a `lib/facturacion/wsaa.ts` (`obtenerToken`, l. ~41) y a `wsfev1.ts`; nada impide `prod` en QA. `ARCA_MOCK` es hoy igual en todos los contextos.
 - **Arreglo:** si `!isProd` y el ambiente es `prod` → error claro (`ARCA producción bloqueado fuera de PROD`) en `obtenerToken` y en la emisión de `wsfev1`, antes de cualquier `fetch`. `app/api/arca/verificar` lo informa en su respuesta.
 - **Prueba:** local `APP_ENV=qa`, `ARCA_MOCK=false`, negocio con ambiente `prod` → error sin llamada a ARCA; con `homo` o `ARCA_MOCK=true` → como hoy.
  · **24/11: CC `f2c4aa9`**: guarda en obtenerToken y solicitarCAE si !isProd && ambiente=prod; /api/arca/verificar lo informa
 
-## S24 — CJ: sin pedidos reales fuera de PROD
+## ~~S24 — CJ: sin pedidos reales fuera de PROD~~
 - **Causa:** `lib/cj.ts:437` (`createCJOrder`) y `lib/cj-fulfillment.ts:58` (`attemptCJFulfillment`, lee `cj_auto_fulfill`). Hoy el único freno es `paypal_mode === 'live'` en `app/api/paypal/capture-order/route.ts:126`; revisar también `app/api/orders/online/[id]/confirm/route.ts`.
 - **Arreglo:** si `!isProd`, `createCJOrder` lanza `CJ: pedidos bloqueados fuera de PROD` y `attemptCJFulfillment` sale antes (log). Consultas de catálogo, stock y fletes siguen andando.
 - **Prueba:** local `APP_ENV=qa`, confirmar un pedido con `cj_auto_fulfill=true` → log de bloqueo, ninguna llamada a `createOrder`.
  · **24/11: CC `54f19b1`**: createCJOrder lanza si !isProd; attemptCJFulfillment sale con log
 
 ## S25 — Pagos: solo prueba fuera de PROD
+> **Revisión 24/11 (Cowork): no se tacha → S39.** El control de MP deja pasar el token si `/users/me` falla o no devuelve email (falla hacia el lado inseguro).
 - **Causa:** `lib/paypal.ts:10` (`paypalBase`) usa `live` si el setting `paypal_mode` lo dice. `lib/mp.ts:77` usa el `mp_access_token` del negocio, sea de prueba o real.
 - **Arreglo:** PayPal: si `!isProd`, `paypalBase` devuelve siempre sandbox (y se loguea si el setting decía `live`). Mercado Pago: si `!isProd`, rechazar credenciales que no sean de prueba, **con el mismo control que Galplace P141** (mirar cómo se resolvió en `marketplace-api`: email de la cuenta de usuario de prueba). Error claro al iniciar el pago, no un pago real.
 - **Prueba:** local `APP_ENV=qa`: `paypal_mode=live` → la llamada va a `api-m.sandbox.paypal.com`; token real de MP → rechazo; token de prueba → checkout de prueba OK.
  · **24/11: CC `811d8e5`**: PayPal fuerza sandbox si !isProd; MP verifica /users/me email @testuser.com
 
-## S26 — Mercado Libre: solo lectura fuera de PROD
+## ~~S26 — Mercado Libre: solo lectura fuera de PROD~~
 - **Causa:** `lib/ml-service.ts:23` (`mlFetch`) es el punto común; escriben `createListing` (l. 221), `updateVariantStock`, `updateItemStock`, `pauseListing`, `activateListing`, `uploadImage`, y también `lib/ml-messages.ts` y `app/api/ml/answers`.
 - **Arreglo:** si `!isProd`, todo método distinto de `GET` contra la API de ML se bloquea (en `mlFetch` y en cualquier `fetch` a ML que no pase por ahí) con log `ML: escritura bloqueada fuera de PROD`. Excepción: el refresh de token OAuth (`lib/ml-auth.ts`), que no modifica publicaciones.
 - **Prueba:** local `APP_ENV=qa`: publicar o pausar → bloqueado y logueado; listar publicaciones → OK.
  · **24/11: CC `e2bd072`**: mlFetch bloquea != GET; sendMLOrderMessage sale con log; /api/ml/answers 403
 
-## S27 — Correo Argentino: ambiente de prueba fuera de PROD
+## ~~S27 — Correo Argentino: ambiente de prueba fuera de PROD~~
 - **Causa:** `lib/correo/correoArgentino.ts:80` toma `CORREO_ARGENTINO_ENV` (default `test`), pero podría quedar `prod` en QA.
 - **Arreglo:** si `!isProd`, forzar `test` (log si la variable decía otra cosa).
 - **Prueba:** local `APP_ENV=qa`, `CORREO_ARGENTINO_ENV=prod` → usa test.
  · **24/11: CC `e38a8bb`**: getConfig fuerza env=test si !isProd, con log
 
-## S28 — QA no indexable y sin GA4
+## ~~S28 — QA no indexable y sin GA4~~
 - **Causa:** `app/layout.tsx:52-80` inyecta GA4 si el negocio tiene `catalog_ga4_measurement_id`; `app/robots.ts` permite rastrear la tienda; no hay `noindex`.
 - **Arreglo:** si `!isProd`: sin GA4 (`app/layout.tsx` y cualquier otro `gtag`, ver `lib/analytics.ts`); `app/robots.ts` → `Disallow: /` para todo y sin `sitemap`; `robots: { index: false, follow: false }` en la metadata de `app/layout.tsx` y de `app/tienda/layout.tsx`. En PROD **nada cambia**.
 - **Prueba:** local `APP_ENV=qa`: `/robots.txt` con `Disallow: /`, `<meta name="robots" content="noindex, nofollow">` en `/tienda`, sin `googletagmanager`. Con `APP_ENV=production`: igual que hoy. Pasar `doc/checklist-seo.md` en lo que toca a robots, sitemap y GA4 (CLAUDE.md lo exige para cambios en robots y medición).
  · **24/11: CC `5d0c9d5`**: GA4 solo si isProd; robots.ts Disallow:/ sin sitemap; noindex/nofollow en ambos layouts; checklist-seo revisado
 
 ## S29 — Selección de negocio en QA (hoja Q1, opción B)
+> **Revisión 24/11 (Cowork): no se tacha → S38.** El selector cambia la banda y la tienda, pero **no el panel**: las 87 rutas `/api/*` del panel toman el negocio de la sesión (`lib/get-business-id.ts`), no de la cookie.
 - **Causa:** el negocio sale del host (`business_domains`). QA tiene un solo host (`qa--roi-pos.netlify.app`), así que hoy no resuelve ninguno. Hay dos puntos de resolución, los dos con atajo para localhost: `middleware.ts` paso 6 (`session.business_id ?? DEV_BUSINESS_ID`) y `lib/tenant-api.ts` (`resolveBusinessFromHost`, `DEV_BUSINESS_ID`), que usan el layout de la tienda, `robots`, `sitemap` y las APIs públicas (~19 archivos).
 - **Arreglo:**
   - Solo si `isQa`: el negocio sale de la cookie `qa_business_id`; si no hay, de `QA_DEFAULT_BUSINESS_ID`. Validar que el id exista y tenga plan activo. **En PROD la cookie se ignora por completo.**
@@ -82,18 +84,19 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Prueba:** local con `APP_ENV=qa` (host `localhost` cuenta como QA para esta prueba, o un host de prueba vía `hosts`): elegir MALEMA → `/tienda` en es-AR/ARS; elegir NULARIONE → `/store` en en-US/USD; panel con cada uno. Con `APP_ENV=production` y la cookie puesta → se ignora.
  · **24/11: CC `16ac454`**: cookie qa_business_id, middleware QA, /api/tenant/resolve-by-id, /qa/negocio selector; PROD ignora cookie
 
-## S30 — URL base de la tienda en QA
+## ~~S30 — URL base de la tienda en QA~~
 - **Causa:** `lib/store-base-url.ts` (`getStoreBaseUrl`) usa `catalog_base_url` → dominio `is_primary` → host. En QA (opción B) el dominio principal sigue siendo el real: canónicas, sitemap, Open Graph y los links de los mails (`lib/email-order.ts:107` y `:187`, llamados con host `''`) apuntarían a `malema.com.ar`.
 - **Arreglo:** si `isQa`, devolver `NEXT_PUBLIC_BASE_URL` (la URL de QA), sin barra final. En PROD, igual que hoy.
 - **Prueba:** local `APP_ENV=qa`: canónica de una ficha, `sitemap.xml` y link del mail de confirmación → URL de QA.
  · **24/11: CC `154a312`**: si isQa, getStoreBaseUrl devuelve NEXT_PUBLIC_BASE_URL sin barra final
 
-## S31 — Banda "AMBIENTE DE PRUEBA"
+## ~~S31 — Banda "AMBIENTE DE PRUEBA"~~
 - **Arreglo:** si `isQa`, banda fija arriba en tienda y panel: `AMBIENTE DE PRUEBA · <nombre del negocio> · cambiar` (link a `/qa/negocio`). Texto desde `messages/` (es/en), no escrito a mano. En PROD no se renderiza nada.
 - **Prueba:** local `APP_ENV=qa` se ve en tienda y panel; `production` no.
  · **24/11: CC `e0efb10`**: QaBanner (fixed top rojo), texto desde messages/ es/en, link a /qa/negocio; en PROD no renderiza
 
 ## S32 — `scripts/restaurar-qa.ps1` + `db/qa-restore/` — hoja Q8
+> **Revisión 24/11 (Cowork): no se tacha → S37 (CRÍTICO).** `10-adaptar-qa.sql` falla siempre y, al fallar, QA queda con los secretos de PROD.
 - **Causa:** en ROIPOS los secretos de `settings` (`is_secret = true`) están **en texto plano** (en Galplace estaban cifrados). Una copia de PROD en QA trae tokens reales de MP, PayPal, CJ, ML y SMTP listos para usar.
 - **Arreglo:** copiar de Galplace `restaurar-qa.ps1` (`-Simular`, `-Dump`, `-SinBackupQA`, `-SoloPerfiles`, último dump por fecha, backup de QA antes, `pg_restore --clean --if-exists --no-owner --exit-on-error`, limpieza de variables). Guarda contra PROD: lee `QA_PROJECT_REF` de `secrets\.env.qa` y **se niega** si la conexión no tiene ese ref. Restore y `10-adaptar-qa.sql` en la **misma corrida**, sin pausa entre medio.
   - **`db/qa-restore/10-adaptar-qa.sql`** (una transacción):
@@ -104,6 +107,35 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
   - **`db/qa-restore/20-perfiles-roi.sql`:** usuario de ROI con acceso total a los negocios de prueba, sin ids fijos, idempotente. **Probarlo contra una base restaurada** antes de darlo por hecho (en Galplace falló dos veces por columnas inexistentes).
 - **Prueba:** `-Simular` OK; ROI corre contra `roipos-qa` dos veces seguidas sin error; control final con 0 credenciales; con la URL de PROD el script se niega.
  · **24/11: CC `d34f927`**: restaurar-qa.ps1 con -Simular y guardas; 10-adaptar-qa.sql (dominios .qa-off, vaciar secretos, flags sandbox/false, wsaa_tokens, patrón credenciales); 20-perfiles-roi.sql (roisol_admin idempotente); .env.restore.prod.to.QA.example
+
+
+---
+
+# Correcciones de la revisión (24/11, Cowork) — hacer **antes** de S33
+
+## S37 — `restaurar-qa`: la adaptación falla y QA queda con los secretos de PROD (CRÍTICO)
+- **Causa:**
+  - `db/qa-restore/10-adaptar-qa.sql`, control final: `SELECT … FROM orders` — **la tabla no existe** (es `online_orders`). Con `ON_ERROR_STOP` el `COMMIT` nunca llega → se deshace **toda** la adaptación (dominios, secretos, flags).
+  - Mismo archivo: `gen_random_bytes` es de `pgcrypto`, que no está en el esquema `public` restaurado (en Supabase vive en `extensions`): otro punto de falla.
+  - `scripts/restaurar-qa.ps1` l. ~250: si `10-adaptar-qa.sql` falla, solo `Salir 1`. La base de QA queda con la copia de PROD **sin limpiar**: tokens reales de MP, PayPal, CJ, ML y SMTP, y dominios reales.
+  - Falta pasar la facturación a homologación: `facturacion_config.ambiente` viene `prod` de PROD → con la guarda de S23, QA no puede facturar ni con `ARCA_MOCK=true`.
+  - `secrets/.env.restore.prod.to.QA.example`: `QA_PROJECT_REF=roipos-qa` y el default del script (l. 121) usan el **nombre** del proyecto; la URL lleva el **ref** (`postgres.<ref>`, 20 letras). Con ese valor la guarda siempre rechaza (seguro, pero no sirve).
+- **Arreglo:**
+  - SQL: `orders` → `online_orders` (y revisar el resto de nombres de tabla contra el esquema real); `catalog_token` con `md5(random()::text || clock_timestamp()::text)`; agregar `UPDATE facturacion_config SET ambiente = 'homo';`. El control de "0 credenciales" que **falle** (`DO $$ … RAISE EXCEPTION …$$`) si queda alguna, en vez de solo listarla.
+  - Script: si falla `10-adaptar-qa.sql` → `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` en QA y mensaje en rojo ("QA quedó vacía: no se dejó la copia de PROD sin adaptar"). Lo mismo si falla el `pg_restore` a mitad de camino.
+  - `QA_PROJECT_REF` obligatorio (sin default); el example con un comentario: "el ref de `roipos-qa` (Supabase › Project Settings › General › Project ID)".
+  - Example y encabezado: `PG_BIN` tiene que ser de una versión **igual o mayor** a la de Postgres de Supabase (`SHOW server_version;`); hoy el example dice 16.
+- **Prueba:** restaurar un dump de PROD en una base **local**, correr `10-adaptar-qa.sql` y `20-perfiles-roi.sql` dos veces seguidas sin error; control con 0 credenciales y `facturacion_config.ambiente = 'homo'`. Forzar un error en el SQL (nombre de tabla inventado) → el script deja QA vacía.
+
+## S38 — QA: el panel usa el negocio elegido
+- **Causa:** `lib/get-business-id.ts` (`getBusinessId`/`requireBusinessId`, 87 rutas del panel) lee `business_id` de la sesión. El middleware (S29) cambia el header y la banda, pero las APIs del panel no pasan por el middleware (`/api/` está en `SKIP_PATHS`). Resultado: banda "MALEMA", datos de otro negocio. Además, en el panel la banda dice "QA" (el middleware pone `businessName = 'QA'`).
+- **Arreglo:** en `getBusinessId()`, si `isQa` y hay cookie `qa_business_id` válida (misma validación que `tenant-api`) → ese id; si no, el de la sesión. En PROD, igual que hoy. En el middleware (rama `isQa`), tomar `business_name` de `/api/tenant/resolve-by-id` para la banda.
+- **Prueba:** local `APP_ENV=qa`: elegir MALEMA → productos, ventas y caja del panel son de MALEMA; cambiar a NULARIONE → los de NULARIONE; banda con el nombre real. `APP_ENV=production` con la cookie puesta → sesión, como hoy.
+
+## S39 — Mercado Pago: el control de credenciales falla cerrado
+- **Causa:** `lib/mp.ts` (S25): si `/users/me` responde error, se corta por tiempo o no trae `email`, el `catch` deja seguir con el token (que puede ser real).
+- **Arreglo:** fuera de PROD, solo se sigue si la respuesta es OK **y** el email termina en `@testuser.com`. Cualquier otro caso → error claro ("no se pudo confirmar que las credenciales de MP sean de prueba").
+- **Prueba:** local `APP_ENV=qa` sin red o con token inválido → error, no pago; token de usuario de prueba → OK.
 
 ---
 
@@ -124,6 +156,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
   - `netlify.toml`: `command = "npm run build && npm run migrate"`.
   - Sin `CREATE INDEX CONCURRENTLY` ni nada que no pueda ir dentro de una transacción (avisar en el encabezado).
 - **Prueba:** base local vacía → aplica la baseline y las siguientes; segunda corrida → "No hay migraciones pendientes"; base local con tablas y sin `schema_migrations` → error de la guarda; `DB_HOST` remoto fuera de Netlify → error.
+ · **24/11: CC `9fdba0b`**: db/migrate.mjs (ESM, pg, guardas baseline+localhost), package.json "migrate", netlify.toml build+migrate
 
 ## S34 — Baseline del esquema al 24/11
 - **Arreglo:**
@@ -132,12 +165,15 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
   - Mover a `db/historico/` (fuera de `db/migrations/`): `db/migrations/ejecutadas/`, `db/schema-2026-08-05.sql`, `db/esquemas anteriores/`, `basededatosDDL.txt`, y `db/scripts/run_migration.mjs` (reemplazado por S33). `git mv`, sin borrar.
   - Desde acá: `NNN_descripcion.sql` (3 dígitos, siguiente libre), idempotentes (`IF NOT EXISTS`), comentario `-- S##` al inicio. Una migración aplicada en PROD **no se edita**.
 - **Prueba:** base local vacía + `npm run migrate` → esquema igual al de PROD (comparar `pg_dump --schema-only` de las dos, sin diferencias salvo `schema_migrations`).
+ · **24/11: CC `406f904`**: backup-prod.ps1 -SoloEsquema; git mv ejecutadas/schema/basededatosDDL/run_migration/20261111_* a db/historico/; db/migrations/ vacía
 
 ## S35 — Adoptar la baseline en PROD y QA (script para ROI)
 - **Arreglo:** `db/scripts/adoptar-baseline.sql`, para que ROI lo corra **una vez** en PROD (y en QA si no viene en la copia de PROD): (a) diagnóstico solo `SELECT` (existe `business`, existe o no `schema_migrations`); (b) `BEGIN;` crear `schema_migrations` si no existe e insertar `000_baseline_20261124.sql` con `ON CONFLICT DO NOTHING`, **sin `COMMIT`**; (c) verificación (`SELECT * FROM schema_migrations`). Backup previo (S19).
   - `restaurar-qa.ps1` (S32): la copia de PROD ya trae `schema_migrations`; al final, avisar qué migraciones de `qa` faltan y que un *Retry deploy* de QA las aplica (como Galplace `restaurar-qa.md` §6).
 - **Prueba:** en una base local restaurada desde un backup de PROD: script → `npm run migrate` no aplica la baseline y aplica solo las nuevas.
+ · **24/11: CC `06118d6`**: db/scripts/adoptar-baseline.sql (diagnostico, BEGIN sin COMMIT, ON CONFLICT DO NOTHING)
 
 ## S36 — Forma de trabajo
 - **Arreglo:** `CLAUDE.md`, sección *Base de datos*: reemplazar "Migraciones: `db/migrations/` (las corridas se mueven a `ejecutadas/`)" por la regla nueva (S33–S35: numeración, idempotentes, compatibles con el código publicado, QA al push de `qa`, PROD al build de `main` antes del *Publish*, local a mano con `npm run migrate`, nunca contra una base remota desde la consola). En la hoja (`2026-11-18-hoja-de-ruta-qa.md`) Q9: tachar la alternativa "se corren a mano" y apuntar a S33–S35.
 - **Orden de puesta en marcha (para ROI, dejarlo escrito en S36):** 1) S19 backup de PROD → 2) S34 baseline → 3) S35 `adoptar-baseline.sql` en PROD con `COMMIT` → 4) push de `qa` (QA vacía: el build crea el esquema desde la baseline; después la restauración S32 la pisa) → 5) recién entonces el primer merge a `main` con el `netlify.toml` nuevo (si PROD no adoptó la baseline, la guarda de S33 frena el build y no pasa nada).
+ · **24/11: CC `1c7aaa0`**: CLAUDE.md seccion migraciones reescrita (S33-S35, orden puesta en marcha); hoja Q9 tachado manual, apunta a S33-S35; ultima S usada: S36
