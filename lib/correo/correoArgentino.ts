@@ -10,6 +10,7 @@
  */
 
 import pool from '@/lib/db'
+import { isProd } from '@/lib/env'
 
 // ── URLs base ─────────────────────────────────────────────────────────────────
 const BASE_URLS: Record<string, string> = {
@@ -77,7 +78,11 @@ interface CarrierConfig {
 }
 
 async function getConfig(): Promise<CarrierConfig> {
-  const env    = process.env.CORREO_ARGENTINO_ENV ?? 'test'
+  let env = process.env.CORREO_ARGENTINO_ENV ?? 'test'
+  if (!isProd && env !== 'test') {
+    console.warn(`[correo] !isProd: forzando test (variable decía ${env})`)
+    env = 'test'
+  }
   const apiKey = process.env.CORREO_ARGENTINO_API_KEY ?? ''
   const baseUrl = BASE_URLS[env] ?? BASE_URLS.test
 
