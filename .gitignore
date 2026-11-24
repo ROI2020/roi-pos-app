@@ -7,8 +7,11 @@
 /database
 /db
 
-# documentación — la documentación generada no va al repo
+# documentación interna
 /doc
+
+# secretos locales (URLs de base, credenciales de scripts)
+/secrets
 
 # storage - Facturas PDF generadas no van al repo
 /storage
