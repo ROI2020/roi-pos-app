@@ -1,15 +1,13 @@
 import { getPublicSettingsByKeys } from '@/lib/settings'
 import pool from '@/lib/db'
+import { isQa } from '@/lib/env'
 
-/**
- * Resuelve la URL base canónica de la tienda en orden de prioridad:
- * 1. catalog_base_url en settings (override manual)
- * 2. Dominio primario de business_domains (is_primary = true)
- * 3. Fallback al host del request
- *
- * Retorna siempre sin barra final.
- */
 export async function getStoreBaseUrl(businessId: number, host: string): Promise<string> {
+  if (isQa) {
+    const base = process.env.NEXT_PUBLIC_BASE_URL
+    if (base) return base.replace(/\/$/, '')
+  }
+
   try {
     const s = await getPublicSettingsByKeys(businessId, ['catalog_base_url'])
     const url = s['catalog_base_url']
