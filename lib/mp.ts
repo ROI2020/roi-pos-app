@@ -87,22 +87,33 @@ export async function getMPClientForBusiness(businessId: number): Promise<{
   }
 
   if (!isProd) {
+    let testEmail: string | undefined
     try {
       const res = await fetch('https://api.mercadopago.com/users/me', {
         headers: { Authorization: `Bearer ${accessToken}` },
         signal: AbortSignal.timeout(5000),
       })
-      if (res.ok) {
-        const data = await res.json() as { email?: string }
-        if (data.email && !data.email.endsWith('@testuser.com')) {
-          throw new Error(
-            `MercadoPago: credenciales de producción bloqueadas fuera de PROD (${data.email}). ` +
-            'Usá credenciales de prueba (@testuser.com).'
-          )
-        }
+      if (!res.ok) {
+        throw new Error(
+          `MercadoPago: no se pudo confirmar que las credenciales sean de prueba (/users/me status ${res.status}). ` +
+          'Solo se permiten credenciales de prueba (@testuser.com) fuera de PROD.'
+        )
       }
+      const data = await res.json() as { email?: string }
+      testEmail = data.email
     } catch (e) {
-      if (e instanceof Error && e.message.includes('bloqueadas fuera de PROD')) throw e
+      if (e instanceof Error && e.message.includes('no se pudo confirmar')) throw e
+      throw new Error(
+        'MercadoPago: no se pudo confirmar que las credenciales sean de prueba ' +
+        `(${e instanceof Error ? e.message : 'error de red'}). ` +
+        'Solo se permiten credenciales de prueba (@testuser.com) fuera de PROD.'
+      )
+    }
+    if (!testEmail || !testEmail.endsWith('@testuser.com')) {
+      throw new Error(
+        `MercadoPago: credenciales de producción bloqueadas fuera de PROD (${testEmail ?? 'sin email'}). ` +
+        'Usá credenciales de prueba (@testuser.com).'
+      )
     }
   }
 
