@@ -58,6 +58,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Causa:** `lib/ml-service.ts:23` (`mlFetch`) es el punto común; escriben `createListing` (l. 221), `updateVariantStock`, `updateItemStock`, `pauseListing`, `activateListing`, `uploadImage`, y también `lib/ml-messages.ts` y `app/api/ml/answers`.
 - **Arreglo:** si `!isProd`, todo método distinto de `GET` contra la API de ML se bloquea (en `mlFetch` y en cualquier `fetch` a ML que no pase por ahí) con log `ML: escritura bloqueada fuera de PROD`. Excepción: el refresh de token OAuth (`lib/ml-auth.ts`), que no modifica publicaciones.
 - **Prueba:** local `APP_ENV=qa`: publicar o pausar → bloqueado y logueado; listar publicaciones → OK.
+ · **24/11: CC `e2bd072`**: mlFetch bloquea != GET; sendMLOrderMessage sale con log; /api/ml/answers 403
 
 ## S27 — Correo Argentino: ambiente de prueba fuera de PROD
 - **Causa:** `lib/correo/correoArgentino.ts:80` toma `CORREO_ARGENTINO_ENV` (default `test`), pero podría quedar `prod` en QA.
