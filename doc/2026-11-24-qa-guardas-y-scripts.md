@@ -80,15 +80,18 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
   - Página `/qa/negocio` (solo con `isQa`; en PROD 404): lista de negocios activos, elige uno → setea la cookie (`Path=/`, `SameSite=Lax`, `Secure`) → vuelve a `/`.
   - `middleware.ts`: con `isQa` no usar el cache `DOMAIN_STORE_PATH` (la clave es el host, quedaría fijo en el `/tienda` o `/store` del primer negocio); resolver el `store_path` según el negocio elegido.
 - **Prueba:** local con `APP_ENV=qa` (host `localhost` cuenta como QA para esta prueba, o un host de prueba vía `hosts`): elegir MALEMA → `/tienda` en es-AR/ARS; elegir NULARIONE → `/store` en en-US/USD; panel con cada uno. Con `APP_ENV=production` y la cookie puesta → se ignora.
+ · **24/11: CC `16ac454`**: cookie qa_business_id, middleware QA, /api/tenant/resolve-by-id, /qa/negocio selector; PROD ignora cookie
 
 ## S30 — URL base de la tienda en QA
 - **Causa:** `lib/store-base-url.ts` (`getStoreBaseUrl`) usa `catalog_base_url` → dominio `is_primary` → host. En QA (opción B) el dominio principal sigue siendo el real: canónicas, sitemap, Open Graph y los links de los mails (`lib/email-order.ts:107` y `:187`, llamados con host `''`) apuntarían a `malema.com.ar`.
 - **Arreglo:** si `isQa`, devolver `NEXT_PUBLIC_BASE_URL` (la URL de QA), sin barra final. En PROD, igual que hoy.
 - **Prueba:** local `APP_ENV=qa`: canónica de una ficha, `sitemap.xml` y link del mail de confirmación → URL de QA.
+ · **24/11: CC `154a312`**: si isQa, getStoreBaseUrl devuelve NEXT_PUBLIC_BASE_URL sin barra final
 
 ## S31 — Banda "AMBIENTE DE PRUEBA"
 - **Arreglo:** si `isQa`, banda fija arriba en tienda y panel: `AMBIENTE DE PRUEBA · <nombre del negocio> · cambiar` (link a `/qa/negocio`). Texto desde `messages/` (es/en), no escrito a mano. En PROD no se renderiza nada.
 - **Prueba:** local `APP_ENV=qa` se ve en tienda y panel; `production` no.
+ · **24/11: CC `e0efb10`**: QaBanner (fixed top rojo), texto desde messages/ es/en, link a /qa/negocio; en PROD no renderiza
 
 ## S32 — `scripts/restaurar-qa.ps1` + `db/qa-restore/` — hoja Q8
 - **Causa:** en ROIPOS los secretos de `settings` (`is_secret = true`) están **en texto plano** (en Galplace estaban cifrados). Una copia de PROD en QA trae tokens reales de MP, PayPal, CJ, ML y SMTP listos para usar.
@@ -100,6 +103,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
     - Control final (`SELECT`): dominios (todos con `.qa-off`), cantidad de negocios/productos/ventas, y **0 filas** con credenciales no vacías.
   - **`db/qa-restore/20-perfiles-roi.sql`:** usuario de ROI con acceso total a los negocios de prueba, sin ids fijos, idempotente. **Probarlo contra una base restaurada** antes de darlo por hecho (en Galplace falló dos veces por columnas inexistentes).
 - **Prueba:** `-Simular` OK; ROI corre contra `roipos-qa` dos veces seguidas sin error; control final con 0 credenciales; con la URL de PROD el script se niega.
+ · **24/11: CC `d34f927`**: restaurar-qa.ps1 con -Simular y guardas; 10-adaptar-qa.sql (dominios .qa-off, vaciar secretos, flags sandbox/false, wsaa_tokens, patrón credenciales); 20-perfiles-roi.sql (roisol_admin idempotente); .env.restore.prod.to.QA.example
 
 ---
 
