@@ -20,6 +20,7 @@
 import pool from '@/lib/db'
 import { getPublicSettingsByKeys } from '@/lib/settings'
 import { getCJTokenForBusiness, createCJOrder, type CJCreateOrderParams } from '@/lib/cj'
+import { isProd } from '@/lib/env'
 
 interface OrderRow {
   id:             number
@@ -56,6 +57,10 @@ const COUNTRY_NAMES: Record<string, string> = {
  * Devuelve true si el fulfillment se envió correctamente.
  */
 export async function attemptCJFulfillment(orderId: number): Promise<boolean> {
+  if (!isProd) {
+    console.info(`[CJ fulfillment] Bloqueado fuera de PROD — pedido #${orderId}`)
+    return false
+  }
   try {
     // ── 1. Verificar que CJ esté habilitado + auto_fulfill ───────────────────
     const orderQ = await pool.query<OrderRow>(

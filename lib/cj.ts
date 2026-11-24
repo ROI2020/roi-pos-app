@@ -9,6 +9,7 @@
  */
 
 import { getPublicSettingsByKeys, getSecretSetting } from '@/lib/settings'
+import { isProd } from '@/lib/env'
 
 const CJ_BASE = 'https://developers.cjdropshipping.com/api2.0/v1'
 
@@ -438,6 +439,7 @@ export async function createCJOrder(
   token:  string,
   params: CJCreateOrderParams,
 ): Promise<CJOrderResult> {
+  if (!isProd) throw new Error('CJ: pedidos bloqueados fuera de PROD')
   const data = await cjFetch<{ orderId: string; orderNum: string }>(
     token,
     '/shopping/order/createOrder',
