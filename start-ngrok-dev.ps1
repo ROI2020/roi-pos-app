@@ -70,5 +70,5 @@ Write-Host "Iniciando Next.js con NEXT_PUBLIC_BASE_URL=$tunnelUrl" -ForegroundCo
 Write-Host "(Ctrl+C para detener)" -ForegroundColor Gray
 Write-Host ""
 
-Set-Location "c:\roi-pos-app"
+Set-Location "C:\apps\roipos\roipos-app"
 npm run dev
