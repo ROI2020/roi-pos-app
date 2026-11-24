@@ -126,16 +126,19 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
   - `QA_PROJECT_REF` obligatorio (sin default); el example con un comentario: "el ref de `roipos-qa` (Supabase › Project Settings › General › Project ID)".
   - Example y encabezado: `PG_BIN` tiene que ser de una versión **igual o mayor** a la de Postgres de Supabase (`SHOW server_version;`); hoy el example dice 16.
 - **Prueba:** restaurar un dump de PROD en una base **local**, correr `10-adaptar-qa.sql` y `20-perfiles-roi.sql` dos veces seguidas sin error; control con 0 credenciales y `facturacion_config.ambiente = 'homo'`. Forzar un error en el SQL (nombre de tabla inventado) → el script deja QA vacía.
+ · **24/11: CC `597d446`**: SQL: orders→online_orders, gen_random_bytes→md5, facturacion_config.ambiente=homo, RAISE EXCEPTION; script: Vaciar-QA si falla; QA_PROJECT_REF obligatorio. Probado 2x en base local.
 
 ## S38 — QA: el panel usa el negocio elegido
 - **Causa:** `lib/get-business-id.ts` (`getBusinessId`/`requireBusinessId`, 87 rutas del panel) lee `business_id` de la sesión. El middleware (S29) cambia el header y la banda, pero las APIs del panel no pasan por el middleware (`/api/` está en `SKIP_PATHS`). Resultado: banda "MALEMA", datos de otro negocio. Además, en el panel la banda dice "QA" (el middleware pone `businessName = 'QA'`).
 - **Arreglo:** en `getBusinessId()`, si `isQa` y hay cookie `qa_business_id` válida (misma validación que `tenant-api`) → ese id; si no, el de la sesión. En PROD, igual que hoy. En el middleware (rama `isQa`), tomar `business_name` de `/api/tenant/resolve-by-id` para la banda.
 - **Prueba:** local `APP_ENV=qa`: elegir MALEMA → productos, ventas y caja del panel son de MALEMA; cambiar a NULARIONE → los de NULARIONE; banda con el nombre real. `APP_ENV=production` con la cookie puesta → sesión, como hoy.
+ · **24/11: CC `01b11d6`**: get-business-id.ts lee qa_business_id cookie si isQa (con validación); middleware resuelve nombre real del negocio via resolve-by-id
 
 ## S39 — Mercado Pago: el control de credenciales falla cerrado
 - **Causa:** `lib/mp.ts` (S25): si `/users/me` responde error, se corta por tiempo o no trae `email`, el `catch` deja seguir con el token (que puede ser real).
 - **Arreglo:** fuera de PROD, solo se sigue si la respuesta es OK **y** el email termina en `@testuser.com`. Cualquier otro caso → error claro ("no se pudo confirmar que las credenciales de MP sean de prueba").
 - **Prueba:** local `APP_ENV=qa` sin red o con token inválido → error, no pago; token de usuario de prueba → OK.
+ · **24/11: CC `202a859`**: /users/me falla o no OK o email no @testuser.com → error; solo continua con confirmacion positiva de prueba
 
 ---
 
@@ -146,6 +149,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 **Ojo, consecuencia que hay que dejar escrita:** con el auto publish bloqueado, el build de `main` **corre las migraciones en PROD al construir, antes del *Publish deploy***. Mientras tanto sigue publicado el código viejo. Por eso toda migración tiene que ser **compatible con el código que está publicado**: agregar columnas/tablas/índices sí; borrar o renombrar, en dos pases (primero el código deja de usarlo, después la migración lo borra).
 
 ## S33 — Runner de migraciones (`db/migrate.mjs`) y build
+> **Revisión 24/11 (Cowork): no se tacha → S40.** `/db` está en `.gitignore` (Netlify no recibe las migraciones) y la baseline de `pg_dump` deja `search_path` vacío, así que el `INSERT INTO schema_migrations` falla.
 - **Causa:** hoy se corren a mano con `db/scripts/run_migration.mjs` (un archivo por vez, sin registro) y se mueven a mano a `ejecutadas/`. No hay forma de saber qué tiene aplicado cada base.
 - **Arreglo:**
   - `db/migrate.mjs` (ESM, solo `pg`, sin dependencias nuevas), copia de la lógica de Galplace: `schema_migrations (version text PK, applied_at timestamptz default now())`; lee `db/migrations/*.sql` (solo ese nivel, no subcarpetas) ordenados por nombre; cada archivo en `BEGIN/COMMIT` con su registro; si falla, `ROLLBACK`, mensaje con el archivo y salida ≠ 0. Se puede correr dos veces seguidas sin aplicar nada.
@@ -159,6 +163,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
  · **24/11: CC `9fdba0b`**: db/migrate.mjs (ESM, pg, guardas baseline+localhost), package.json "migrate", netlify.toml build+migrate
 
 ## S34 — Baseline del esquema al 24/11
+> **Revisión 24/11 (Cowork): no se tacha → S40.** El nombre de la baseline lleva la fecha del día en que se corre (no coincide con `adoptar-baseline.sql`), y la limpieza quedó "a mano".
 - **Arreglo:**
   - Agregar a `scripts/backup-prod.ps1` (S19) el modo `-SoloEsquema`: `pg_dump --schema-only --schema=public --no-owner --no-privileges` → `db/migrations/000_baseline_20261124.sql`. Limpiar lo que no corre en una base nueva (`CREATE SCHEMA public`, `SET` de Supabase que fallen fuera de Supabase), y que la primera línea sea un comentario con fecha y origen. Lo corre ROI.
   - Las dos pendientes `20261111_branches_store_code.sql` y `20261111_store_pages_devoluciones.sql`: **ROI confirmó (24/11) que ya están corridas en PROD** → quedan dentro de la baseline y van a `db/historico/` con las demás. La primera migración nueva es `001_…`.
@@ -168,12 +173,31 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
  · **24/11: CC `406f904`**: backup-prod.ps1 -SoloEsquema; git mv ejecutadas/schema/basededatosDDL/run_migration/20261111_* a db/historico/; db/migrations/ vacía
 
 ## S35 — Adoptar la baseline en PROD y QA (script para ROI)
+> **Revisión 24/11 (Cowork): no se tacha → S40.** El encabezado dice correrlo con `psql -f`: sin `COMMIT` al final, psql cierra la sesión y **deshace todo** sin avisar.
 - **Arreglo:** `db/scripts/adoptar-baseline.sql`, para que ROI lo corra **una vez** en PROD (y en QA si no viene en la copia de PROD): (a) diagnóstico solo `SELECT` (existe `business`, existe o no `schema_migrations`); (b) `BEGIN;` crear `schema_migrations` si no existe e insertar `000_baseline_20261124.sql` con `ON CONFLICT DO NOTHING`, **sin `COMMIT`**; (c) verificación (`SELECT * FROM schema_migrations`). Backup previo (S19).
   - `restaurar-qa.ps1` (S32): la copia de PROD ya trae `schema_migrations`; al final, avisar qué migraciones de `qa` faltan y que un *Retry deploy* de QA las aplica (como Galplace `restaurar-qa.md` §6).
 - **Prueba:** en una base local restaurada desde un backup de PROD: script → `npm run migrate` no aplica la baseline y aplica solo las nuevas.
  · **24/11: CC `06118d6`**: db/scripts/adoptar-baseline.sql (diagnostico, BEGIN sin COMMIT, ON CONFLICT DO NOTHING)
 
-## S36 — Forma de trabajo
+## ~~S36 — Forma de trabajo~~
 - **Arreglo:** `CLAUDE.md`, sección *Base de datos*: reemplazar "Migraciones: `db/migrations/` (las corridas se mueven a `ejecutadas/`)" por la regla nueva (S33–S35: numeración, idempotentes, compatibles con el código publicado, QA al push de `qa`, PROD al build de `main` antes del *Publish*, local a mano con `npm run migrate`, nunca contra una base remota desde la consola). En la hoja (`2026-11-18-hoja-de-ruta-qa.md`) Q9: tachar la alternativa "se corren a mano" y apuntar a S33–S35.
 - **Orden de puesta en marcha (para ROI, dejarlo escrito en S36):** 1) S19 backup de PROD → 2) S34 baseline → 3) S35 `adoptar-baseline.sql` en PROD con `COMMIT` → 4) push de `qa` (QA vacía: el build crea el esquema desde la baseline; después la restauración S32 la pisa) → 5) recién entonces el primer merge a `main` con el `netlify.toml` nuevo (si PROD no adoptó la baseline, la guarda de S33 frena el build y no pasa nada).
  · **24/11: CC `1c7aaa0`**: CLAUDE.md seccion migraciones reescrita (S33-S35, orden puesta en marcha); hoja Q9 tachado manual, apunta a S33-S35; ultima S usada: S36
+
+
+---
+
+# Correcciones de la revisión de migraciones (24/11, Cowork) — **S37, S38 y S39 siguen pendientes** (no hay commits)
+
+## S40 — Migraciones: que lleguen a Netlify y que la baseline corra
+- **Causa:**
+  1. `.gitignore` tiene `/db`: solo están en git los 6 archivos agregados con `-f`. La baseline y cada `NNN_*.sql` nuevo quedan **fuera del repo** → el build de Netlify no los ve. Además, `db/historico/` quedó a medias (en disco sí, en git solo 2 archivos).
+  2. `scripts/backup-prod.ps1` l. 86: `000_baseline_${stamp}` con la fecha **del día en que se corre**; `adoptar-baseline.sql` y `CLAUDE.md` tienen fijo `000_baseline_20261124.sql`. Si ROI lo genera otro día, PROD queda "sin baseline registrada" y el build de `main` se frena.
+  3. La salida de `pg_dump` trae `SELECT pg_catalog.set_config('search_path', '', false);` (afecta a toda la sesión): en una base vacía, `db/migrate.mjs` aplica la baseline y después falla el `INSERT INTO schema_migrations` (sin esquema). Las versiones recientes de `pg_dump` además agregan líneas `\restrict …` / `\unrestrict …`, que **no son SQL** (son de psql) y `pg` las rechaza. Y `CREATE SCHEMA public;` choca con el esquema que ya existe.
+  4. `db/scripts/adoptar-baseline.sql`: el uso dice `psql -f`, que al terminar el archivo sin `COMMIT` hace `ROLLBACK` solo.
+- **Arreglo:**
+  1. ~~Sacar `/db` de `.gitignore`~~ — **hecho por ROI 24/11** (también `/doc` y `/database`; revisado: no hay credenciales en `db/` ni `doc/`). CC: commitear `db/` y `doc/` completos en un commit aparte (`S40: db/ y doc/ al repo`).
+  2. Nombre fijo **`000_baseline.sql`** (sin fecha; la fecha y el origen, en el comentario de la primera línea) en `backup-prod.ps1`, `adoptar-baseline.sql`, `CLAUDE.md` y la hoja. Si el archivo ya existe, `-SoloEsquema` se niega (la baseline no se regenera).
+  3. `-SoloEsquema` limpia solo, sin pasos a mano: saca `\restrict`/`\unrestrict`, `CREATE SCHEMA public`, `COMMENT ON SCHEMA public`, el `set_config('search_path', '', false)` y cualquier `SET` que falle fuera de Supabase; agrega el comentario de la primera línea. Y en `db/migrate.mjs`: `public.schema_migrations` con esquema explícito en todas las consultas, y `SET search_path TO public` antes de cada archivo, para que una migración no le cambie el contexto a la siguiente.
+  4. `adoptar-baseline.sql`: el uso, en **DBeaver con auto-commit apagado** (o `psql` interactivo con `\i` y después `COMMIT;` a mano). Sacar la línea de `psql -f`.
+- **Prueba:** base local **vacía** + `node --env-file=.env.local db/migrate.mjs` con una baseline generada desde una base local con el esquema de PROD → aplica `000_baseline.sql` y la registra; segunda corrida → "No hay migraciones pendientes"; `pg_dump --schema-only` de las dos bases sin diferencias (salvo `schema_migrations`). Base local con tablas y sin registro → error de la guarda. `git ls-files db/migrations` muestra la baseline.
