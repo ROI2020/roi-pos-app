@@ -20,6 +20,7 @@
 
 import nodemailer from 'nodemailer'
 import { getPublicSettingsByKeys, getSecretSetting } from '@/lib/settings'
+import { isProd } from '@/lib/env'
 
 export interface SendEmailOptions {
   businessId:  number
@@ -51,6 +52,16 @@ export async function sendEmail(opts: SendEmailOptions): Promise<{ ok: boolean; 
 
     if (pub.email_enabled !== 'true') {
       return { ok: false, reason: 'email_disabled' }
+    }
+
+    if (!isProd) {
+      const redirect = process.env.MAIL_QA_REDIRECT_TO?.trim()
+      if (!redirect) {
+        console.info(`[email] QA/dev sin MAIL_QA_REDIRECT_TO — no se envía. to=${opts.to} subject="${opts.subject}"`)
+        return { ok: true, reason: 'qa_log_only' }
+      }
+      const originalTo = opts.to
+      opts = { ...opts, to: redirect, bcc: undefined, subject: `[QA → ${originalTo}] ${opts.subject}` }
     }
 
     const host    = pub.email_smtp_host?.trim()
