@@ -64,6 +64,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Causa:** `lib/correo/correoArgentino.ts:80` toma `CORREO_ARGENTINO_ENV` (default `test`), pero podría quedar `prod` en QA.
 - **Arreglo:** si `!isProd`, forzar `test` (log si la variable decía otra cosa).
 - **Prueba:** local `APP_ENV=qa`, `CORREO_ARGENTINO_ENV=prod` → usa test.
+ · **24/11: CC `e38a8bb`**: getConfig fuerza env=test si !isProd, con log
 
 ## S28 — QA no indexable y sin GA4
 - **Causa:** `app/layout.tsx:52-80` inyecta GA4 si el negocio tiene `catalog_ga4_measurement_id`; `app/robots.ts` permite rastrear la tienda; no hay `noindex`.
@@ -122,13 +123,13 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 ## S34 — Baseline del esquema al 24/11
 - **Arreglo:**
   - Agregar a `scripts/backup-prod.ps1` (S19) el modo `-SoloEsquema`: `pg_dump --schema-only --schema=public --no-owner --no-privileges` → `db/migrations/000_baseline_20261124.sql`. Limpiar lo que no corre en una base nueva (`CREATE SCHEMA public`, `SET` de Supabase que fallen fuera de Supabase), y que la primera línea sea un comentario con fecha y origen. Lo corre ROI.
-  - Las dos pendientes `20261111_branches_store_code.sql` y `20261111_store_pages_devoluciones.sql`: **ROI confirma si ya están en PROD**. Si están, quedan dentro de la baseline y van a la carpeta histórica; si no, pasan a ser `001_…` y `002_…` (idempotentes).
+  - Las dos pendientes `20261111_branches_store_code.sql` y `20261111_store_pages_devoluciones.sql`: **ROI confirmó (24/11) que ya están corridas en PROD** → quedan dentro de la baseline y van a `db/historico/` con las demás. La primera migración nueva es `001_…`.
   - Mover a `db/historico/` (fuera de `db/migrations/`): `db/migrations/ejecutadas/`, `db/schema-2026-08-05.sql`, `db/esquemas anteriores/`, `basededatosDDL.txt`, y `db/scripts/run_migration.mjs` (reemplazado por S33). `git mv`, sin borrar.
   - Desde acá: `NNN_descripcion.sql` (3 dígitos, siguiente libre), idempotentes (`IF NOT EXISTS`), comentario `-- S##` al inicio. Una migración aplicada en PROD **no se edita**.
 - **Prueba:** base local vacía + `npm run migrate` → esquema igual al de PROD (comparar `pg_dump --schema-only` de las dos, sin diferencias salvo `schema_migrations`).
 
 ## S35 — Adoptar la baseline en PROD y QA (script para ROI)
-- **Arreglo:** `db/scripts/adoptar-baseline.sql`, para que ROI lo corra **una vez** en PROD (y en QA si no viene en la copia de PROD): (a) diagnóstico solo `SELECT` (existe `business`, existe o no `schema_migrations`); (b) `BEGIN;` crear `schema_migrations` si no existe e insertar `000_baseline_20261124.sql` (y `001`/`002` solo si S34 dijo que ya estaban en PROD) con `ON CONFLICT DO NOTHING`, **sin `COMMIT`**; (c) verificación (`SELECT * FROM schema_migrations`). Backup previo (S19).
+- **Arreglo:** `db/scripts/adoptar-baseline.sql`, para que ROI lo corra **una vez** en PROD (y en QA si no viene en la copia de PROD): (a) diagnóstico solo `SELECT` (existe `business`, existe o no `schema_migrations`); (b) `BEGIN;` crear `schema_migrations` si no existe e insertar `000_baseline_20261124.sql` con `ON CONFLICT DO NOTHING`, **sin `COMMIT`**; (c) verificación (`SELECT * FROM schema_migrations`). Backup previo (S19).
   - `restaurar-qa.ps1` (S32): la copia de PROD ya trae `schema_migrations`; al final, avisar qué migraciones de `qa` faltan y que un *Retry deploy* de QA las aplica (como Galplace `restaurar-qa.md` §6).
 - **Prueba:** en una base local restaurada desde un backup de PROD: script → `npm run migrate` no aplica la baseline y aplica solo las nuevas.
 
