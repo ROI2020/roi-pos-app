@@ -12,10 +12,12 @@
 .EXAMPLE
   .\scripts\backup-prod.ps1
   .\scripts\backup-prod.ps1 -Simular
+  .\scripts\backup-prod.ps1 -SoloEsquema
 #>
 [CmdletBinding()]
 param(
-  [switch]$Simular
+  [switch]$Simular,
+  [switch]$SoloEsquema
 )
 
 $ErrorActionPreference = 'Continue'
@@ -47,7 +49,7 @@ function Leer-Env($archivo) {
   $h
 }
 
-Escribir "`nBackup de PROD — ROIPOS$(if ($Simular) { ' · SIMULACIÓN' })" 'Cyan'
+Escribir "`nBackup de PROD — ROIPOS$(if ($SoloEsquema) { ' · ESQUEMA' })$(if ($Simular) { ' · SIMULACIÓN' })" 'Cyan'
 Limpiar-Secretos -Avisar
 
 # ── 0. Controles ─────────────────────────────────────────────────────────────
@@ -75,6 +77,51 @@ if ($errores.Count -gt 0) {
   Escribir "`nNo se puede continuar:" 'Red'
   $errores | ForEach-Object { Escribir $_ 'Red' }
   Salir 1
+}
+
+# ── SoloEsquema: pg_dump --schema-only → db/migrations/000_baseline_*.sql ──
+if ($SoloEsquema) {
+  $dbUrl = $bckVars.DATABASE_URL_PROD
+  if ($dbUrl -match '@([^:/@]+)') { $hostDb = $Matches[1] } else { $hostDb = '***' }
+  $stamp = Get-Date -Format 'yyyyMMdd'
+  $baselineFile = Join-Path $root "db\migrations\000_baseline_${stamp}.sql"
+  Escribir "  Host: $hostDb"
+  Escribir "  Destino: $baselineFile"
+
+  if ($Simular) {
+    Escribir "`n[simular] Haría pg_dump --schema-only a $(Split-Path $baselineFile -Leaf)." 'DarkYellow'
+    Escribir "`nSimulación terminada. Nada se tocó." 'Cyan'
+    Salir 0
+  }
+
+  $migDir = Join-Path $root 'db\migrations'
+  if (-not (Test-Path $migDir)) { New-Item -ItemType Directory -Force $migDir | Out-Null }
+
+  Escribir "`n  schema-only dump …"
+  $pgDumpExe = Join-Path $bckVars.PG_BIN 'pg_dump.exe'
+  try {
+    $err = & $pgDumpExe "--dbname=$dbUrl" --schema-only --schema=public --no-owner --no-privileges -f $baselineFile 2>&1 | ForEach-Object { "$_" }
+    if ($LASTEXITCODE -ne 0) {
+      $errSafe = ($err -join "`n") -replace 'postgresql://[^@]*@', '***@'
+      throw "pg_dump --schema-only falló (exit $LASTEXITCODE):`n$errSafe"
+    }
+  } catch {
+    $dbUrl = $null
+    Escribir "  ERROR: $($_.Exception.Message)" 'Red'
+    Salir 1
+  }
+  $dbUrl = $null
+
+  if (-not (Test-Path $baselineFile) -or (Get-Item $baselineFile).Length -eq 0) {
+    Escribir "  ERROR: el archivo de esquema está vacío o no se creó" 'Red'; Salir 1
+  }
+
+  $kb = [math]::Round((Get-Item $baselineFile).Length / 1KB, 1)
+  Escribir "`n  Esquema OK: $(Split-Path $baselineFile -Leaf) · ${kb} KB" 'Green'
+  Escribir "  IMPORTANTE: limpiar a mano CREATE SCHEMA public, SET de Supabase," 'Yellow'
+  Escribir "  y agregar un comentario con fecha y origen en la primera línea." 'Yellow'
+  Limpiar-Secretos
+  exit 0
 }
 
 # ── 1. Plan ──────────────────────────────────────────────────────────────────
