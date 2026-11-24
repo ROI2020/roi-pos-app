@@ -16,7 +16,7 @@ Punto de venta multi-negocio (Next.js 15 + Postgres vía `pg`, sin ORM) con **ti
 | **Claude Code (CC)** | Implementa **solo** lo pedido en `doc/`, un commit por punto |
 
 ## Pedidos y registro (`doc/`)
-- Cada tanda en `doc/AAAA-MM-DD-<tema>.md`, con puntos **`S##`** (la numeración sigue: última usada **S18**). Cada punto: causa (archivo y línea), arreglo, prueba.
+- Cada tanda en `doc/AAAA-MM-DD-<tema>.md`, con puntos **`S##`** (la numeración sigue: última usada **S36**). Cada punto: causa (archivo y línea), arreglo, prueba.
 - **CC:** commits con el prefijo del punto (`S19: …`). Al terminar, agregá debajo del punto ` · **dd/mm: CC `<hash>`**: <qué cambió en una línea>` (un renglón por commit) y commiteá el `doc/`. **No taches**: lo tacha Claude (Cowork) o ROI después de revisar.
 - Si algo del pedido no se puede o no conviene, avisá antes de hacer otra cosa.
 
@@ -24,11 +24,26 @@ Punto de venta multi-negocio (Next.js 15 + Postgres vía `pg`, sin ORM) con **ti
 - Se trabaja en **`main`**. **No hacer `git push`**: el push publica en Netlify (PROD); lo decide ROI.
 - Antes de commitear: `npm run build` sin errores.
 
-## Base de datos y datos de PROD
+## Base de datos y migraciones
 - `.env`/`.env.local` apuntan a bases **locales**. Nunca correr scripts, migraciones ni pruebas en una consola donde quedaron variables de PROD (`DATABASE_URL`, etc.): cerrá esa ventana.
-- Migraciones: `db/migrations/` (las corridas se mueven a `db/migrations/ejecutadas/`), idempotentes.
+- **Migraciones automáticas** (S33–S35): `db/migrations/NNN_descripcion.sql` (3 dígitos, siguiente libre). `db/migrate.mjs` las aplica en orden, con registro en `schema_migrations`. Corren **solas en el build de Netlify** (`npm run build && npm run migrate`): QA al push de `qa`, PROD al build de `main` (antes del *Publish deploy*). En local: `node --env-file=.env.local db/migrate.mjs` (ROI).
+- **Reglas de las migraciones:**
+  - Idempotentes (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
+  - Compatibles con el código publicado (el build corre las migraciones antes del publish): agregar columnas/tablas/índices sí; borrar o renombrar, en dos pases (primero el código deja de usarlo, después la migración lo borra).
+  - Nada que no pueda ir dentro de una transacción (no `CREATE INDEX CONCURRENTLY`).
+  - Una migración aplicada en PROD **no se edita**.
+  - Comentario `-- S##` al inicio de cada archivo nuevo.
+  - Nunca correr `npm run migrate` contra una base remota desde la consola (la guarda P157 lo impide fuera de Netlify).
+- **Baseline:** `000_baseline_20261124.sql` = foto del esquema de PROD al 24/11. Archivos anteriores en `db/historico/`.
 - **Arreglos de datos en PROD** = script `.sql` manual que corre ROI: (a) diagnóstico solo `SELECT`; (b) arreglo en `BEGIN;` **sin `COMMIT`** (ROI decide `COMMIT`/`ROLLBACK`); (c) verificación. Siempre con backup previo. CC nunca los corre.
 - Si se agregan tests: solo contra una base **local** (`localhost`), y la conexión tiene que negarse a cualquier otra (ver Galplace P157).
+
+### Orden de puesta en marcha de las migraciones (para ROI)
+1. `scripts/backup-prod.ps1` — backup de PROD
+2. `scripts/backup-prod.ps1 -SoloEsquema` — genera `db/migrations/000_baseline_20261124.sql`; limpiar a mano y commitear
+3. `db/scripts/adoptar-baseline.sql` en PROD con `COMMIT` — registra la baseline
+4. Push de `qa` — QA vacía: el build crea el esquema desde la baseline; después la restauración (S32) la pisa
+5. Recién entonces el primer merge a `main` con el `netlify.toml` nuevo — si PROD no adoptó la baseline, la guarda de S33 frena el build y no pasa nada
 
 ## Reglas de la tienda pública (multi-negocio)
 - Nada escrito a mano con el nombre o datos de un negocio en páginas compartidas: usar settings, `store_pages` o `messages/` por idioma.
