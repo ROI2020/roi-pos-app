@@ -22,7 +22,8 @@ import { StorePathProvider }  from './_context/store-path-context'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
 import { getStoreBaseUrl } from '@/lib/store-base-url'
-import { isProd } from '@/lib/env'
+import { isProd, isQa } from '@/lib/env'
+import QaBanner from '@/components/qa-banner'
 import StoreJsonLd from './_components/store-jsonld'
 import './store-theme.css'
 
@@ -112,6 +113,7 @@ export default async function TiendaLayout({
   let businessId_: number | null = null
   let baseUrl_    = ''
   let logo_: string | null = null
+  let businessName_ = ''
 
   try {
     const h    = await headers()
@@ -124,7 +126,7 @@ export default async function TiendaLayout({
     businessId_ = businessId
     const [s, resolvedBase] = await Promise.all([
       getPublicSettingsByKeys(businessId, [
-        'locale', 'currency', 'business_logo',
+        'locale', 'currency', 'business_name', 'business_logo',
         'catalog_color_primary', 'catalog_color_secondary',
         'catalog_color_bg', 'catalog_color_surface', 'catalog_color_text',
         'catalog_color_muted', 'catalog_color_border', 'catalog_font',
@@ -133,6 +135,7 @@ export default async function TiendaLayout({
     ])
     baseUrl_ = resolvedBase
     logo_    = s.business_logo ?? null
+    businessName_ = s.business_name ?? ''
 
     fullLocale = s.locale   ?? 'es-AR'
     currency   = s.currency ?? 'ARS'
@@ -181,6 +184,8 @@ export default async function TiendaLayout({
     }
   }
 
+  const qaBanner = (messages as Record<string, Record<string, string>>)?.QaBanner
+
   return (
     <NextIntlClientProvider locale={fullLocale} messages={messages}>
       {/* Inyectar variables CSS del tema antes que cualquier componente */}
@@ -188,6 +193,13 @@ export default async function TiendaLayout({
         // eslint-disable-next-line react/no-danger
         <style dangerouslySetInnerHTML={{ __html: themeStyle }} />
       )}
+
+      <QaBanner
+        businessName={businessName_}
+        label={qaBanner?.label ?? 'AMBIENTE DE PRUEBA'}
+        changeLabel={qaBanner?.change ?? 'cambiar'}
+      />
+      {isQa && <div style={{ height: 32 }} />}
 
       {/* JSON-LD structured data: Organization + ItemList de productos */}
       {businessId_ !== null && (

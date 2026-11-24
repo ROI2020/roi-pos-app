@@ -218,5 +218,9 @@
   "StorePage": {
     "lastUpdate": "Last update",
     "backToStore": "Back to store"
+  },
+  "QaBanner": {
+    "label": "TEST ENVIRONMENT",
+    "change": "switch"
   }
 }

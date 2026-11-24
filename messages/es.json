@@ -218,5 +218,9 @@
   "StorePage": {
     "lastUpdate": "Última actualización",
     "backToStore": "Volver a la tienda"
+  },
+  "QaBanner": {
+    "label": "AMBIENTE DE PRUEBA",
+    "change": "cambiar"
   }
 }

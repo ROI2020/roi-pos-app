@@ -8,7 +8,8 @@ import { PlanProvider } from '@/contexts/PlanContext'
 import { ThemeProvider } from '@/components/theme-provider'
 import { resolveBusinessFromHost } from '@/lib/tenant-api'
 import { getPublicSettingsByKeys } from '@/lib/settings'
-import { isProd } from '@/lib/env'
+import { isProd, isQa } from '@/lib/env'
+import QaBanner from '@/components/qa-banner'
 import './globals.css'
 
 
@@ -70,6 +71,7 @@ export default async function RootLayout({
   }
 
   const showAdminShell = !isFacturaRapida && !isStore
+  const qaBizName = hdrs.get('x-business-name') ?? ''
 
   return (
     <html lang="es" suppressHydrationWarning>
@@ -91,6 +93,16 @@ export default async function RootLayout({
         )}
       </head>
       <body className={`${dmSans.className} antialiased`} suppressHydrationWarning>
+        {showAdminShell && (
+          <>
+            <QaBanner
+              businessName={qaBizName}
+              label="AMBIENTE DE PRUEBA"
+              changeLabel="cambiar"
+            />
+            {isQa && <div style={{ height: 32 }} />}
+          </>
+        )}
         <ThemeProvider
           attribute="class"
           defaultTheme="light"
