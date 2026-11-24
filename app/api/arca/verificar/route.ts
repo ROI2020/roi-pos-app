@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import pool from '@/lib/db'
 import { obtenerToken } from '@/lib/facturacion/wsaa'
 import { obtenerUltimoNroComprobante } from '@/lib/facturacion/wsfev1'
+import { isProd } from '@/lib/env'
 
 async function requireAdmin(): Promise<NextResponse | null> {
   const cookieStore = await cookies()
@@ -57,6 +58,16 @@ export async function GET(req: Request) {
     }
     const { punto_venta, ambiente: cfgAmbiente } = cfgRes.rows[0]
     const ambiente = cfgAmbiente   // siempre del DB, no de env var global
+
+    if (!isProd && ambiente === 'prod') {
+      return NextResponse.json({
+        conexionWsaa: false,
+        puntoVentaHabilitado: false,
+        ultimoNroComprobante: null,
+        ambiente,
+        errorDetalle: 'arca_prod_bloqueado_fuera_de_prod',
+      })
+    }
 
     // Intentar obtener token WSAA
     let auth: { token: string; sign: string }

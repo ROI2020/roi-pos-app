@@ -1,6 +1,7 @@
 import { create } from 'xmlbuilder2'
 import pool from '@/lib/db'
 import { firmarTRA } from './xml'
+import { isProd } from '@/lib/env'
 
 const WSAA_ENDPOINT = {
   homo: 'https://wsaahomo.afip.gov.ar/ws/services/LoginCms',
@@ -41,6 +42,9 @@ export async function obtenerToken(
   ambiente: 'homo' | 'prod'
 ): Promise<{ token: string; sign: string }> {
   console.log('[ARCA-WSAA] obtenerToken llamado, cuit:', cuit, 'ambiente:', ambiente, 'MOCK:', process.env.ARCA_MOCK)
+  if (!isProd && ambiente === 'prod') {
+    throw new Error('ARCA producción bloqueado fuera de PROD')
+  }
   if (process.env.ARCA_MOCK === 'true') {
     return { token: 'MOCK_TOKEN_HOMO', sign: 'MOCK_SIGN_HOMO' }
   }

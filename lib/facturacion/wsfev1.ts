@@ -1,5 +1,6 @@
 import { Agent as HttpsAgent, request as httpsRequest } from 'https'
 import type { FacturacionInput, ErrorFacturacion } from './types'
+import { isProd } from '@/lib/env'
 
 const WSFE_ENDPOINT = {
   homo: 'https://wswhomo.afip.gov.ar/wsfev1/service.asmx',
@@ -184,6 +185,9 @@ export async function solicitarCAE(
   nroComprobante: number,
   ambiente: 'homo' | 'prod'
 ): Promise<{ cae: string; caeVto: string; nroCbte: number; rawResponse: unknown }> {
+  if (!isProd && ambiente === 'prod') {
+    throw new Error('ARCA producción bloqueado fuera de PROD')
+  }
   if (process.env.ARCA_MOCK === 'true') {
     const mockCae = '12345678901234'
     const mockVto = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)
