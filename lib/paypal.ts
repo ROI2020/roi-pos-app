@@ -7,7 +7,13 @@
  * Docs: https://developer.paypal.com/api/orders/v2/
  */
 
+import { isProd } from '@/lib/env'
+
 function paypalBase(mode: string): string {
+  if (!isProd && mode === 'live') {
+    console.warn('[paypal] !isProd: forzando sandbox (setting decía live)')
+    return 'https://api-m.sandbox.paypal.com'
+  }
   return mode === 'live'
     ? 'https://api-m.paypal.com'
     : 'https://api-m.sandbox.paypal.com'

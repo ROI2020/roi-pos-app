@@ -22,6 +22,7 @@
 
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago'
 import { getSecretSetting } from '@/lib/settings'
+import { isProd } from '@/lib/env'
 
 // ── Cliente global (env var) — solo para el webhook ──────────────────────────
 // No lanzar error a nivel de módulo: en negocios que no usan MP (ej: USA/PayPal)
@@ -83,6 +84,26 @@ export async function getMPClientForBusiness(businessId: number): Promise<{
       'Configuralo en Admin → Configuración → Pagos, ' +
       'o define MP_ACCESS_TOKEN en .env para desarrollo.'
     )
+  }
+
+  if (!isProd) {
+    try {
+      const res = await fetch('https://api.mercadopago.com/users/me', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(5000),
+      })
+      if (res.ok) {
+        const data = await res.json() as { email?: string }
+        if (data.email && !data.email.endsWith('@testuser.com')) {
+          throw new Error(
+            `MercadoPago: credenciales de producción bloqueadas fuera de PROD (${data.email}). ` +
+            'Usá credenciales de prueba (@testuser.com).'
+          )
+        }
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes('bloqueadas fuera de PROD')) throw e
+    }
   }
 
   const client = new MercadoPagoConfig({ accessToken })
