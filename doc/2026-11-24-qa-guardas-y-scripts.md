@@ -28,6 +28,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Causa:** `app/api/healthcheck/route.ts` devuelve `current_database()`, que en Supabase es `postgres` en QA y en PROD: no sirve para saber a qué base está conectado. El 24/11 hubo que leerlo en los logs.
 - **Arreglo:** agregar `app_env` y `db_ref` (el *project ref*: sufijo de `DB_USER` después de `postgres.`, o el host si no tiene sufijo; si es `localhost`, `local`) y `version` (`NEXT_PUBLIC_APP_VERSION`). **Nunca** host completo, usuario completo, contraseña ni URL.
 - **Prueba:** local → `app_env: development, db_ref: local`. En QA (después del push de ROI) → `qa` + ref de `roipos-qa`.
+ · **24/11: CC `2e5a1a4`**: healthcheck con app_env, db_ref (project ref de DB_USER) y version
 
 ## S22 — Mails redirigidos fuera de PROD
 - **Causa:** `lib/email.ts:39` (`sendEmail`) manda a `opts.to` (el comprador) y al `bcc` en cualquier ambiente.
