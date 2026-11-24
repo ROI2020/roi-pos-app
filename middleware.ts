@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { isQa, isProd } from '@/lib/env'
 
 // APIs, assets y el panel ROISOL de proveedor interno se omiten del middleware.
 const SKIP_PATHS = [
@@ -107,15 +108,17 @@ export async function middleware(req: NextRequest) {
 
   const session = parseSession(req.cookies.get('roipos_session')?.value)
 
+  // ── QA: permitir /qa/* sin sesión ─────────────────────────────────────────
+  if (isQa && pathname.startsWith('/qa')) {
+    return NextResponse.next()
+  }
+
   // ── 4. Sin sesión ────────────────────────────────────────────────────────────
   if (!session) {
     if (pathname === '/') {
-      // Redirigir a la tienda pública del dominio (en → /store, es → /tienda)
-      const storePath = await resolveStorePath(
-        req.nextUrl.origin,
-        host,
-        process.env.INTERNAL_API_KEY ?? '',
-      )
+      const storePath = isQa
+        ? await resolveStorePathForQa(req)
+        : await resolveStorePath(req.nextUrl.origin, host, process.env.INTERNAL_API_KEY ?? '')
       return NextResponse.redirect(new URL(storePath, req.url), 308)
     }
     return NextResponse.redirect(new URL('/login', req.url))
@@ -140,9 +143,18 @@ export async function middleware(req: NextRequest) {
   let ga4Id: string | null = null
 
   if (host.includes('localhost') || host.includes('127.0.0.1') || isFacturaRapida) {
-    businessId   = session.business_id ?? parseInt(process.env.DEV_BUSINESS_ID ?? '0', 10)
-    businessName = isFacturaRapida ? 'ROIFAR' : 'DEV'
-    // En local no inyectamos GA4 para no contaminar métricas de producción
+    if (isQa) {
+      const qaId = getQaBusinessIdFromReq(req)
+      if (qaId) businessId = qaId
+    }
+    if (!businessId) {
+      businessId = session.business_id ?? parseInt(process.env.DEV_BUSINESS_ID ?? '0', 10)
+    }
+    businessName = isFacturaRapida ? 'ROIFAR' : (isQa ? 'QA' : 'DEV')
+  } else if (isQa) {
+    const qaId = getQaBusinessIdFromReq(req)
+    businessId = qaId ?? parseInt(process.env.QA_DEFAULT_BUSINESS_ID ?? '0', 10)
+    businessName = 'QA'
   } else {
     try {
       const res = await fetch(
@@ -211,6 +223,30 @@ export async function middleware(req: NextRequest) {
     requestHeaders.set('x-ga4-id', ga4Id)
   }
   return NextResponse.next({ request: { headers: requestHeaders } })
+}
+
+function getQaBusinessIdFromReq(req: NextRequest): number | null {
+  if (!isQa) return null
+  const raw = req.cookies.get('qa_business_id')?.value
+  if (!raw) return null
+  const id = parseInt(raw, 10)
+  return !isNaN(id) && id > 0 ? id : null
+}
+
+async function resolveStorePathForQa(req: NextRequest): Promise<string> {
+  const qaId = getQaBusinessIdFromReq(req) ?? parseInt(process.env.QA_DEFAULT_BUSINESS_ID ?? '0', 10)
+  if (!qaId) return '/tienda'
+  try {
+    const res = await fetch(
+      `${req.nextUrl.origin}/api/tenant/resolve-by-id?businessId=${qaId}`,
+      { headers: { 'x-internal-key': process.env.INTERNAL_API_KEY ?? '' } },
+    )
+    if (res.ok) {
+      const data = await res.json() as TenantInfo
+      return data.store_path ?? '/tienda'
+    }
+  } catch { /* fallback */ }
+  return '/tienda'
 }
 
 export const config = {
