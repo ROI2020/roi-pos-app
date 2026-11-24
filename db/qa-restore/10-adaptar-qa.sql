@@ -1,6 +1,7 @@
 -- 10-adaptar-qa.sql — Adaptar una copia de PROD para QA
 -- Se corre automáticamente desde restaurar-qa.ps1 después del pg_restore.
 -- Idempotente: se puede correr más de una vez sin error.
+-- Si el control final detecta credenciales residuales, RAISE EXCEPTION → ROLLBACK.
 
 BEGIN;
 
@@ -46,7 +47,7 @@ UPDATE settings
 
 -- Regenerar catalog_token (token público para cacheo, no es un secreto de API)
 UPDATE settings
-   SET value = encode(gen_random_bytes(16), 'hex')
+   SET value = md5(random()::text || clock_timestamp()::text)
  WHERE key = 'catalog_token';
 
 -- ── 4. Flags de seguridad ───────────────────────────────────────────────────
@@ -56,11 +57,15 @@ UPDATE settings SET value = 'false'    WHERE key = 'cj_auto_fulfill';
 UPDATE settings SET value = 'false'    WHERE key = 'ml_enabled';
 UPDATE settings SET value = 'false'    WHERE key = 'email_enabled';
 
--- ── 5. Tokens ARCA ──────────────────────────────────────────────────────────
+-- ── 5. Facturación: forzar homologación ─────────────────────────────────────
+-- Sin esto, la guarda de S23 bloquea la facturación incluso con ARCA_MOCK=true.
+UPDATE facturacion_config SET ambiente = 'homo' WHERE ambiente <> 'homo';
+
+-- ── 6. Tokens ARCA ──────────────────────────────────────────────────────────
 -- wsaa_tokens guarda tokens firmados para ARCA; no deben quedar de PROD.
 DELETE FROM wsaa_tokens;
 
--- ── 6. Credenciales sueltas por patrón de nombre ────────────────────────────
+-- ── 7. Credenciales sueltas por patrón de nombre ────────────────────────────
 -- Captura cualquier clave futura que contenga token/secret/key/pass en el nombre
 -- y no haya sido vaciada ya.
 UPDATE settings
@@ -78,7 +83,7 @@ UPDATE settings
      'catalog_token'
    );
 
--- ── 7. Control final ────────────────────────────────────────────────────────
+-- ── 8. Control final ────────────────────────────────────────────────────────
 -- Dominios: todos con .qa-off
 SELECT 'dominios' AS check,
        count(*) AS total,
@@ -90,12 +95,28 @@ SELECT 'negocios' AS entidad, count(*) AS total FROM business
  UNION ALL
 SELECT 'productos', count(*) FROM products
  UNION ALL
-SELECT 'ventas', count(*) FROM orders;
+SELECT 'ventas', count(*) FROM online_orders;
 
--- Credenciales residuales: debe dar 0 filas
-SELECT 'ALERTA: credencial no vacía' AS check, business_id, key, left(value, 4) || '***' AS preview
-  FROM settings
- WHERE is_secret = true
-   AND COALESCE(value, '') <> '';
+-- Facturación en homologación
+SELECT 'facturacion' AS check,
+       count(*) AS total,
+       count(*) FILTER (WHERE ambiente = 'homo') AS en_homo
+  FROM facturacion_config;
+
+-- Credenciales residuales: DEBE dar 0 — si no, la transacción se deshace
+DO $$
+DECLARE
+  _count integer;
+BEGIN
+  SELECT count(*) INTO _count
+    FROM settings
+   WHERE is_secret = true
+     AND COALESCE(value, '') <> '';
+
+  IF _count > 0 THEN
+    RAISE EXCEPTION '10-adaptar-qa: quedan % credenciales con is_secret=true sin vaciar', _count;
+  END IF;
+END
+$$;
 
 COMMIT;

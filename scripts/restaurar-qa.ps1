@@ -67,6 +67,19 @@ function Sanitizar($texto) {
   "$texto" -replace 'postgresql://[^@]*@', '***@'
 }
 
+function Vaciar-QA {
+  Escribir '' 'Red'
+  Escribir '   VACIANDO QA para no dejar secretos de PROD.' 'Red'
+  $dropSql = "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO PUBLIC;"
+  $err2 = & $psqlExe "--dbname=$qaUrl" -v ON_ERROR_STOP=1 -c $dropSql 2>&1 | ForEach-Object { "$_" }
+  if ($LASTEXITCODE -eq 0) {
+    Escribir '   QA quedó vacía: no se dejó la copia de PROD sin adaptar.' 'Red'
+  } else {
+    Escribir "   ERROR al vaciar QA: $(Sanitizar ($err2 -join "`n"))" 'Red'
+    Escribir '   QA puede tener secretos de PROD. Verificar manualmente.' 'Red'
+  }
+}
+
 function Extraer-Host($url) {
   if ($url -match '@([^:/@]+)') { $Matches[1] } else { '***' }
 }
@@ -117,10 +130,14 @@ if ($errores.Count -eq 0) {
     }
   }
 
-  # Host/usuario tiene que contener el ref de QA
-  $qaRef = if ($cfg.QA_PROJECT_REF) { $cfg.QA_PROJECT_REF } else { 'roipos-qa' }
-  if ($qaUrl -notmatch [regex]::Escape($qaRef)) {
-    $errores += "  X   DATABASE_URL_QA no contiene '$qaRef'. ¿Apunta a PROD?"
+  # Host/usuario tiene que contener el ref de QA (obligatorio, sin default)
+  if (-not $cfg.QA_PROJECT_REF) {
+    $errores += "  X   Falta QA_PROJECT_REF en .env.restore.prod.to.QA"
+  } else {
+    $qaRef = $cfg.QA_PROJECT_REF
+    if ($qaUrl -notmatch [regex]::Escape($qaRef)) {
+      $errores += "  X   DATABASE_URL_QA no contiene '$qaRef'. ¿Apunta a PROD?"
+    }
   }
 }
 
@@ -231,12 +248,8 @@ if (-not $SoloPerfiles) {
   Escribir "   pg_restore de $($dumpFile.Name) …"
   $err = & $pgRestoreExe "--dbname=$qaUrl" -n public --no-owner --no-privileges --exit-on-error $dumpFile.FullName 2>&1 | ForEach-Object { "$_" }
   if ($LASTEXITCODE -ne 0) {
-    $qaUrl = $null
     Escribir "   ERROR pg_restore: $(Sanitizar ($err -join "`n"))" 'Red'
-    if (-not $SinBackupQA -and $bckQA) {
-      Escribir "   Para volver al estado anterior:" 'Yellow'
-      Escribir ('   pg_restore --dbname=<URL_QA> -n public --clean --no-owner --no-privileges "' + $bckQA + '"') 'Yellow'
-    }
+    Vaciar-QA
     Salir 1
   }
   Escribir "   Restauración OK" 'Green'
@@ -247,10 +260,11 @@ if (-not $SoloPerfiles) {
   Escribir "`n== Adaptar a QA" 'Cyan'
   $sql10 = Join-Path $sqlDir '10-adaptar-qa.sql'
   try {
-    RunPsql $qaUrl $sql10 '10-adaptar-qa.sql (dominios, secretos, tokens, flags)'
+    RunPsql $qaUrl $sql10 '10-adaptar-qa.sql (dominios, secretos, tokens, flags, facturación)'
   } catch {
-    $qaUrl = $null
-    Escribir "   ERROR: $($_.Exception.Message)" 'Red'; Salir 1
+    Escribir "   ERROR: $($_.Exception.Message)" 'Red'
+    Vaciar-QA
+    Salir 1
   }
 }
 
