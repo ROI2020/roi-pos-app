@@ -70,6 +70,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Causa:** `app/layout.tsx:52-80` inyecta GA4 si el negocio tiene `catalog_ga4_measurement_id`; `app/robots.ts` permite rastrear la tienda; no hay `noindex`.
 - **Arreglo:** si `!isProd`: sin GA4 (`app/layout.tsx` y cualquier otro `gtag`, ver `lib/analytics.ts`); `app/robots.ts` → `Disallow: /` para todo y sin `sitemap`; `robots: { index: false, follow: false }` en la metadata de `app/layout.tsx` y de `app/tienda/layout.tsx`. En PROD **nada cambia**.
 - **Prueba:** local `APP_ENV=qa`: `/robots.txt` con `Disallow: /`, `<meta name="robots" content="noindex, nofollow">` en `/tienda`, sin `googletagmanager`. Con `APP_ENV=production`: igual que hoy. Pasar `doc/checklist-seo.md` en lo que toca a robots, sitemap y GA4 (CLAUDE.md lo exige para cambios en robots y medición).
+ · **24/11: CC `5d0c9d5`**: GA4 solo si isProd; robots.ts Disallow:/ sin sitemap; noindex/nofollow en ambos layouts; checklist-seo revisado
 
 ## S29 — Selección de negocio en QA (hoja Q1, opción B)
 - **Causa:** el negocio sale del host (`business_domains`). QA tiene un solo host (`qa--roi-pos.netlify.app`), así que hoy no resuelve ninguno. Hay dos puntos de resolución, los dos con atajo para localhost: `middleware.ts` paso 6 (`session.business_id ?? DEV_BUSINESS_ID`) y `lib/tenant-api.ts` (`resolveBusinessFromHost`, `DEV_BUSINESS_ID`), que usan el layout de la tienda, `robots`, `sitemap` y las APIs públicas (~19 archivos).
