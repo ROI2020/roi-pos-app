@@ -17,7 +17,7 @@ Punto de venta multi-negocio (Next.js 15 + Postgres vía `pg`, sin ORM) con **ti
 
 ## Pedidos y registro (`doc/`)
 - Cada tanda en `doc/AAAA-MM-DD-<tema>.md`, con puntos **`S##`** (la numeración sigue: última usada **S36**). Cada punto: causa (archivo y línea), arreglo, prueba.
-- **CC:** commits con el prefijo del punto (`S19: …`). Al terminar, agregá debajo del punto ` · **dd/mm: CC `<hash>`**: <qué cambió en una línea>` (un renglón por commit) y commiteá el `doc/`. **No taches**: lo tacha Claude (Cowork) o ROI después de revisar.
+- **CC:** commits con el prefijo del punto (`S19: …`). Al terminar, agregá debajo del punto ` · **dd/mm: CC `<hash>`**: <qué cambió en una línea>` (un renglón por commit) y commiteá el `doc/`. **No taches**: lo tacha Claude (Cowork) o ROI después de revisar. Última S usada: **S40**.
 - Si algo del pedido no se puede o no conviene, avisá antes de hacer otra cosa.
 
 ## Ramas y publicación
@@ -34,14 +34,14 @@ Punto de venta multi-negocio (Next.js 15 + Postgres vía `pg`, sin ORM) con **ti
   - Una migración aplicada en PROD **no se edita**.
   - Comentario `-- S##` al inicio de cada archivo nuevo.
   - Nunca correr `npm run migrate` contra una base remota desde la consola (la guarda P157 lo impide fuera de Netlify).
-- **Baseline:** `000_baseline_20261124.sql` = foto del esquema de PROD al 24/11. Archivos anteriores en `db/historico/`.
+- **Baseline:** `000_baseline.sql` = foto del esquema de PROD (fecha y origen en el comentario de la primera línea). Archivos anteriores en `db/historico/`.
 - **Arreglos de datos en PROD** = script `.sql` manual que corre ROI: (a) diagnóstico solo `SELECT`; (b) arreglo en `BEGIN;` **sin `COMMIT`** (ROI decide `COMMIT`/`ROLLBACK`); (c) verificación. Siempre con backup previo. CC nunca los corre.
 - Si se agregan tests: solo contra una base **local** (`localhost`), y la conexión tiene que negarse a cualquier otra (ver Galplace P157).
 
 ### Orden de puesta en marcha de las migraciones (para ROI)
 1. `scripts/backup-prod.ps1` — backup de PROD
-2. `scripts/backup-prod.ps1 -SoloEsquema` — genera `db/migrations/000_baseline_20261124.sql`; limpiar a mano y commitear
-3. `db/scripts/adoptar-baseline.sql` en PROD con `COMMIT` — registra la baseline
+2. `scripts/backup-prod.ps1 -SoloEsquema` — genera `db/migrations/000_baseline.sql` (limpia automáticamente; se niega si ya existe); commitear
+3. `db/scripts/adoptar-baseline.sql` en PROD con `COMMIT` (DBeaver o `psql` interactivo) — registra la baseline
 4. Push de `qa` — QA vacía: el build crea el esquema desde la baseline; después la restauración (S32) la pisa
 5. Recién entonces el primer merge a `main` con el `netlify.toml` nuevo — si PROD no adoptó la baseline, la guarda de S33 frena el build y no pasa nada
 

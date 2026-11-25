@@ -79,17 +79,21 @@ if ($errores.Count -gt 0) {
   Salir 1
 }
 
-# ── SoloEsquema: pg_dump --schema-only → db/migrations/000_baseline_*.sql ──
+# ── SoloEsquema: pg_dump --schema-only → db/migrations/000_baseline.sql ──────
 if ($SoloEsquema) {
   $dbUrl = $bckVars.DATABASE_URL_PROD
   if ($dbUrl -match '@([^:/@]+)') { $hostDb = $Matches[1] } else { $hostDb = '***' }
-  $stamp = Get-Date -Format 'yyyyMMdd'
-  $baselineFile = Join-Path $root "db\migrations\000_baseline_${stamp}.sql"
+  $baselineFile = Join-Path $root 'db\migrations\000_baseline.sql'
   Escribir "  Host: $hostDb"
   Escribir "  Destino: $baselineFile"
 
+  if (Test-Path $baselineFile) {
+    Escribir "`n  X   $baselineFile ya existe. La baseline no se regenera." 'Red'
+    Salir 1
+  }
+
   if ($Simular) {
-    Escribir "`n[simular] Haría pg_dump --schema-only a $(Split-Path $baselineFile -Leaf)." 'DarkYellow'
+    Escribir "`n[simular] Haría pg_dump --schema-only a 000_baseline.sql y limpiaría automáticamente." 'DarkYellow'
     Escribir "`nSimulación terminada. Nada se tocó." 'Cyan'
     Salir 0
   }
@@ -99,27 +103,50 @@ if ($SoloEsquema) {
 
   Escribir "`n  schema-only dump …"
   $pgDumpExe = Join-Path $bckVars.PG_BIN 'pg_dump.exe'
+  $rawFile = Join-Path $root 'db\migrations\000_baseline.raw.sql'
   try {
-    $err = & $pgDumpExe "--dbname=$dbUrl" --schema-only --schema=public --no-owner --no-privileges -f $baselineFile 2>&1 | ForEach-Object { "$_" }
+    $err = & $pgDumpExe "--dbname=$dbUrl" --schema-only --schema=public --no-owner --no-privileges -f $rawFile 2>&1 | ForEach-Object { "$_" }
     if ($LASTEXITCODE -ne 0) {
       $errSafe = ($err -join "`n") -replace 'postgresql://[^@]*@', '***@'
       throw "pg_dump --schema-only falló (exit $LASTEXITCODE):`n$errSafe"
     }
   } catch {
     $dbUrl = $null
+    if (Test-Path $rawFile) { Remove-Item $rawFile -Force }
     Escribir "  ERROR: $($_.Exception.Message)" 'Red'
     Salir 1
   }
   $dbUrl = $null
 
-  if (-not (Test-Path $baselineFile) -or (Get-Item $baselineFile).Length -eq 0) {
+  if (-not (Test-Path $rawFile) -or (Get-Item $rawFile).Length -eq 0) {
     Escribir "  ERROR: el archivo de esquema está vacío o no se creó" 'Red'; Salir 1
   }
 
+  # ── Limpieza automática ──────────────────────────────────────────────────
+  Escribir "  Limpiando salida de pg_dump …"
+  $stamp = Get-Date -Format 'yyyy-MM-dd'
+  $header = "-- 000_baseline.sql — Esquema de PROD al $stamp (generado por backup-prod.ps1 -SoloEsquema)"
+  $lines = Get-Content $rawFile -Encoding UTF8
+  $cleaned = @($header, '')
+  foreach ($line in $lines) {
+    # Saltar líneas de psql que pg no entiende (\restrict, \unrestrict)
+    if ($line -match '^\\\w') { continue }
+    # Saltar CREATE SCHEMA public (ya existe en bases nuevas)
+    if ($line -match '^\s*CREATE SCHEMA\s+public') { continue }
+    # Saltar COMMENT ON SCHEMA public
+    if ($line -match '^\s*COMMENT ON SCHEMA\s+public') { continue }
+    # Saltar set_config('search_path', '', false) — rompe las queries siguientes
+    if ($line -match "set_config\s*\(\s*'search_path'") { continue }
+    # Saltar SET default_table_access_method (no existe en PG < 12 vanilla)
+    if ($line -match '^\s*SET\s+default_table_access_method') { continue }
+    $cleaned += $line
+  }
+  $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+  [System.IO.File]::WriteAllLines($baselineFile, $cleaned, $utf8NoBom)
+  Remove-Item $rawFile -Force
+
   $kb = [math]::Round((Get-Item $baselineFile).Length / 1KB, 1)
-  Escribir "`n  Esquema OK: $(Split-Path $baselineFile -Leaf) · ${kb} KB" 'Green'
-  Escribir "  IMPORTANTE: limpiar a mano CREATE SCHEMA public, SET de Supabase," 'Yellow'
-  Escribir "  y agregar un comentario con fecha y origen en la primera línea." 'Yellow'
+  Escribir "`n  Esquema OK: 000_baseline.sql · ${kb} KB (limpio)" 'Green'
   Limpiar-Secretos
   exit 0
 }

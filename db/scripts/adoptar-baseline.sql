@@ -4,7 +4,7 @@
 --
 -- Uso:
 --   1. Hacer backup de PROD (scripts/backup-prod.ps1)
---   2. Correr este script con psql -v ON_ERROR_STOP=1 -f db/scripts/adoptar-baseline.sql
+--   2. Abrir en DBeaver con auto-commit apagado (o psql interactivo con \i y después COMMIT; a mano)
 --   3. Verificar el resultado y hacer COMMIT manualmente
 
 -- ── (a) Diagnóstico ─────────────────────────────────────────────────────────
@@ -21,17 +21,17 @@ SELECT EXISTS (
 -- ── (b) Crear tabla y registrar baseline ────────────────────────────────────
 BEGIN;
 
-CREATE TABLE IF NOT EXISTS schema_migrations (
+CREATE TABLE IF NOT EXISTS public.schema_migrations (
   version    text        PRIMARY KEY,
   applied_at timestamptz NOT NULL DEFAULT now()
 );
 
-INSERT INTO schema_migrations (version)
-  VALUES ('000_baseline_20261124.sql')
+INSERT INTO public.schema_migrations (version)
+  VALUES ('000_baseline.sql')
   ON CONFLICT DO NOTHING;
 
 -- ── (c) Verificación ────────────────────────────────────────────────────────
-SELECT * FROM schema_migrations ORDER BY version;
+SELECT * FROM public.schema_migrations ORDER BY version;
 
 -- ⚠ NO HAY COMMIT: ROI decide COMMIT o ROLLBACK después de verificar.
 -- Para confirmar: COMMIT;

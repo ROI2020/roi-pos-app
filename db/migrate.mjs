@@ -8,7 +8,7 @@
  *
  * Las migraciones van en db/migrations/*.sql (solo ese nivel, no subcarpetas),
  * ordenadas por nombre (NNN_descripcion.sql). Cada archivo se envuelve en
- * BEGIN/COMMIT con su registro en schema_migrations.
+ * BEGIN/COMMIT con su registro en public.schema_migrations.
  *
  * Reglas:
  *   - Nada que no pueda ir dentro de una transacción (no CREATE INDEX CONCURRENTLY).
@@ -91,19 +91,19 @@ async function main() {
 
   const client = await pool.connect()
   try {
-    // Crear tabla de registro si no existe
+    // Crear tabla de registro si no existe (con esquema explícito)
     await client.query(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
+      CREATE TABLE IF NOT EXISTS public.schema_migrations (
         version    text        PRIMARY KEY,
         applied_at timestamptz NOT NULL DEFAULT now()
       )
     `)
 
     // Migraciones ya aplicadas
-    const { rows } = await client.query('SELECT version FROM schema_migrations ORDER BY version')
+    const { rows } = await client.query('SELECT version FROM public.schema_migrations ORDER BY version')
     const applied = new Set(rows.map(r => r.version))
 
-    // Guarda de la baseline: si la baseline no está aplicada pero la base ya tiene tablas
+    // Leer directorio de migraciones
     const migrationsDir = resolve(__dirname, 'migrations')
     if (!existsSync(migrationsDir)) {
       console.log('[migrate] No existe db/migrations/ — nada que migrar.')
@@ -114,7 +114,8 @@ async function main() {
       .filter(f => f.endsWith('.sql') && !f.startsWith('.'))
       .sort()
 
-    const baselineFile = files.find(f => f.startsWith('000_baseline_'))
+    // Guarda de la baseline: si la baseline no está aplicada pero la base ya tiene tablas
+    const baselineFile = files.find(f => f.startsWith('000_baseline'))
     if (baselineFile && !applied.has(baselineFile)) {
       const { rows: tables } = await client.query(
         `SELECT 1 FROM information_schema.tables
@@ -128,6 +129,7 @@ async function main() {
         console.error(
           `           Correr db/scripts/adoptar-baseline.sql antes de migrar.`
         )
+        client.release()
         await pool.end()
         process.exit(1)
       }
@@ -143,8 +145,12 @@ async function main() {
       const sql = readFileSync(join(migrationsDir, file), 'utf-8')
       try {
         await client.query('BEGIN')
+        await client.query('SET search_path TO public')
         await client.query(sql)
-        await client.query('INSERT INTO schema_migrations (version) VALUES ($1)', [file])
+        await client.query(
+          'INSERT INTO public.schema_migrations (version) VALUES ($1)',
+          [file]
+        )
         await client.query('COMMIT')
         console.log(`[migrate] applied  ${file}`)
         count++
