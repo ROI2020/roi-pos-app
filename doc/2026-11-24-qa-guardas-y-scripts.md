@@ -148,8 +148,8 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 
 **Ojo, consecuencia que hay que dejar escrita:** con el auto publish bloqueado, el build de `main` **corre las migraciones en PROD al construir, antes del *Publish deploy***. Mientras tanto sigue publicado el código viejo. Por eso toda migración tiene que ser **compatible con el código que está publicado**: agregar columnas/tablas/índices sí; borrar o renombrar, en dos pases (primero el código deja de usarlo, después la migración lo borra).
 
-## S33 — Runner de migraciones (`db/migrate.mjs`) y build
-> **Revisión 24/11 (Cowork): no se tacha → S40.** `/db` está en `.gitignore` (Netlify no recibe las migraciones) y la baseline de `pg_dump` deja `search_path` vacío, así que el `INSERT INTO schema_migrations` falla.
+## ~~S33 — Runner de migraciones (`db/migrate.mjs`) y build~~
+> **Revisión 24/11 (Cowork): corregido en S40 (`e4f77a1`), tachado.** `/db` está en `.gitignore` (Netlify no recibe las migraciones) y la baseline de `pg_dump` deja `search_path` vacío, así que el `INSERT INTO schema_migrations` falla.
 - **Causa:** hoy se corren a mano con `db/scripts/run_migration.mjs` (un archivo por vez, sin registro) y se mueven a mano a `ejecutadas/`. No hay forma de saber qué tiene aplicado cada base.
 - **Arreglo:**
   - `db/migrate.mjs` (ESM, solo `pg`, sin dependencias nuevas), copia de la lógica de Galplace: `schema_migrations (version text PK, applied_at timestamptz default now())`; lee `db/migrations/*.sql` (solo ese nivel, no subcarpetas) ordenados por nombre; cada archivo en `BEGIN/COMMIT` con su registro; si falla, `ROLLBACK`, mensaje con el archivo y salida ≠ 0. Se puede correr dos veces seguidas sin aplicar nada.
@@ -162,8 +162,8 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Prueba:** base local vacía → aplica la baseline y las siguientes; segunda corrida → "No hay migraciones pendientes"; base local con tablas y sin `schema_migrations` → error de la guarda; `DB_HOST` remoto fuera de Netlify → error.
  · **24/11: CC `9fdba0b`**: db/migrate.mjs (ESM, pg, guardas baseline+localhost), package.json "migrate", netlify.toml build+migrate
 
-## S34 — Baseline del esquema al 24/11
-> **Revisión 24/11 (Cowork): no se tacha → S40.** El nombre de la baseline lleva la fecha del día en que se corre (no coincide con `adoptar-baseline.sql`), y la limpieza quedó "a mano".
+## ~~S34 — Baseline del esquema al 24/11~~
+> **Revisión 24/11 (Cowork): corregido en S40 (`e4f77a1`), tachado.** El nombre de la baseline lleva la fecha del día en que se corre (no coincide con `adoptar-baseline.sql`), y la limpieza quedó "a mano".
 - **Arreglo:**
   - Agregar a `scripts/backup-prod.ps1` (S19) el modo `-SoloEsquema`: `pg_dump --schema-only --schema=public --no-owner --no-privileges` → `db/migrations/000_baseline_20261124.sql`. Limpiar lo que no corre en una base nueva (`CREATE SCHEMA public`, `SET` de Supabase que fallen fuera de Supabase), y que la primera línea sea un comentario con fecha y origen. Lo corre ROI.
   - Las dos pendientes `20261111_branches_store_code.sql` y `20261111_store_pages_devoluciones.sql`: **ROI confirmó (24/11) que ya están corridas en PROD** → quedan dentro de la baseline y van a `db/historico/` con las demás. La primera migración nueva es `001_…`.
@@ -172,8 +172,8 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Prueba:** base local vacía + `npm run migrate` → esquema igual al de PROD (comparar `pg_dump --schema-only` de las dos, sin diferencias salvo `schema_migrations`).
  · **24/11: CC `406f904`**: backup-prod.ps1 -SoloEsquema; git mv ejecutadas/schema/basededatosDDL/run_migration/20261111_* a db/historico/; db/migrations/ vacía
 
-## S35 — Adoptar la baseline en PROD y QA (script para ROI)
-> **Revisión 24/11 (Cowork): no se tacha → S40.** El encabezado dice correrlo con `psql -f`: sin `COMMIT` al final, psql cierra la sesión y **deshace todo** sin avisar.
+## ~~S35 — Adoptar la baseline en PROD y QA (script para ROI)~~
+> **Revisión 24/11 (Cowork): corregido en S40 (`e4f77a1`), tachado.** El encabezado dice correrlo con `psql -f`: sin `COMMIT` al final, psql cierra la sesión y **deshace todo** sin avisar.
 - **Arreglo:** `db/scripts/adoptar-baseline.sql`, para que ROI lo corra **una vez** en PROD (y en QA si no viene en la copia de PROD): (a) diagnóstico solo `SELECT` (existe `business`, existe o no `schema_migrations`); (b) `BEGIN;` crear `schema_migrations` si no existe e insertar `000_baseline_20261124.sql` con `ON CONFLICT DO NOTHING`, **sin `COMMIT`**; (c) verificación (`SELECT * FROM schema_migrations`). Backup previo (S19).
   - `restaurar-qa.ps1` (S32): la copia de PROD ya trae `schema_migrations`; al final, avisar qué migraciones de `qa` faltan y que un *Retry deploy* de QA las aplica (como Galplace `restaurar-qa.md` §6).
 - **Prueba:** en una base local restaurada desde un backup de PROD: script → `npm run migrate` no aplica la baseline y aplica solo las nuevas.
@@ -189,7 +189,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 
 # Correcciones de la revisión de migraciones (24/11, Cowork) — **S37, S38 y S39 siguen pendientes** (no hay commits)
 
-## S40 — Migraciones: que lleguen a Netlify y que la baseline corra
+## ~~S40 — Migraciones: que lleguen a Netlify y que la baseline corra~~
 - **Causa:**
   1. `.gitignore` tiene `/db`: solo están en git los 6 archivos agregados con `-f`. La baseline y cada `NNN_*.sql` nuevo quedan **fuera del repo** → el build de Netlify no los ve. Además, `db/historico/` quedó a medias (en disco sí, en git solo 2 archivos).
   2. `scripts/backup-prod.ps1` l. 86: `000_baseline_${stamp}` con la fecha **del día en que se corre**; `adoptar-baseline.sql` y `CLAUDE.md` tienen fijo `000_baseline_20261124.sql`. Si ROI lo genera otro día, PROD queda "sin baseline registrada" y el build de `main` se frena.
