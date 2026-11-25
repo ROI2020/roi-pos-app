@@ -48,8 +48,8 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Prueba:** local `APP_ENV=qa`, confirmar un pedido con `cj_auto_fulfill=true` → log de bloqueo, ninguna llamada a `createOrder`.
  · **24/11: CC `54f19b1`**: createCJOrder lanza si !isProd; attemptCJFulfillment sale con log
 
-## S25 — Pagos: solo prueba fuera de PROD
-> **Revisión 24/11 (Cowork): no se tacha → S39.** El control de MP deja pasar el token si `/users/me` falla o no devuelve email (falla hacia el lado inseguro).
+## ~~S25 — Pagos: solo prueba fuera de PROD~~
+> **Revisión 24/11 (Cowork): corregido en S39 (`202a859`), tachado.** El control de MP deja pasar el token si `/users/me` falla o no devuelve email (falla hacia el lado inseguro).
 - **Causa:** `lib/paypal.ts:10` (`paypalBase`) usa `live` si el setting `paypal_mode` lo dice. `lib/mp.ts:77` usa el `mp_access_token` del negocio, sea de prueba o real.
 - **Arreglo:** PayPal: si `!isProd`, `paypalBase` devuelve siempre sandbox (y se loguea si el setting decía `live`). Mercado Pago: si `!isProd`, rechazar credenciales que no sean de prueba, **con el mismo control que Galplace P141** (mirar cómo se resolvió en `marketplace-api`: email de la cuenta de usuario de prueba). Error claro al iniciar el pago, no un pago real.
 - **Prueba:** local `APP_ENV=qa`: `paypal_mode=live` → la llamada va a `api-m.sandbox.paypal.com`; token real de MP → rechazo; token de prueba → checkout de prueba OK.
@@ -73,8 +73,8 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Prueba:** local `APP_ENV=qa`: `/robots.txt` con `Disallow: /`, `<meta name="robots" content="noindex, nofollow">` en `/tienda`, sin `googletagmanager`. Con `APP_ENV=production`: igual que hoy. Pasar `doc/checklist-seo.md` en lo que toca a robots, sitemap y GA4 (CLAUDE.md lo exige para cambios en robots y medición).
  · **24/11: CC `5d0c9d5`**: GA4 solo si isProd; robots.ts Disallow:/ sin sitemap; noindex/nofollow en ambos layouts; checklist-seo revisado
 
-## S29 — Selección de negocio en QA (hoja Q1, opción B)
-> **Revisión 24/11 (Cowork): no se tacha → S38.** El selector cambia la banda y la tienda, pero **no el panel**: las 87 rutas `/api/*` del panel toman el negocio de la sesión (`lib/get-business-id.ts`), no de la cookie.
+## ~~S29 — Selección de negocio en QA (hoja Q1, opción B)~~
+> **Revisión 24/11 (Cowork): corregido en S38 (`01b11d6`), tachado.** El selector cambia la banda y la tienda, pero **no el panel**: las 87 rutas `/api/*` del panel toman el negocio de la sesión (`lib/get-business-id.ts`), no de la cookie.
 - **Causa:** el negocio sale del host (`business_domains`). QA tiene un solo host (`qa--roi-pos.netlify.app`), así que hoy no resuelve ninguno. Hay dos puntos de resolución, los dos con atajo para localhost: `middleware.ts` paso 6 (`session.business_id ?? DEV_BUSINESS_ID`) y `lib/tenant-api.ts` (`resolveBusinessFromHost`, `DEV_BUSINESS_ID`), que usan el layout de la tienda, `robots`, `sitemap` y las APIs públicas (~19 archivos).
 - **Arreglo:**
   - Solo si `isQa`: el negocio sale de la cookie `qa_business_id`; si no hay, de `QA_DEFAULT_BUSINESS_ID`. Validar que el id exista y tenga plan activo. **En PROD la cookie se ignora por completo.**
@@ -95,8 +95,8 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Prueba:** local `APP_ENV=qa` se ve en tienda y panel; `production` no.
  · **24/11: CC `e0efb10`**: QaBanner (fixed top rojo), texto desde messages/ es/en, link a /qa/negocio; en PROD no renderiza
 
-## S32 — `scripts/restaurar-qa.ps1` + `db/qa-restore/` — hoja Q8
-> **Revisión 24/11 (Cowork): no se tacha → S37 (CRÍTICO).** `10-adaptar-qa.sql` falla siempre y, al fallar, QA queda con los secretos de PROD.
+## ~~S32 — `scripts/restaurar-qa.ps1` + `db/qa-restore/` — hoja Q8~~
+> **Revisión 24/11 (Cowork): corregido en S37 (`597d446`), tachado.** `10-adaptar-qa.sql` falla siempre y, al fallar, QA queda con los secretos de PROD.
 - **Causa:** en ROIPOS los secretos de `settings` (`is_secret = true`) están **en texto plano** (en Galplace estaban cifrados). Una copia de PROD en QA trae tokens reales de MP, PayPal, CJ, ML y SMTP listos para usar.
 - **Arreglo:** copiar de Galplace `restaurar-qa.ps1` (`-Simular`, `-Dump`, `-SinBackupQA`, `-SoloPerfiles`, último dump por fecha, backup de QA antes, `pg_restore --clean --if-exists --no-owner --exit-on-error`, limpieza de variables). Guarda contra PROD: lee `QA_PROJECT_REF` de `secrets\.env.qa` y **se niega** si la conexión no tiene ese ref. Restore y `10-adaptar-qa.sql` en la **misma corrida**, sin pausa entre medio.
   - **`db/qa-restore/10-adaptar-qa.sql`** (una transacción):
@@ -113,7 +113,7 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 
 # Correcciones de la revisión (24/11, Cowork) — hacer **antes** de S33
 
-## S37 — `restaurar-qa`: la adaptación falla y QA queda con los secretos de PROD (CRÍTICO)
+## ~~S37 — `restaurar-qa`: la adaptación falla y QA queda con los secretos de PROD (CRÍTICO)~~
 - **Causa:**
   - `db/qa-restore/10-adaptar-qa.sql`, control final: `SELECT … FROM orders` — **la tabla no existe** (es `online_orders`). Con `ON_ERROR_STOP` el `COMMIT` nunca llega → se deshace **toda** la adaptación (dominios, secretos, flags).
   - Mismo archivo: `gen_random_bytes` es de `pgcrypto`, que no está en el esquema `public` restaurado (en Supabase vive en `extensions`): otro punto de falla.
@@ -128,13 +128,13 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
 - **Prueba:** restaurar un dump de PROD en una base **local**, correr `10-adaptar-qa.sql` y `20-perfiles-roi.sql` dos veces seguidas sin error; control con 0 credenciales y `facturacion_config.ambiente = 'homo'`. Forzar un error en el SQL (nombre de tabla inventado) → el script deja QA vacía.
  · **24/11: CC `597d446`**: SQL: orders→online_orders, gen_random_bytes→md5, facturacion_config.ambiente=homo, RAISE EXCEPTION; script: Vaciar-QA si falla; QA_PROJECT_REF obligatorio. Probado 2x en base local.
 
-## S38 — QA: el panel usa el negocio elegido
+## ~~S38 — QA: el panel usa el negocio elegido~~
 - **Causa:** `lib/get-business-id.ts` (`getBusinessId`/`requireBusinessId`, 87 rutas del panel) lee `business_id` de la sesión. El middleware (S29) cambia el header y la banda, pero las APIs del panel no pasan por el middleware (`/api/` está en `SKIP_PATHS`). Resultado: banda "MALEMA", datos de otro negocio. Además, en el panel la banda dice "QA" (el middleware pone `businessName = 'QA'`).
 - **Arreglo:** en `getBusinessId()`, si `isQa` y hay cookie `qa_business_id` válida (misma validación que `tenant-api`) → ese id; si no, el de la sesión. En PROD, igual que hoy. En el middleware (rama `isQa`), tomar `business_name` de `/api/tenant/resolve-by-id` para la banda.
 - **Prueba:** local `APP_ENV=qa`: elegir MALEMA → productos, ventas y caja del panel son de MALEMA; cambiar a NULARIONE → los de NULARIONE; banda con el nombre real. `APP_ENV=production` con la cookie puesta → sesión, como hoy.
  · **24/11: CC `01b11d6`**: get-business-id.ts lee qa_business_id cookie si isQa (con validación); middleware resuelve nombre real del negocio via resolve-by-id
 
-## S39 — Mercado Pago: el control de credenciales falla cerrado
+## ~~S39 — Mercado Pago: el control de credenciales falla cerrado~~
 - **Causa:** `lib/mp.ts` (S25): si `/users/me` responde error, se corta por tiempo o no trae `email`, el `catch` deja seguir con el token (que puede ser real).
 - **Arreglo:** fuera de PROD, solo se sigue si la respuesta es OK **y** el email termina en `@testuser.com`. Cualquier otro caso → error claro ("no se pudo confirmar que las credenciales de MP sean de prueba").
 - **Prueba:** local `APP_ENV=qa` sin red o con token inválido → error, no pago; token de usuario de prueba → OK.
@@ -201,3 +201,5 @@ Contexto: `doc/2026-11-18-hoja-de-ruta-qa.md` (Q4, Q7, Q8). QA = branch deploy d
   3. `-SoloEsquema` limpia solo, sin pasos a mano: saca `\restrict`/`\unrestrict`, `CREATE SCHEMA public`, `COMMENT ON SCHEMA public`, el `set_config('search_path', '', false)` y cualquier `SET` que falle fuera de Supabase; agrega el comentario de la primera línea. Y en `db/migrate.mjs`: `public.schema_migrations` con esquema explícito en todas las consultas, y `SET search_path TO public` antes de cada archivo, para que una migración no le cambie el contexto a la siguiente.
   4. `adoptar-baseline.sql`: el uso, en **DBeaver con auto-commit apagado** (o `psql` interactivo con `\i` y después `COMMIT;` a mano). Sacar la línea de `psql -f`.
 - **Prueba:** base local **vacía** + `node --env-file=.env.local db/migrate.mjs` con una baseline generada desde una base local con el esquema de PROD → aplica `000_baseline.sql` y la registra; segunda corrida → "No hay migraciones pendientes"; `pg_dump --schema-only` de las dos bases sin diferencias (salvo `schema_migrations`). Base local con tablas y sin registro → error de la guarda. `git ls-files db/migrations` muestra la baseline.
+ · **24/11: CC `2579084`**: db/ y doc/ completos al repo (.gitignore ya sin /db /doc)
+ · **25/11: CC `e4f77a1`**: .gitignore, 000_baseline.sql fijo, -SoloEsquema limpia auto (sin BOM), migrate.mjs public.schema_migrations + SET search_path + client.release, adoptar-baseline.sql DBeaver, CLAUDE.md. Probado: base vacia→aplica→2da nada→esquemas iguales→guarda OK.
